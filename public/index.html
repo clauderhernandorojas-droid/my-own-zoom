@@ -21,6 +21,46 @@
     .peer-retry-btn { font-size: 0.72rem; margin-top: 0.2rem; }
     .room-controls button[data-off="true"] { opacity: 0.65; }
     #mediaStatus { font-size: 0.85rem; color: #333; margin: 0.25rem 0; }
+    .chat-topbar { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
+    .chat-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.35rem 0 0.5rem; }
+    .chat-tab {
+      border: 1px solid #cfd7e6;
+      background: #f8fafc;
+      border-radius: 999px;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.82rem;
+    }
+    .chat-tab.active {
+      background: #1d4ed8;
+      color: #fff;
+      border-color: #1d4ed8;
+    }
+    .chat-tab-close {
+      margin-left: 6px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 0.82rem;
+      line-height: 1;
+      padding: 0 2px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .chat-tab-close:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    .chat-tab .badge {
+      display: inline-block;
+      min-width: 16px;
+      padding: 0 4px;
+      margin-left: 4px;
+      border-radius: 10px;
+      background: #dc2626;
+      color: #fff;
+      font-size: 0.72rem;
+      line-height: 1.2;
+      text-align: center;
+    }
     #chatBox { border: 1px solid #ccc; height: 180px; overflow-y: auto; padding: 0.5rem; margin: 0.5rem 0; font-size: 0.9rem; }
     #board { touch-action: none; cursor: crosshair; border: 1px solid #333; border-radius: 4px; max-width: 100%; }
     .msg-privado { color: #6a1b9a; }
@@ -91,10 +131,15 @@
         <div id="remotesContainer"></div>
       </div>
       <h2>Chat</h2>
-      <div class="row">
-        <select id="chatTipo"><option value="general">General</option><option value="privado">Privado (estudiante→docente o docente→estudiante)</option></select>
-        <input id="destinatarioId" class="hidden" placeholder="usuarioId destinatario (docente)" style="min-width:260px" />
+      <div class="chat-topbar">
+        <label style="margin:0">
+          <span style="font-size:0.82rem;color:#64748b">Abrir conversación:</span>
+          <select id="chatThreadPicker" style="min-width:260px">
+            <option value="general">General</option>
+          </select>
+        </label>
       </div>
+      <div id="chatThreadTabs" class="chat-tabs"></div>
       <div id="chatBox"></div>
       <div class="row">
         <input id="chatInput" placeholder="Mensaje" style="flex:1;min-width:200px" />
@@ -162,6 +207,11 @@
     const remoteVideos = new Map();
     /** @type {Map<string, HTMLElement>} */
     const peerStatusEls = new Map();
+    let currentUser = null;
+    const participantsById = new Map();
+    const connectedUserIds = new Set();
+    const chatThreads = new Map();
+    let activeChatThreadKey = "general";
     let activeRoomId = null;
     let boardState = { elementos: [] };
     let drawing = false;
@@ -605,14 +655,191 @@
     function appendChatLine(payload) {
       const m = payload.mensaje;
       if (!m) return;
+      const autor = m.autor || null;
+      const destinatario = m.destinatario || null;
+      if (autor?.usuarioId) {
+        participantsById.set(autor.usuarioId, autor);
+      }
+      if (destinatario?.usuarioId) {
+        participantsById.set(destinatario.usuarioId, destinatario);
+      }
+
+      let threadKey = "general";
+      if (m.tipo === "privado") {
+        const selfId = currentUser?.usuarioId;
+        const isMine = selfId && autor?.usuarioId === selfId;
+        const peerId = isMine
+          ? (m.destinatarioUsuarioId || destinatario?.usuarioId)
+          : autor?.usuarioId;
+        if (peerId) {
+          threadKey = `dm:${peerId}`;
+          if (!chatThreads.has(threadKey)) {
+            const peer = participantsById.get(peerId);
+            const label = peer?.nombre || `Usuario ${String(peerId).slice(0, 8)}`;
+            chatThreads.set(threadKey, {
+              key: threadKey,
+              type: "dm",
+              targetUserId: peerId,
+              label,
+              messages: [],
+              unread: 0,
+            });
+          }
+        }
+      } else {
+        ensureGeneralThread();
+      }
+
+      const thread = chatThreads.get(threadKey);
+      if (!thread) return;
+      thread.messages.push(m);
+      if (activeChatThreadKey !== threadKey) {
+        thread.unread = (thread.unread || 0) + 1;
+      }
+      renderChatThreadTabs();
+      renderChatMessages();
+      refreshChatThreadPicker();
+    }
+
+    function ensureGeneralThread() {
+      if (!chatThreads.has("general")) {
+        chatThreads.set("general", {
+          key: "general",
+          type: "general",
+          label: "General",
+          targetUserId: null,
+          messages: [],
+          unread: 0,
+        });
+      }
+    }
+
+    function setActiveChatThread(threadKey) {
+      if (!chatThreads.has(threadKey)) return;
+      activeChatThreadKey = threadKey;
+      const thread = chatThreads.get(threadKey);
+      thread.unread = 0;
+      renderChatThreadTabs();
+      renderChatMessages();
+    }
+
+    function closeChatThread(threadKey) {
+      const thread = chatThreads.get(threadKey);
+      if (!thread || thread.type !== "dm") return;
+      chatThreads.delete(threadKey);
+      if (activeChatThreadKey === threadKey) {
+        activeChatThreadKey = "general";
+      }
+      renderChatThreadTabs();
+      renderChatMessages();
+      refreshChatThreadPicker();
+    }
+
+    function renderChatThreadTabs() {
+      const container = $("chatThreadTabs");
+      if (!container) return;
+      container.innerHTML = "";
+      const ordered = [...chatThreads.values()].sort((a, b) => {
+        if (a.key === "general") return -1;
+        if (b.key === "general") return 1;
+        return a.label.localeCompare(b.label, "es");
+      });
+      ordered.forEach((t) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chat-tab" + (t.key === activeChatThreadKey ? " active" : "");
+        btn.textContent = t.label;
+        if (t.unread > 0) {
+          const badge = document.createElement("span");
+          badge.className = "badge";
+          badge.textContent = String(t.unread);
+          btn.appendChild(badge);
+        }
+        if (t.type === "dm") {
+          const closeBtn = document.createElement("button");
+          closeBtn.type = "button";
+          closeBtn.className = "chat-tab-close";
+          closeBtn.title = `Cerrar chat con ${t.label}`;
+          closeBtn.textContent = "×";
+          closeBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            closeChatThread(t.key);
+          });
+          btn.appendChild(closeBtn);
+        }
+        btn.addEventListener("click", () => setActiveChatThread(t.key));
+        container.appendChild(btn);
+      });
+    }
+
+    function renderChatMessages() {
       const box = $("chatBox");
-      const div = document.createElement("div");
-      const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
-      const tipo = m.tipo === "privado" ? " (privado)" : "";
-      div.className = m.tipo === "privado" ? "msg-privado" : "";
-      div.textContent = `[${new Date(m.marcaTiempo || Date.now()).toLocaleTimeString()}] ${autor}${tipo}: ${m.contenido}`;
-      box.appendChild(div);
+      if (!box) return;
+      box.innerHTML = "";
+      const thread = chatThreads.get(activeChatThreadKey);
+      if (!thread) return;
+      thread.messages.forEach((m) => {
+        const div = document.createElement("div");
+        const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
+        const tipo = m.tipo === "privado" ? " (privado)" : "";
+        div.className = m.tipo === "privado" ? "msg-privado" : "";
+        div.textContent = `[${new Date(m.marcaTiempo || Date.now()).toLocaleTimeString()}] ${autor}${tipo}: ${m.contenido}`;
+        box.appendChild(div);
+      });
       box.scrollTop = box.scrollHeight;
+    }
+
+    function refreshChatThreadPicker() {
+      const sel = $("chatThreadPicker");
+      if (!sel) return;
+      const previous = sel.value;
+      sel.innerHTML = "";
+      const general = document.createElement("option");
+      general.value = "general";
+      general.textContent = "General";
+      sel.appendChild(general);
+
+      const userOptions = [...participantsById.values()]
+        .filter((u) => u?.usuarioId && u.usuarioId !== currentUser?.usuarioId && connectedUserIds.has(u.usuarioId))
+        .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
+      userOptions.forEach((u) => {
+        const opt = document.createElement("option");
+        opt.value = u.usuarioId;
+        opt.textContent = u.nombre || u.email || u.usuarioId;
+        sel.appendChild(opt);
+      });
+      sel.value = previous && [...sel.options].some((o) => o.value === previous) ? previous : "general";
+    }
+
+    function openDmThreadByUserId(userId) {
+      if (!userId) return;
+      const key = `dm:${userId}`;
+      if (!chatThreads.has(key)) {
+        const u = participantsById.get(userId);
+        chatThreads.set(key, {
+          key,
+          type: "dm",
+          targetUserId: userId,
+          label: u?.nombre || `Usuario ${String(userId).slice(0, 8)}`,
+          messages: [],
+          unread: 0,
+        });
+      }
+      setActiveChatThread(key);
+    }
+
+    async function loadParticipantsForRoom(roomId) {
+      const roomData = await api("/api/reuniones/room/" + encodeURIComponent(roomId));
+      const reunionId = roomData?.reunion?.reunionId;
+      if (!reunionId) return;
+      const partData = await api("/api/reuniones/" + reunionId + "/participantes");
+      (partData.participantes || []).forEach((p) => {
+        if (p?.usuario?.usuarioId) {
+          participantsById.set(p.usuario.usuarioId, p.usuario);
+        }
+      });
+      refreshChatThreadPicker();
+      renderChatThreadTabs();
     }
 
     function connectSocketIfNeeded() {
@@ -648,7 +875,24 @@
             await onIncomingIce(from, candidate);
           } catch (e) { console.warn(e); }
         });
-        socket.on("presence:leave", ({ socketId }) => {
+        socket.on("presence:join", ({ userId, socketId }) => {
+          if (userId) {
+            connectedUserIds.add(userId);
+            if (!participantsById.has(userId) && activeRoomId) {
+              loadParticipantsForRoom(activeRoomId).catch((e) => console.warn(e));
+            } else {
+              refreshChatThreadPicker();
+            }
+          }
+          if (socketId) {
+            // peer WebRTC se maneja al negociar; aquí solo actualizamos estado de sala
+          }
+        });
+        socket.on("presence:leave", ({ userId, socketId }) => {
+          if (userId && userId !== currentUser?.usuarioId) {
+            connectedUserIds.delete(userId);
+            refreshChatThreadPicker();
+          }
           if (socketId) cleanupPeer(socketId);
         });
       });
@@ -692,6 +936,17 @@
             activeRoomId = roomId;
             $("activeRoomLabel").textContent = roomId;
             showRoom();
+            ensureGeneralThread();
+            chatThreads.forEach((t) => {
+              t.unread = 0;
+            });
+            connectedUserIds.clear();
+            if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
+            (resp.peers || []).forEach((p) => {
+              if (p.userId) connectedUserIds.add(p.userId);
+            });
+            await loadParticipantsForRoom(roomId);
+            setActiveChatThread("general");
             setMediaStatus("En reunión. " + (resp.peers?.length ? resp.peers.length + " participante(s) ya en la sala." : "Eres el primero en la sala."));
             log("En sala. Peers: " + JSON.stringify(resp.peers));
             const peers = resp.peers || [];
@@ -729,6 +984,12 @@
       drawBoard();
       $("remotesContainer").innerHTML = "";
       $("chatBox").innerHTML = "";
+      chatThreads.clear();
+      ensureGeneralThread();
+      activeChatThreadKey = "general";
+      connectedUserIds.clear();
+      refreshChatThreadPicker();
+      renderChatThreadTabs();
       $("roomSection").classList.add("hidden");
       setMediaStatus("");
       const lc = $("localConnStatus");
@@ -736,9 +997,14 @@
       log("Saliste de la reunión. Cámara, micrófono y conexiones WebRTC liberados.");
     }
 
-    $("chatTipo").addEventListener("change", () => {
-      const priv = $("chatTipo").value === "privado";
-      $("destinatarioId").classList.toggle("hidden", !priv);
+    $("chatThreadPicker").addEventListener("change", (e) => {
+      const val = e.target.value;
+      if (val === "general") {
+        setActiveChatThread("general");
+        return;
+      }
+      openDmThreadByUserId(val);
+      e.target.value = "general";
     });
 
     $("btnLogin").addEventListener("click", async () => {
@@ -751,6 +1017,7 @@
           }),
         });
         setToken(data.token);
+        currentUser = data.usuario;
         $("userLabel").textContent = data.usuario.nombre + " (" + data.usuario.rol + ")";
         log("Sesión iniciada");
         showLobby();
@@ -771,6 +1038,7 @@
           }),
         });
         setToken(data.token);
+        currentUser = data.usuario;
         $("userLabel").textContent = data.usuario.nombre + " (" + data.usuario.rol + ")";
         log("Cuenta creada");
         showLobby();
@@ -785,6 +1053,7 @@
         socket.disconnect();
         socket = null;
       }
+      currentUser = null;
       setToken(null);
       showAuth();
       log("Sesión cerrada");
@@ -857,11 +1126,11 @@
     $("btnEnviarChat").addEventListener("click", () => {
       const contenido = $("chatInput").value.trim();
       if (!contenido || !activeRoomId || !socket) return;
-      const tipo = $("chatTipo").value;
-      const payload = { roomId: activeRoomId, contenido, tipo };
-      if (tipo === "privado") {
-        const d = $("destinatarioId").value.trim();
-        if (d) payload.destinatarioUsuarioId = d;
+      const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
+      const payload = { roomId: activeRoomId, contenido, tipo: "general" };
+      if (active?.type === "dm" && active.targetUserId) {
+        payload.tipo = "privado";
+        payload.destinatarioUsuarioId = active.targetUserId;
       }
       socket.emit("chat:message", payload, (r) => {
         if (r && !r.ok) log("Chat: " + (r.error || "error"));
@@ -940,13 +1209,18 @@
 
     (async function init() {
       await loadIce();
+      ensureGeneralThread();
+      renderChatThreadTabs();
+      refreshChatThreadPicker();
       if (getToken()) {
         try {
           const me = await api("/api/usuarios/me");
+          currentUser = me.usuario;
           $("userLabel").textContent = me.usuario.nombre + " (" + me.usuario.rol + ")";
           showLobby();
           log("Sesión restaurada");
         } catch {
+          currentUser = null;
           setToken(null);
           showAuth();
         }

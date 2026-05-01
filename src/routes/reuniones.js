@@ -113,6 +113,41 @@ router.get('/:reunionId', async (req, res, next) => {
   }
 });
 
+router.get('/:reunionId/participantes', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+
+    const soyParticipante = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (!soyParticipante && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No participas en esta reunión' });
+    }
+
+    const rows = await Participa.findAll({
+      where: { reunionId: reunion.reunionId },
+      include: [
+        {
+          model: Usuario,
+          attributes: ['usuarioId', 'nombre', 'email', 'rol'],
+          required: true,
+        },
+      ],
+    });
+
+    const participantes = rows.map((r) => ({
+      usuarioId: r.usuarioId,
+      rolEnReunion: r.rolEnReunion,
+      usuario: r.Usuario,
+    }));
+
+    res.json({ participantes });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/:reunionId/unirse', async (req, res, next) => {
   try {
     const reunion = await Reunion.findByPk(req.params.reunionId);
