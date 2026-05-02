@@ -1,5 +1,5 @@
 const express = require('express');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
 const { Reunion, Participa, Tablero, Usuario } = require('../models');
 const { MAX_ESTUDIANTES, puedeUnirseParticipar } = require('../services/reunionParticipacion');
@@ -58,8 +58,11 @@ router.get('/mis', async (req, res, next) => {
 
 router.get('/room/:roomId', async (req, res, next) => {
   try {
+    const roomKey = String(req.params.roomId || '')
+      .trim()
+      .toLowerCase();
     const reunion = await Reunion.findOne({
-      where: { roomId: req.params.roomId },
+      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
       include: [
         { model: Usuario, as: 'docente', attributes: ['usuarioId', 'nombre', 'email', 'rol'] },
         { model: Tablero, as: 'tablero', required: false },
@@ -179,7 +182,12 @@ router.post('/:reunionId/unirse', async (req, res, next) => {
 
 router.post('/room/:roomId/unirse', async (req, res, next) => {
   try {
-    const reunion = await Reunion.findOne({ where: { roomId: req.params.roomId } });
+    const roomKey = String(req.params.roomId || '')
+      .trim()
+      .toLowerCase();
+    const reunion = await Reunion.findOne({
+      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
+    });
     if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
 
     const existente = await Participa.findOne({

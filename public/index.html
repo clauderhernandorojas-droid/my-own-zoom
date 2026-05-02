@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Own Zoom — Cliente</title>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <style>
     :root { font-family: system-ui, sans-serif; }
     body { margin: 0; padding: 1rem; max-width: 960px; margin-inline: auto; }
@@ -61,10 +62,156 @@
       line-height: 1.2;
       text-align: center;
     }
+    .board-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 0.4rem 0 0.6rem;
+    }
+    .board-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      margin: 0.4rem 0 0.6rem;
+      padding: 0.45rem;
+      border: 1px solid #d9d9d9;
+      border-radius: 6px;
+      background: #fafafa;
+    }
+    .board-toolbar .tool-btn.active {
+      background: #0b57d0;
+      color: #fff;
+      border-color: #0b57d0;
+    }
+    .color-swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #ddd;
+      cursor: pointer;
+      padding: 0;
+    }
+    .color-swatch.active { border-color: #111; }
+    .tool-sep {
+      width: 1px;
+      height: 22px;
+      background: #ddd;
+      margin: 0 0.2rem;
+    }
     #chatBox { border: 1px solid #ccc; height: 180px; overflow-y: auto; padding: 0.5rem; margin: 0.5rem 0; font-size: 0.9rem; }
-    #board { touch-action: none; cursor: crosshair; border: 1px solid #333; border-radius: 4px; max-width: 100%; }
+    .board-viewport-wrap {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #board {
+      touch-action: none;
+      cursor: crosshair;
+      border: 1px solid #333;
+      border-radius: 4px;
+      max-width: 100%;
+      display: block;
+      vertical-align: top;
+      background: #e5e7eb;
+    }
+    .board-nav-stack {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      z-index: 40;
+      pointer-events: none;
+    }
+    .board-nav-stack > * {
+      pointer-events: auto;
+    }
+    #boardMinimap {
+      display: block;
+      border: 1px solid #64748b;
+      border-radius: 6px;
+      background: #f1f5f9;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    }
+    #boardMinimap.hidden-map {
+      display: none;
+    }
+    .board-zoom-toolbar {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 6px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+      font-size: 0.82rem;
+    }
+    .board-zoom-toolbar button {
+      min-width: 28px;
+      padding: 2px 6px;
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+    }
+    .board-zoom-toolbar button:hover {
+      background: #e2e8f0;
+    }
+    .board-zoom-toolbar select {
+      max-width: 76px;
+      padding: 2px 4px;
+      font-size: 0.8rem;
+    }
+    #btnZoomReset {
+      font-variant-numeric: tabular-nums;
+      min-width: 52px;
+    }
+    .board-text-inline {
+      position: absolute;
+      z-index: 50;
+      min-width: 48px;
+      max-width: min(96vw, 1400px);
+      padding: 0;
+      margin: 0;
+      white-space: pre;
+      overflow: visible;
+      border: none;
+      border-radius: 1px;
+      box-shadow: none;
+      background: transparent;
+      font-size: 16px;
+      line-height: 1.2;
+      font-family: sans-serif;
+      outline: 1.5px dashed #2563eb;
+      outline-offset: 0;
+      resize: none;
+      box-sizing: content-box;
+      caret-color: #111;
+    }
     .msg-privado { color: #6a1b9a; }
     .hidden { display: none !important; }
+    .board-selection-lock-btn {
+      position: absolute;
+      z-index: 46;
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      min-width: 76px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .board-selection-lock-btn:hover {
+      background: #f1f5f9;
+    }
   </style>
 </head>
 <body>
@@ -147,7 +294,71 @@
       </div>
       <h2>Tablero</h2>
       <p style="font-size:0.85rem">Dibuja con el ratón; se sincroniza con la sala.</p>
-      <canvas id="board" width="640" height="360"></canvas>
+      <div class="board-toolbar">
+        <button type="button" id="btnToolPointer" class="tool-btn">Puntero</button>
+        <button type="button" id="btnToolHand" class="tool-btn" title="Desplazar vista (o clic derecho)">Mano</button>
+        <button type="button" id="btnToolPencil" class="tool-btn active">Lápiz</button>
+        <button type="button" id="btnToolEraser" class="tool-btn">Borrador</button>
+        <button type="button" id="btnToolText" class="tool-btn">Texto</button>
+        <div class="tool-sep"></div>
+        <span style="font-size:0.85rem">Color:</span>
+        <button type="button" class="color-swatch active" data-color="#111111" style="background:#111111"></button>
+        <button type="button" class="color-swatch" data-color="#e53935" style="background:#e53935"></button>
+        <button type="button" class="color-swatch" data-color="#fb8c00" style="background:#fb8c00"></button>
+        <button type="button" class="color-swatch" data-color="#fdd835" style="background:#fdd835"></button>
+        <button type="button" class="color-swatch" data-color="#43a047" style="background:#43a047"></button>
+        <button type="button" class="color-swatch" data-color="#1e88e5" style="background:#1e88e5"></button>
+        <button type="button" class="color-swatch" data-color="#8e24aa" style="background:#8e24aa"></button>
+        <input id="boardColor" type="color" value="#111111" title="Color personalizado" />
+        <div class="tool-sep"></div>
+        <label style="font-size:0.85rem">Grosor:
+          <select id="boardLineWidth">
+            <option value="2">Fino</option>
+            <option value="4" selected>Medio</option>
+            <option value="7">Grueso</option>
+          </select>
+        </label>
+        <div class="tool-sep"></div>
+        <button type="button" id="btnBoardUndo">Undo</button>
+        <button type="button" id="btnBoardRedo">Redo</button>
+        <button type="button" id="btnBoardToggleLock" class="hidden" title="Bloquea para que nadie lo mueva; el candado o Alt+clic para desbloquear">
+          Bloquear objeto
+        </button>
+        <button type="button" id="btnBoardClear">Limpiar</button>
+      </div>
+      <div class="board-actions">
+        <button type="button" id="btnBoardFollowLead" class="hidden"
+          title="Los estudiantes verán tu zoom y posición; al desactivar recuperan su vista anterior">
+          Hacer que la audiencia siga mi vista
+        </button>
+        <button type="button" id="btnExportPdf">Exportar contenido a PDF</button>
+      </div>
+      <p id="boardFollowStatus" style="font-size:0.82rem;color:#64748b;margin:0.25rem 0 0;display:none" aria-live="polite"></p>
+      <p style="font-size:0.8rem;color:#64748b;margin:0 0 0.5rem">
+        Espacio mundo grande (centrado al entrar). <strong>Mano</strong> o <strong>clic derecho</strong> arrastra la vista.
+        PDF = todo el dibujo en una página (recorte automático). Objetos bloqueados: <strong>clic en el candado</strong> o <strong>Alt+clic</strong> en el objeto para desbloquear; el resto de clics pasan al contenido detrás. Atajos: <strong>V H P E T</strong>, <strong>Ctrl+Z / Ctrl+Y</strong>, <strong>Ctrl+C / Ctrl+V</strong>, <strong>Supr</strong>.
+      </p>
+      <div class="board-viewport-wrap" id="boardViewportWrap">
+        <canvas id="board" width="640" height="360" tabindex="0"></canvas>
+        <button
+          type="button"
+          id="btnBoardToggleLockFloat"
+          class="board-selection-lock-btn hidden"
+          title="Bloquear objeto seleccionado"
+        >
+          Bloquear
+        </button>
+        <div class="board-nav-stack" id="boardNavStack">
+          <canvas id="boardMinimap" width="160" height="90" title="Clic para centrar la vista"></canvas>
+          <div class="board-zoom-toolbar">
+            <button type="button" id="btnZoomOut" title="Alejar">−</button>
+            <button type="button" id="btnZoomReset" title="Restablecer 100% y centrar mundo">100%</button>
+            <select id="boardZoomSelect" title="Zoom"></select>
+            <button type="button" id="btnZoomIn" title="Acercar">+</button>
+            <button type="button" id="btnMinimapToggle" title="Mostrar u ocultar minimapa">⌖</button>
+          </div>
+        </div>
+      </div>
     </fieldset>
   </section>
 
@@ -214,10 +425,56 @@
     let activeChatThreadKey = "general";
     let activeRoomId = null;
     let boardState = { elementos: [] };
+    const boardHistory = [];
+    const boardFuture = [];
+    const BOARD_HISTORY_LIMIT = 120;
+    let boardTool = "pencil";
+    let boardColor = "#111111";
+    let boardLineWidth = 4;
+    let activeTextInput = null;
+    /** Índice en `boardState.elementos` del texto que se está editando (no dibujarlo en canvas para evitar doble capa / desfase). */
+    let editingTextElementIndex = -1;
     let drawing = false;
     let currentStroke = null;
+    const boardImageCache = new Map();
+    let selectedElementIndex = -1;
+    let pointerAction = null;
+    /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
+    let clipboardBoardElement = null;
+    const HANDLE_SCREEN_PX = 10;
+    /** Zona clicable más grande que el dibujo de la manija (mismo centro). */
+    const HANDLE_HIT_SCREEN_PX = 24;
+    /** Tablero mundo (coordenadas mayores que la ventana) */
+    const WORLD_W = 3840;
+    const WORLD_H = 2160;
+    const ZOOM_MIN = 0.1;
+    const ZOOM_MAX = 3;
+    let boardZoom = 1;
+    let boardPanX = 0;
+    let boardPanY = 0;
+    /** @type {{ cx: number, cy: number, panX: number, panY: number } | null} */
+    let handDrag = null;
+    let roomDocenteUsuarioId = null;
+    let presenterFollowLeadActive = false;
+    /** Coincide con `board:follow:state` del servidor (audiencia sigue vista del docente). */
+    let boardFollowRoomActive = false;
+    let followingPresenter = false;
+    let savedBoardCamera = null;
+    let presenterViewEmitTimer = null;
+    /** Vista del docente recibida antes de marcar `followingPresenter` (orden de red). */
+    let pendingPresenterView = null;
 
     const $ = (id) => document.getElementById(id);
+
+    function sameActiveRoom(a, b) {
+      return String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+    }
+
+    /** Misma regla que el servidor: la sala Socket.IO distingue mayúsculas. */
+    function normRoomKey(id) {
+      if (id == null || id === "") return "";
+      return String(id).trim().toLowerCase();
+    }
 
     async function loadIce() {
       try {
@@ -462,7 +719,7 @@
       pc.onicecandidate = (e) => {
         if (e.candidate && activeRoomId) {
           socket.emit("webrtc:ice-candidate", {
-            roomId: activeRoomId,
+            roomId: normRoomKey(activeRoomId),
             candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate,
             targetSocketId: remoteSocketId,
           });
@@ -540,7 +797,7 @@
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socket.emit("webrtc:offer", {
-        roomId: activeRoomId,
+        roomId: normRoomKey(activeRoomId),
         sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp },
         targetSocketId: remoteSocketId,
       });
@@ -581,7 +838,7 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit("webrtc:answer", {
-        roomId: activeRoomId,
+        roomId: normRoomKey(activeRoomId),
         sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp },
         targetSocketId: fromSocketId,
       });
@@ -620,36 +877,426 @@
       updateLocalAggregateStatus();
     }
 
+    function drawLockedBadge(ctx, el, z) {
+      const b = getElementBounds(el, ctx);
+      if (!b) return;
+      ctx.save();
+      const fs = 12 / z;
+      ctx.font = `${fs}px sans-serif`;
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#c2410c";
+      ctx.fillText("🔒", b.x + b.w - fs * 1.15, b.y + 2 / z);
+      ctx.restore();
+    }
+
+    function updateBoardLockUi() {
+      const btn = $("btnBoardToggleLock");
+      if (btn) {
+        const show = boardTool === "pointer" && activeRoomId;
+        const el = selectedElementIndex >= 0 ? boardState.elementos[selectedElementIndex] : null;
+        const canLock = el && (el.type === "text" || el.type === "image");
+        btn.classList.toggle("hidden", !show || !canLock);
+        if (canLock) {
+          btn.textContent = el.locked ? "Desbloquear objeto" : "Bloquear objeto";
+        }
+      }
+      updateSelectionLockFloatPosition();
+    }
+
+    function updateSelectionLockFloatPosition() {
+      const btn = $("btnBoardToggleLockFloat");
+      const wrap = $("boardViewportWrap");
+      const canvas = $("board");
+      if (!btn || !wrap || !canvas) return;
+      const show =
+        boardTool === "pointer" &&
+        activeRoomId &&
+        selectedElementIndex >= 0 &&
+        editingTextElementIndex < 0;
+      const el = show ? boardState.elementos[selectedElementIndex] : null;
+      const canLock = el && (el.type === "text" || el.type === "image");
+      if (!canLock) {
+        btn.classList.add("hidden");
+        return;
+      }
+      const ctx = canvas.getContext("2d");
+      const b = getElementBounds(el, ctx);
+      if (!b) {
+        btn.classList.add("hidden");
+        return;
+      }
+      const z = boardZoom;
+      const sx = b.x * z + boardPanX;
+      const sy = b.y * z + boardPanY;
+      const sw = b.w * z;
+      const canvasRect = canvas.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
+      const scaleX = canvasRect.width / canvas.width;
+      const scaleY = canvasRect.height / canvas.height;
+      btn.textContent = el.locked ? "Desbloquear" : "Bloquear";
+      btn.title = el.locked
+        ? "Desbloquear objeto (o clic en el candado del objeto)"
+        : "Bloquear objeto (nadie lo mueve salvo clic en candado o Alt+clic)";
+      btn.classList.remove("hidden");
+      const btnW = btn.offsetWidth || 76;
+      let left = canvasRect.left - wrapRect.left + sx * scaleX + sw * scaleX - btnW - 4;
+      let top = canvasRect.top - wrapRect.top + sy * scaleY - 30;
+      const pad = 4;
+      left = Math.min(Math.max(pad, left), wrapRect.width - btnW - pad);
+      top = Math.min(Math.max(pad, top), wrapRect.height - 28);
+      btn.style.left = `${left}px`;
+      btn.style.top = `${top}px`;
+    }
+
+    function toggleSelectedElementLock() {
+      if (!activeRoomId || boardTool !== "pointer" || selectedElementIndex < 0) return;
+      const el = boardState.elementos[selectedElementIndex];
+      if (!el || (el.type !== "text" && el.type !== "image")) return;
+      const next = cloneBoardState(boardState);
+      const idx = selectedElementIndex;
+      next.elementos[idx] = { ...next.elementos[idx], locked: !el.locked };
+      if (next.elementos[idx].locked) {
+        selectedElementIndex = -1;
+      }
+      applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+    }
+
     function drawBoard() {
       const canvas = $("board");
+      if (!canvas) return;
       const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const z = boardZoom;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.setTransform(z, 0, 0, z, boardPanX, boardPanY);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 2 / z;
+      ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
       const els = boardState.elementos || [];
-      for (const el of els) {
+      for (let idx = 0; idx < els.length; idx++) {
+        const el = els[idx];
         if (el.type === "stroke" && el.points?.length) {
           ctx.strokeStyle = el.color || "#111";
-          ctx.lineWidth = el.lineWidth || 2;
+          ctx.lineWidth = (el.lineWidth || 2) / z;
           ctx.beginPath();
           ctx.moveTo(el.points[0].x, el.points[0].y);
           for (let i = 1; i < el.points.length; i++) {
             ctx.lineTo(el.points[i].x, el.points[i].y);
           }
           ctx.stroke();
+        } else if (el.type === "text" && el.text) {
+          if (editingTextElementIndex >= 0 && idx === editingTextElementIndex) continue;
+          drawBoardTextElement(ctx, el, z);
+        } else if (el.type === "image" && el.src) {
+          const cached = boardImageCache.get(el.src);
+            if (cached?.ready) {
+            ctx.drawImage(cached.image, el.x || 0, el.y || 0, el.w || 100, el.h || 100);
+          } else if (!cached?.loading) {
+            const image = new Image();
+            boardImageCache.set(el.src, { loading: true, ready: false, image });
+            image.onload = () => {
+              boardImageCache.set(el.src, { loading: false, ready: true, image });
+              drawBoard();
+            };
+            image.onerror = () => {
+              boardImageCache.delete(el.src);
+            };
+            image.src = el.src;
+          }
         }
+      }
+      for (let idx = 0; idx < els.length; idx++) {
+        const el = els[idx];
+        if (!el?.locked || (el.type !== "text" && el.type !== "image")) continue;
+        if (el.type === "text" && editingTextElementIndex >= 0 && idx === editingTextElementIndex) continue;
+        drawLockedBadge(ctx, el, z);
+      }
+      drawSelectionOverlay(ctx);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      drawMinimap();
+      updateBoardLockUi();
+    }
+
+    function screenToWorld(sx, sy) {
+      return {
+        x: (sx - boardPanX) / boardZoom,
+        y: (sy - boardPanY) / boardZoom,
+      };
+    }
+
+    function centerCamera() {
+      const canvas = $("board");
+      if (!canvas) return;
+      boardPanX = canvas.width / 2 - (WORLD_W / 2) * boardZoom;
+      boardPanY = canvas.height / 2 - (WORLD_H / 2) * boardZoom;
+      scheduleEmitPresenterView();
+    }
+
+    function resetBoardCamera() {
+      boardZoom = 1;
+      centerCamera();
+      syncZoomUi();
+      drawBoard();
+    }
+
+    function isRoomDocente() {
+      const u = currentUser?.usuarioId;
+      const d = roomDocenteUsuarioId;
+      if (u == null || d == null) return false;
+      return String(u).trim().toLowerCase() === String(d).trim().toLowerCase();
+    }
+
+    function isBoardViewLocked() {
+      return boardFollowRoomActive && followingPresenter && !isRoomDocente();
+    }
+
+    function applyPresenterViewFromRemote(view) {
+      if (!view || !Number.isFinite(view.boardZoom)) return;
+      boardPanX = view.boardPanX;
+      boardPanY = view.boardPanY;
+      boardZoom = view.boardZoom;
+      syncZoomUi();
+      drawBoard();
+    }
+
+    function emitPresenterViewPayload() {
+      socket.emit("board:view", {
+        roomId: normRoomKey(activeRoomId),
+        view: { boardPanX, boardPanY, boardZoom },
+      });
+    }
+
+    /** Envío inmediato al activar «seguir» para que la audiencia reciba la primera vista sin esperar al throttle. */
+    function emitPresenterViewImmediate() {
+      if (!activeRoomId || !socket?.connected || !presenterFollowLeadActive || !isRoomDocente()) return;
+      emitPresenterViewPayload();
+    }
+
+    function scheduleEmitPresenterView() {
+      if (!activeRoomId || !socket || !presenterFollowLeadActive || !isRoomDocente()) return;
+      if (presenterViewEmitTimer) return;
+      presenterViewEmitTimer = setTimeout(() => {
+        presenterViewEmitTimer = null;
+        emitPresenterViewPayload();
+      }, 75);
+    }
+
+    function updateBoardFollowUi() {
+      const btn = $("btnBoardFollowLead");
+      const status = $("boardFollowStatus");
+      if (!btn || !status) return;
+      const inRoom = !!activeRoomId;
+      const docente = isRoomDocente();
+      btn.classList.toggle("hidden", !inRoom || !docente);
+      if (docente) {
+        btn.textContent = presenterFollowLeadActive
+          ? "Audiencia me sigue — liberar vista"
+          : "Hacer que la audiencia siga mi vista";
+        btn.setAttribute("aria-pressed", presenterFollowLeadActive ? "true" : "false");
+      }
+      if (boardFollowRoomActive && followingPresenter && !docente) {
+        status.textContent =
+          "Estás viendo la vista del docente (no puedes mover el tablero hasta que libere la vista).";
+        status.style.display = "block";
+      } else if (presenterFollowLeadActive && docente) {
+        status.textContent = "Los estudiantes ven tu mismo zoom y posición del tablero.";
+        status.style.display = "block";
+      } else {
+        status.textContent = "";
+        status.style.display = "none";
       }
     }
 
-    function mergeBoardContenido(contenido) {
-      if (contenido && Array.isArray(contenido.elementos)) {
-        boardState = { elementos: [...contenido.elementos] };
-      }
+    function setBoardZoomAnchored(newZoom, anchorSX, anchorSY) {
+      if (isBoardViewLocked()) return;
+      const canvas = $("board");
+      if (!canvas) return;
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const ax = anchorSX != null ? anchorSX : cw / 2;
+      const ay = anchorSY != null ? anchorSY : ch / 2;
+      const wx = (ax - boardPanX) / boardZoom;
+      const wy = (ay - boardPanY) / boardZoom;
+      const nz = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom));
+      boardPanX = ax - wx * nz;
+      boardPanY = ay - wy * nz;
+      boardZoom = nz;
+      syncZoomUi();
       drawBoard();
+      scheduleEmitPresenterView();
+    }
+
+    function syncZoomUi() {
+      const raw = Math.round(boardZoom * 100);
+      const nearest = Math.max(10, Math.min(300, Math.round(raw / 10) * 10));
+      const btn = $("btnZoomReset");
+      if (btn) btn.textContent = raw + "%";
+      const sel = $("boardZoomSelect");
+      if (sel && !sel._zoomSyncing) {
+        sel._zoomSyncing = true;
+        if ([...sel.options].some((o) => Number(o.value) === nearest)) {
+          sel.value = String(nearest);
+        }
+        sel._zoomSyncing = false;
+      }
+    }
+
+    function drawMinimap() {
+      const mini = $("boardMinimap");
+      const canvas = $("board");
+      if (!mini || mini.classList.contains("hidden-map") || !canvas) return;
+      const mw = mini.width;
+      const mh = mini.height;
+      const ctx = mini.getContext("2d");
+      ctx.fillStyle = "#f1f5f9";
+      ctx.fillRect(0, 0, mw, mh);
+      ctx.strokeStyle = "#94a3b8";
+      ctx.strokeRect(0, 0, mw, mh);
+      const sx = mw / WORLD_W;
+      const sy = mh / WORLD_H;
+      const els = boardState.elementos || [];
+      ctx.fillStyle = "rgba(100, 116, 139, 0.55)";
+      for (const el of els) {
+        if (el.type === "stroke" && el.points?.length) {
+          const xs = el.points.map((p) => p.x);
+          const ys = el.points.map((p) => p.y);
+          const minx = Math.min(...xs);
+          const maxx = Math.max(...xs);
+          const miny = Math.min(...ys);
+          const maxy = Math.max(...ys);
+          ctx.fillRect(
+            minx * sx,
+            miny * sy,
+            Math.max(1, (maxx - minx) * sx),
+            Math.max(1, (maxy - miny) * sy)
+          );
+        } else if (el.type === "text") {
+          ctx.fillRect((el.x || 0) * sx, (el.y || 0) * sy, 3, 3);
+        } else if (el.type === "image") {
+          ctx.fillRect(
+            (el.x || 0) * sx,
+            (el.y || 0) * sy,
+            Math.max(2, (el.w || 100) * sx),
+            Math.max(2, (el.h || 100) * sy)
+          );
+        }
+      }
+      const vl = -boardPanX / boardZoom;
+      const vt = -boardPanY / boardZoom;
+      const vw = canvas.width / boardZoom;
+      const vh = canvas.height / boardZoom;
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(vl * sx, vt * sy, vw * sx, vh * sy);
+    }
+
+    function populateBoardZoomSelect() {
+      const sel = $("boardZoomSelect");
+      if (!sel || sel.dataset.populated) return;
+      sel.dataset.populated = "1";
+      for (let p = 10; p <= 300; p += 10) {
+        const opt = document.createElement("option");
+        opt.value = String(p);
+        opt.textContent = p + "%";
+        sel.appendChild(opt);
+      }
+    }
+
+    function refreshBoardCursor() {
+      const c = $("board");
+      if (!c) return;
+      if (boardTool === "hand") {
+        c.style.cursor = handDrag ? "grabbing" : "grab";
+      } else if (boardTool === "text") {
+        c.style.cursor = "text";
+      } else if (boardTool === "pointer") {
+        c.style.cursor = "default";
+      } else {
+        c.style.cursor = "crosshair";
+      }
+    }
+
+    function cloneBoardState(state) {
+      return {
+        elementos: (state?.elementos || []).map((el) => ({
+          ...el,
+          points: (el.points || []).map((p) => ({ x: p.x, y: p.y })),
+        })),
+      };
+    }
+
+    function updateBoardHistoryButtons() {
+      const undo = $("btnBoardUndo");
+      const redo = $("btnBoardRedo");
+      if (undo) undo.disabled = boardHistory.length === 0;
+      if (redo) redo.disabled = boardFuture.length === 0;
+    }
+
+    function updateBoardToolUi() {
+      $("btnToolPointer")?.classList.toggle("active", boardTool === "pointer");
+      $("btnToolHand")?.classList.toggle("active", boardTool === "hand");
+      $("btnToolPencil")?.classList.toggle("active", boardTool === "pencil");
+      $("btnToolEraser")?.classList.toggle("active", boardTool === "eraser");
+      $("btnToolText")?.classList.toggle("active", boardTool === "text");
+      refreshBoardCursor();
+      const swatches = document.querySelectorAll(".color-swatch");
+      swatches.forEach((el) => {
+        el.classList.toggle("active", (el.dataset.color || "").toLowerCase() === boardColor.toLowerCase());
+      });
+      const colorInput = $("boardColor");
+      if (colorInput && colorInput.value.toLowerCase() !== boardColor.toLowerCase()) {
+        colorInput.value = boardColor;
+      }
+      updateBoardLockUi();
+    }
+
+    function applyBoardState(nextState, opts = {}) {
+      const { recordHistory = false, clearFuture = false, emit = false } = opts;
+      if (recordHistory) {
+        boardHistory.push(cloneBoardState(boardState));
+        if (boardHistory.length > BOARD_HISTORY_LIMIT) boardHistory.shift();
+      }
+      if (clearFuture) {
+        boardFuture.length = 0;
+      }
+      boardState = cloneBoardState(nextState || { elementos: [] });
+      if (selectedElementIndex >= boardState.elementos.length) selectedElementIndex = -1;
+      drawBoard();
+      updateBoardHistoryButtons();
+      if (emit) emitBoardUpdate();
+    }
+
+    function mergeBoardContenido(contenido) {
+      if (!contenido || !Array.isArray(contenido.elementos)) return;
+      boardHistory.length = 0;
+      boardFuture.length = 0;
+      applyBoardState(contenido, { recordHistory: false, clearFuture: false, emit: false });
     }
 
     function emitBoardUpdate() {
       if (!activeRoomId || !socket) return;
-      socket.emit("board:update", { roomId: activeRoomId, contenido: boardState });
+      socket.emit("board:update", { roomId: normRoomKey(activeRoomId), contenido: boardState });
+    }
+
+    function performBoardUndo() {
+      if (boardHistory.length === 0) return;
+      boardFuture.push(cloneBoardState(boardState));
+      if (boardFuture.length > BOARD_HISTORY_LIMIT) boardFuture.shift();
+      const prev = boardHistory.pop();
+      applyBoardState(prev, { emit: true });
+    }
+
+    function performBoardRedo() {
+      if (boardFuture.length === 0) return;
+      boardHistory.push(cloneBoardState(boardState));
+      if (boardHistory.length > BOARD_HISTORY_LIMIT) boardHistory.shift();
+      const next = boardFuture.pop();
+      applyBoardState(next, { emit: true });
     }
 
     function appendChatLine(payload) {
@@ -830,7 +1477,11 @@
 
     async function loadParticipantsForRoom(roomId) {
       const roomData = await api("/api/reuniones/room/" + encodeURIComponent(roomId));
-      const reunionId = roomData?.reunion?.reunionId;
+      const reunion = roomData?.reunion;
+      const reunionId = reunion?.reunionId;
+      roomDocenteUsuarioId =
+        reunion?.docenteUsuarioId != null ? String(reunion.docenteUsuarioId) : null;
+      updateBoardFollowUi();
       if (!reunionId) return;
       const partData = await api("/api/reuniones/" + reunionId + "/participantes");
       (partData.participantes || []).forEach((p) => {
@@ -860,6 +1511,57 @@
         socket.on("chat:message", appendChatLine);
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
+        socket.on("board:follow:state", ({ active, roomId: rid }) => {
+          if (!activeRoomId) return;
+          if (active && rid && !sameActiveRoom(rid, activeRoomId)) return;
+          boardFollowRoomActive = !!active;
+          if (active) {
+            if (isRoomDocente()) {
+              presenterFollowLeadActive = true;
+              emitPresenterViewImmediate();
+            } else {
+              savedBoardCamera = { boardPanX, boardPanY, boardZoom };
+              followingPresenter = true;
+              if (pendingPresenterView) {
+                applyPresenterViewFromRemote(pendingPresenterView);
+                pendingPresenterView = null;
+              }
+            }
+          } else {
+            presenterFollowLeadActive = false;
+            if (followingPresenter && !isRoomDocente() && savedBoardCamera) {
+              boardPanX = savedBoardCamera.boardPanX;
+              boardPanY = savedBoardCamera.boardPanY;
+              boardZoom = savedBoardCamera.boardZoom;
+              syncZoomUi();
+              drawBoard();
+            }
+            followingPresenter = false;
+            savedBoardCamera = null;
+            pendingPresenterView = null;
+          }
+          updateBoardFollowUi();
+        });
+        socket.on("board:view", (data) => {
+          if (!data || !Number.isFinite(data.boardZoom)) return;
+          const rid = data.roomId;
+          if (rid && activeRoomId && !sameActiveRoom(rid, activeRoomId)) return;
+          if (isRoomDocente()) return;
+          const view = {
+            boardPanX: data.boardPanX,
+            boardPanY: data.boardPanY,
+            boardZoom: data.boardZoom,
+          };
+          if (!boardFollowRoomActive) {
+            pendingPresenterView = null;
+            return;
+          }
+          if (!followingPresenter) {
+            pendingPresenterView = view;
+            return;
+          }
+          applyPresenterViewFromRemote(view);
+        });
         socket.on("webrtc:offer", async ({ sdp, from }) => {
           try {
             await onIncomingOffer(from, sdp);
@@ -922,7 +1624,7 @@
 
       try {
         await new Promise((resolve, reject) => {
-          socket.emit("room:join", { roomId }, async (resp) => {
+          socket.emit("room:join", { roomId: normRoomKey(roomId) }, async (resp) => {
             if (!resp?.ok) {
               const errMsg =
                 resp?.error === "No eres participante de esta reunión"
@@ -933,8 +1635,14 @@
               reject(new Error(errMsg));
               return;
             }
-            activeRoomId = roomId;
-            $("activeRoomLabel").textContent = roomId;
+            activeRoomId = normRoomKey(
+              resp.roomId != null && resp.roomId !== "" ? resp.roomId : roomId
+            );
+            roomDocenteUsuarioId =
+              resp.docenteUsuarioId != null
+                ? String(resp.docenteUsuarioId)
+                : roomDocenteUsuarioId;
+            $("activeRoomLabel").textContent = activeRoomId;
             showRoom();
             ensureGeneralThread();
             chatThreads.forEach((t) => {
@@ -945,7 +1653,7 @@
             (resp.peers || []).forEach((p) => {
               if (p.userId) connectedUserIds.add(p.userId);
             });
-            await loadParticipantsForRoom(roomId);
+            await loadParticipantsForRoom(activeRoomId);
             setActiveChatThread("general");
             setMediaStatus("En reunión. " + (resp.peers?.length ? resp.peers.length + " participante(s) ya en la sala." : "Eres el primero en la sala."));
             log("En sala. Peers: " + JSON.stringify(resp.peers));
@@ -960,6 +1668,14 @@
             }
             syncMediaButtons();
             updateLocalAggregateStatus();
+            setTimeout(() => {
+              if (!followingPresenter) {
+                resetBoardCamera();
+              } else {
+                syncZoomUi();
+                drawBoard();
+              }
+            }, 0);
             resolve();
           });
         });
@@ -976,12 +1692,27 @@
         } catch (_) {}
       }
       activeRoomId = null;
+      roomDocenteUsuarioId = null;
+      presenterFollowLeadActive = false;
+      boardFollowRoomActive = false;
+      followingPresenter = false;
+      savedBoardCamera = null;
+      pendingPresenterView = null;
+      if (presenterViewEmitTimer) {
+        clearTimeout(presenterViewEmitTimer);
+        presenterViewEmitTimer = null;
+      }
+      updateBoardFollowUi();
       for (const id of [...pcs.keys()]) cleanupPeer(id);
       stopLocalMedia();
+      closeInlineTextInput(false);
       drawing = false;
       currentStroke = null;
       boardState = { elementos: [] };
-      drawBoard();
+      resetBoardCamera();
+      boardHistory.length = 0;
+      boardFuture.length = 0;
+      updateBoardHistoryButtons();
       $("remotesContainer").innerHTML = "";
       $("chatBox").innerHTML = "";
       chatThreads.clear();
@@ -1127,7 +1858,7 @@
       const contenido = $("chatInput").value.trim();
       if (!contenido || !activeRoomId || !socket) return;
       const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
-      const payload = { roomId: activeRoomId, contenido, tipo: "general" };
+      const payload = { roomId: normRoomKey(activeRoomId), contenido, tipo: "general" };
       if (active?.type === "dm" && active.targetUserId) {
         payload.tipo = "privado";
         payload.destinatarioUsuarioId = active.targetUserId;
@@ -1139,56 +1870,1154 @@
     });
 
     const canvas = $("board");
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    populateBoardZoomSelect();
+    resetBoardCamera();
+
+    function isFiniteWorldPoint(p) {
+      return p && Number.isFinite(p.x) && Number.isFinite(p.y);
+    }
 
     function canvasPoint(e) {
-      const r = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / r.width;
-      const scaleY = canvas.height / r.height;
-      return { x: (e.clientX - r.left) * scaleX, y: (e.clientY - r.top) * scaleY };
+      const c = $("board");
+      if (!c || !e) return { x: NaN, y: NaN };
+      const r = c.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return { x: NaN, y: NaN };
+      const scaleX = c.width / r.width;
+      const scaleY = c.height / r.height;
+      const sx = (e.clientX - r.left) * scaleX;
+      const sy = (e.clientY - r.top) * scaleY;
+      if (!Number.isFinite(sx) || !Number.isFinite(sy)) return { x: NaN, y: NaN };
+      return screenToWorld(sx, sy);
+    }
+
+    function handleHalfWorld() {
+      return (HANDLE_SCREEN_PX / 2) / boardZoom;
+    }
+
+    function handleHitHalfWorld() {
+      return (HANDLE_HIT_SCREEN_PX / 2) / boardZoom;
+    }
+
+    function getResizeHandleRects(bounds) {
+      const hh = handleHalfWorld();
+      const s = hh * 2;
+      const x1 = bounds.x;
+      const y1 = bounds.y;
+      const x2 = bounds.x + bounds.w;
+      const y2 = bounds.y + bounds.h;
+      const mx = bounds.x + bounds.w / 2;
+      const my = bounds.y + bounds.h / 2;
+      const ids = [
+        ["nw", x1, y1],
+        ["n", mx, y1],
+        ["ne", x2, y1],
+        ["e", x2, my],
+        ["se", x2, y2],
+        ["s", mx, y2],
+        ["sw", x1, y2],
+        ["w", x1, my],
+      ];
+      return ids.map(([id, cx, cy]) => ({
+        id,
+        x: cx - hh,
+        y: cy - hh,
+        w: s,
+        h: s,
+      }));
+    }
+
+    function getResizeHandleHitRects(bounds) {
+      const hh = handleHitHalfWorld();
+      const s = hh * 2;
+      const x1 = bounds.x;
+      const y1 = bounds.y;
+      const x2 = bounds.x + bounds.w;
+      const y2 = bounds.y + bounds.h;
+      const mx = bounds.x + bounds.w / 2;
+      const my = bounds.y + bounds.h / 2;
+      const ids = [
+        ["nw", x1, y1],
+        ["n", mx, y1],
+        ["ne", x2, y1],
+        ["e", x2, my],
+        ["se", x2, y2],
+        ["s", mx, y2],
+        ["sw", x1, y2],
+        ["w", x1, my],
+      ];
+      return ids.map(([id, cx, cy]) => ({
+        id,
+        x: cx - hh,
+        y: cy - hh,
+        w: s,
+        h: s,
+      }));
+    }
+
+    function hitTestResizeHandle(p, bounds) {
+      if (!bounds) return null;
+      const rects = getResizeHandleHitRects(bounds);
+      for (let i = rects.length - 1; i >= 0; i--) {
+        const r = rects[i];
+        if (pointInRect(p, r)) return r.id;
+      }
+      return null;
     }
 
     function drawBoardWithPreview(previewStroke) {
       drawBoard();
       if (!previewStroke?.points?.length) return;
-      const c = $("board").getContext("2d");
+      const canvas = $("board");
+      const c = canvas.getContext("2d");
+      const z = boardZoom;
+      c.save();
+      c.setTransform(boardZoom, 0, 0, boardZoom, boardPanX, boardPanY);
       c.strokeStyle = previewStroke.color || "#111";
-      c.lineWidth = previewStroke.lineWidth || 2;
+      c.lineWidth = (previewStroke.lineWidth || 2) / z;
       c.beginPath();
       c.moveTo(previewStroke.points[0].x, previewStroke.points[0].y);
       for (let i = 1; i < previewStroke.points.length; i++) {
         c.lineTo(previewStroke.points[i].x, previewStroke.points[i].y);
       }
       c.stroke();
+      c.restore();
+    }
+
+    function getCurrentStrokeStyle() {
+      if (boardTool === "eraser") {
+        return {
+          color: "#ffffff",
+          lineWidth: Math.max(8, boardLineWidth + 2),
+        };
+      }
+      return {
+        color: boardColor,
+        lineWidth: boardLineWidth,
+      };
+    }
+
+    /** Tamaño de fuente del modelo «mundo» (misma unidad que `el.fontSize` en el tablero). No usar alto del textarea: con varias líneas inflaba el valor hasta 160. */
+    function readTextFontSizeFromInput(inputEl) {
+      const raw = inputEl.style?.fontSize || getComputedStyle(inputEl).fontSize;
+      const n = parseFloat(String(raw).replace(/px\s*$/i, ""));
+      if (Number.isFinite(n) && n > 0) return clampTextFontSize(n);
+      return 18;
+    }
+
+    function clampTextFontSize(v) {
+      return Math.max(8, Math.min(160, Math.round(v)));
+    }
+
+    /** Ancho de línea coherente con el canvas (incluye rebases negativos cuando el motor los expone). */
+    function measureTextLineWidth(ctx, line) {
+      const m = ctx.measureText(line);
+      let w = m.width;
+      if (m.actualBoundingBoxLeft !== undefined && m.actualBoundingBoxRight !== undefined) {
+        const span = m.actualBoundingBoxRight - Math.min(0, m.actualBoundingBoxLeft);
+        w = Math.max(w, span);
+      }
+      return w + 3;
+    }
+
+    function drawBoardTextElement(ctx, el, z) {
+      ctx.fillStyle = el.color || "#111";
+      const F = el.fontSize || 18;
+      ctx.font = `${F / z}px sans-serif`;
+      ctx.textBaseline = "top";
+      const fsu = F / z;
+      const lh = fsu * 1.2;
+      const lines = String(el.text).split("\n");
+      const x = el.x || 0;
+      const y = el.y || 0;
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], x, y + i * lh);
+      }
+    }
+
+    function getElementBounds(el, ctx) {
+      if (!el) return null;
+      if (el.type === "image" && el.src) {
+        return { x: el.x || 0, y: el.y || 0, w: Math.max(1, el.w || 100), h: Math.max(1, el.h || 100) };
+      }
+      if (el.type === "text" && el.text != null && String(el.text).length > 0) {
+        const z = boardZoom;
+        const fsu = (el.fontSize || 18) / z;
+        const lineHeight = fsu * 1.2;
+        const lines = String(el.text).split("\n");
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.font = `${fsu}px sans-serif`;
+        let maxW = 0;
+        for (const line of lines) {
+          maxW = Math.max(maxW, measureTextLineWidth(ctx, line || " "));
+        }
+        ctx.restore();
+        const w = Math.max(16, Math.ceil(maxW + 4));
+        const h = Math.max(10, Math.ceil(lines.length * lineHeight + 2));
+        return { x: el.x || 0, y: el.y || 0, w, h };
+      }
+      return null;
+    }
+
+    function worldTextBoundsToCssRect(bounds, canvasEl) {
+      const canvas = canvasEl;
+      const rect = canvas.getBoundingClientRect();
+      const z = boardZoom;
+      const x1 = bounds.x * z + boardPanX;
+      const y1 = bounds.y * z + boardPanY;
+      const w1 = bounds.w * z;
+      const h1 = bounds.h * z;
+      const scaleX = rect.width / canvas.width;
+      const scaleY = rect.height / canvas.height;
+      return {
+        left: rect.left + window.scrollX + x1 * scaleX,
+        top: rect.top + window.scrollY + y1 * scaleY,
+        width: Math.max(48, w1 * scaleX),
+        height: Math.max(22, h1 * scaleY),
+      };
+    }
+
+    function pointInRect(p, r) {
+      return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+    }
+
+    /** Zona de golpeo del icono — alineada con `drawLockedBadge` (esquina superior derecha del bbox). */
+    function getLockedBadgeHitRect(el, ctx, zoom) {
+      if (!el?.locked || (el.type !== "text" && el.type !== "image")) return null;
+      const b = getElementBounds(el, ctx);
+      if (!b) return null;
+      const fs = 12 / zoom;
+      const pad = 6 / zoom;
+      const w = fs * 1.4 + pad;
+      const h = fs * 1.35 + pad;
+      const x = b.x + b.w - fs * 1.15 - pad * 0.5;
+      const y = b.y + 2 / zoom - pad * 0.25;
+      return { x, y, w, h };
+    }
+
+    function hitTestLockedBadge(p) {
+      const context = $("board")?.getContext("2d");
+      if (!context) return null;
+      const z = boardZoom;
+      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
+        const el = boardState.elementos[i];
+        if (!(el?.type === "text" || el?.type === "image") || !el.locked) continue;
+        const r = getLockedBadgeHitRect(el, context, z);
+        if (r && pointInRect(p, r)) return { index: i, element: el };
+      }
+      return null;
+    }
+
+    function applyTextUniformScale(origEl, origBounds, startPoint, p) {
+      const ox = origEl.x ?? origBounds.x;
+      const oy = origEl.y ?? origBounds.y;
+      const d0 = Math.hypot(startPoint.x - ox, startPoint.y - oy);
+      const d1 = Math.hypot(p.x - ox, p.y - oy);
+      if (d0 < 2) return { ...origEl };
+      const scale = Math.max(0.2, Math.min(8, d1 / d0));
+      const origFs = origEl.fontSize || 18;
+      const newFs = clampTextFontSize(origFs * scale);
+      return {
+        ...origEl,
+        fontSize: newFs,
+        x: Math.round(ox),
+        y: Math.round(oy),
+      };
+    }
+
+    function applyImageResize(handleId, ox, oy, ow, oh, dx, dy, shiftKey) {
+      let x = ox;
+      let y = oy;
+      let w = ow;
+      let h = oh;
+      const minSz = 24;
+      if (shiftKey && (handleId === "nw" || handleId === "ne" || handleId === "sw" || handleId === "se")) {
+        const scale = Math.max((ow + dx) / ow, (oh + dy) / oh);
+        const u = Math.max(0.08, Math.min(8, scale));
+        w = Math.max(minSz, Math.round(ow * u));
+        h = Math.max(minSz, Math.round(oh * u));
+        x = Math.round(ox + (ow - w) / 2);
+        y = Math.round(oy + (oh - h) / 2);
+        return { x, y, w, h };
+      }
+      switch (handleId) {
+        case "se":
+          w = ow + dx;
+          h = oh + dy;
+          break;
+        case "e":
+          w = ow + dx;
+          break;
+        case "s":
+          h = oh + dy;
+          break;
+        case "w":
+          x = ox + dx;
+          w = ow - dx;
+          break;
+        case "n":
+          y = oy + dy;
+          h = oh - dy;
+          break;
+        case "ne":
+          y = oy + dy;
+          h = oh - dy;
+          w = ow + dx;
+          break;
+        case "sw":
+          x = ox + dx;
+          w = ow - dx;
+          h = oh + dy;
+          break;
+        case "nw":
+          x = ox + dx;
+          y = oy + dy;
+          w = ow - dx;
+          h = oh - dy;
+          break;
+        default:
+          w = ow + dx;
+          h = oh + dy;
+      }
+      w = Math.max(minSz, Math.round(w));
+      h = Math.max(minSz, Math.round(h));
+      x = Math.round(x);
+      y = Math.round(y);
+      return { x, y, w, h };
+    }
+
+    function hitTestEditableElement(p, includeLocked) {
+      const context = $("board").getContext("2d");
+      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
+        const el = boardState.elementos[i];
+        if (!(el?.type === "text" || el?.type === "image")) continue;
+        if (el.locked && !includeLocked) continue;
+        const b = getElementBounds(el, context);
+        if (!b) continue;
+        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
+      }
+      return null;
+    }
+
+    function hitTestTextElement(p) {
+      const context = $("board").getContext("2d");
+      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
+        const el = boardState.elementos[i];
+        if (el?.type !== "text") continue;
+        if (el.locked) continue;
+        const b = getElementBounds(el, context);
+        if (!b) continue;
+        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
+      }
+      return null;
+    }
+
+    function computeBoardContentBounds() {
+      const ctx = $("board").getContext("2d");
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      const els = boardState.elementos || [];
+      for (const el of els) {
+        if (el.type === "stroke" && el.points?.length) {
+          const hw = (el.lineWidth || 2) / 2;
+          for (const pt of el.points) {
+            minX = Math.min(minX, pt.x - hw);
+            minY = Math.min(minY, pt.y - hw);
+            maxX = Math.max(maxX, pt.x + hw);
+            maxY = Math.max(maxY, pt.y + hw);
+          }
+        } else if (el.type === "text" || el.type === "image") {
+          const b = getElementBounds(el, ctx);
+          if (b) {
+            minX = Math.min(minX, b.x);
+            minY = Math.min(minY, b.y);
+            maxX = Math.max(maxX, b.x + b.w);
+            maxY = Math.max(maxY, b.y + b.h);
+          }
+        }
+      }
+      if (!Number.isFinite(minX)) return null;
+      const pad = 24;
+      return {
+        minX: minX - pad,
+        minY: minY - pad,
+        width: maxX - minX + 2 * pad,
+        height: maxY - minY + 2 * pad,
+      };
+    }
+
+    function renderBoardElementsForExport(ctx, z) {
+      const els = boardState.elementos || [];
+      for (const el of els) {
+        if (el.type === "stroke" && el.points?.length) {
+          ctx.strokeStyle = el.color || "#111";
+          ctx.lineWidth = (el.lineWidth || 2) / z;
+          ctx.beginPath();
+          ctx.moveTo(el.points[0].x, el.points[0].y);
+          for (let i = 1; i < el.points.length; i++) {
+            ctx.lineTo(el.points[i].x, el.points[i].y);
+          }
+          ctx.stroke();
+        } else if (el.type === "text" && el.text) {
+          drawBoardTextElement(ctx, el, z);
+        } else if (el.type === "image" && el.src) {
+          const cached = boardImageCache.get(el.src);
+          if (cached?.ready) {
+            ctx.drawImage(cached.image, el.x || 0, el.y || 0, el.w || 100, el.h || 100);
+          }
+        }
+      }
+    }
+
+    function drawSelectionOverlay(ctx) {
+      if (selectedElementIndex < 0) return;
+      const el = boardState.elementos?.[selectedElementIndex];
+      if (!el || (el.type !== "text" && el.type !== "image")) return;
+      const b = getElementBounds(el, ctx);
+      if (!b) return;
+      ctx.save();
+      const lockedSel = !!el.locked;
+      ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+      ctx.setLineDash([]);
+      if (!lockedSel) {
+        ctx.fillStyle = "#2563eb";
+        for (const h of getResizeHandleRects(b)) {
+          ctx.fillRect(h.x, h.y, h.w, h.h);
+        }
+      }
+      ctx.restore();
+    }
+
+    function commitPointerMutation(snapshotBefore) {
+      if (!snapshotBefore) return;
+      boardHistory.push(snapshotBefore);
+      if (boardHistory.length > BOARD_HISTORY_LIMIT) boardHistory.shift();
+      boardFuture.length = 0;
+      drawBoard();
+      updateBoardHistoryButtons();
+      emitBoardUpdate();
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("No se pudo leer la imagen del portapapeles."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function loadImageFromSrc(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("No se pudo cargar la imagen pegada."));
+        img.src = src;
+      });
+    }
+
+    function openInlineTextInput(p, opts = {}) {
+      const editIndex = opts.editIndex != null ? opts.editIndex : null;
+      const selectionBeforeEdit = selectedElementIndex;
+      const canvas = $("board");
+      closeInlineTextInput(false);
+      editingTextElementIndex = editIndex != null ? editIndex : -1;
+      selectedElementIndex = -1;
+      drawBoard();
+
+      const worldX = editIndex != null && boardState.elementos[editIndex] ? boardState.elementos[editIndex].x : p.x;
+      const worldY = editIndex != null && boardState.elementos[editIndex] ? boardState.elementos[editIndex].y : p.y;
+
+      const input = document.createElement("textarea");
+      input.className = "board-text-inline";
+      input.placeholder = "Enter = nueva línea · Ctrl+Enter = guardar";
+      input.rows = 1;
+      if (editIndex != null && boardState.elementos[editIndex]) {
+        const el = boardState.elementos[editIndex];
+        input.value = el.text || "";
+        boardColor = el.color || boardColor;
+        input.style.color = el.color || boardColor || "#111111";
+        const fs = el.fontSize || 18;
+        input.style.fontSize = `${fs}px`;
+      } else {
+        input.style.color = boardColor;
+        input.style.fontSize = "18px";
+      }
+      const createdAt = Date.now();
+      let committedOrCancelled = false;
+
+      const syncEditorLayout = () => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = rect.width / canvas.width;
+        const scaleY = rect.height / canvas.height;
+        const z = boardZoom;
+        const fs = readTextFontSizeFromInput(input);
+        const fsu = fs / z;
+        const lineHeightCanvas = fsu * 1.2;
+        const lines = input.value.length > 0 ? input.value.split("\n") : [" "];
+        const ctx2 = canvas.getContext("2d");
+        ctx2.save();
+        ctx2.setTransform(1, 0, 0, 1, 0, 0);
+        ctx2.font = `${fsu}px sans-serif`;
+        let maxW = 0;
+        for (const line of lines) {
+          maxW = Math.max(maxW, measureTextLineWidth(ctx2, line || " "));
+        }
+        ctx2.restore();
+        const padX = 10;
+        const padY = 6;
+        const textW = Math.ceil(maxW * scaleX) + padX * 2;
+        const textH = Math.ceil(lines.length * lineHeightCanvas * scaleY) + padY * 2;
+        const x1 = worldX * z + boardPanX;
+        const y1 = worldY * z + boardPanY;
+        input.style.left = `${rect.left + window.scrollX + x1 * scaleX}px`;
+        input.style.top = `${rect.top + window.scrollY + y1 * scaleY}px`;
+        input.style.width = `${Math.max(64, textW)}px`;
+        input.style.height = `${Math.max(28, textH)}px`;
+        input.style.fontSize = `${fs}px`;
+        input.style.lineHeight = "1.2";
+        input.style.fontFamily = "sans-serif";
+      };
+
+      const commit = () => {
+        if (committedOrCancelled) return;
+        committedOrCancelled = true;
+        const textRaw = input.value;
+        const isEmpty = !String(textRaw).trim();
+        if (!activeRoomId) {
+          closeInlineTextInput(false);
+          return;
+        }
+        const fontCommit = readTextFontSizeFromInput(input);
+        const colorCommit = boardColor;
+        if (editIndex != null && boardState.elementos[editIndex]) {
+          const next = cloneBoardState(boardState);
+          if (isEmpty) {
+            next.elementos.splice(editIndex, 1);
+            selectedElementIndex = -1;
+          } else {
+            next.elementos[editIndex] = {
+              ...next.elementos[editIndex],
+              type: "text",
+              text: textRaw,
+              color: colorCommit,
+              fontSize: fontCommit,
+            };
+          }
+          applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+          if (!isEmpty) {
+            selectedElementIndex = editIndex;
+            drawBoard();
+          }
+        } else if (!isEmpty) {
+          const next = cloneBoardState(boardState);
+          next.elementos.push({
+            type: "text",
+            text: textRaw,
+            x: p.x,
+            y: p.y,
+            color: colorCommit,
+            fontSize: fontCommit,
+          });
+          applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+          selectedElementIndex = boardState.elementos.length - 1;
+          drawBoard();
+        }
+        closeInlineTextInput(false);
+      };
+      const cancel = () => {
+        if (committedOrCancelled) return;
+        committedOrCancelled = true;
+        selectedElementIndex = selectionBeforeEdit;
+        closeInlineTextInput(false);
+        drawBoard();
+      };
+
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && e.ctrlKey) {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancel();
+        }
+      });
+      input.addEventListener("input", () => {
+        syncEditorLayout();
+      });
+      input.addEventListener("blur", () => {
+        if (Date.now() - createdAt < 120) return;
+        commit();
+      });
+
+      document.body.appendChild(input);
+      activeTextInput = input;
+      syncEditorLayout();
+      input.focus({ preventScroll: true });
+      if (editIndex != null) {
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+      } else {
+        input.setSelectionRange(0, 0);
+      }
+    }
+
+    function closeInlineTextInput(keepFocusCanvas = true) {
+      editingTextElementIndex = -1;
+      if (!activeTextInput) return;
+      const node = activeTextInput;
+      activeTextInput = null;
+      if (node.parentElement) node.parentElement.removeChild(node);
+      if (keepFocusCanvas) $("board")?.focus({ preventScroll: true });
+    }
+
+    async function exportBoardToPdf() {
+      try {
+        const { jsPDF } = window.jspdf || {};
+        if (!jsPDF) {
+          log("No se pudo cargar el motor de PDF. Revisa tu conexión a internet.");
+          return;
+        }
+        const bounds = computeBoardContentBounds();
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+          log("No hay contenido para exportar.");
+          return;
+        }
+        let bw = bounds.width;
+        let bh = bounds.height;
+        const MAX_EDGE = 8192;
+        let scaleCap = 1;
+        if (bw > MAX_EDGE || bh > MAX_EDGE) {
+          scaleCap = MAX_EDGE / Math.max(bw, bh);
+          bw = Math.max(1, Math.floor(bw * scaleCap));
+          bh = Math.max(1, Math.floor(bh * scaleCap));
+        }
+        const exportCanvas = document.createElement("canvas");
+        exportCanvas.width = bw;
+        exportCanvas.height = bh;
+        const ctx = exportCanvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, bw, bh);
+        ctx.save();
+        ctx.scale(scaleCap, scaleCap);
+        ctx.translate(-bounds.minX, -bounds.minY);
+        renderBoardElementsForExport(ctx, 1);
+        ctx.restore();
+
+        const imageData = exportCanvas.toDataURL("image/png");
+
+        const orientation = exportCanvas.width >= exportCanvas.height ? "landscape" : "portrait";
+        const pdf = new jsPDF({ orientation, unit: "mm", format: "a4", compress: true });
+
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const margin = 10;
+        const drawW = pageW - margin * 2;
+        const drawH = pageH - margin * 2 - 12;
+
+        const scale = Math.min(drawW / exportCanvas.width, drawH / exportCanvas.height);
+        const imgW = exportCanvas.width * scale;
+        const imgH = exportCanvas.height * scale;
+        const x = (pageW - imgW) / 2;
+        const y = margin + 10;
+
+        pdf.setFontSize(11);
+        const roomLabel = activeRoomId ? `Sala: ${activeRoomId}` : "Tablero";
+        pdf.text(roomLabel, margin, margin + 4);
+        pdf.addImage(imageData, "PNG", x, y, imgW, imgH, undefined, "FAST");
+
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const filename = `tablero-${activeRoomId || "sin-sala"}-${stamp}.pdf`;
+        pdf.save(filename);
+        log("PDF exportado (recorte al contenido).");
+      } catch (e) {
+        console.error(e);
+        log("Error exportando PDF: " + (e?.message || e));
+      }
     }
 
     canvas.addEventListener("pointerdown", (e) => {
       if (!activeRoomId) return;
+      if (e.button === 2 || (boardTool === "hand" && e.button === 0)) {
+        e.preventDefault();
+        if (isBoardViewLocked()) return;
+        handDrag = { cx: e.clientX, cy: e.clientY, panX: boardPanX, panY: boardPanY };
+        canvas.setPointerCapture(e.pointerId);
+        refreshBoardCursor();
+        return;
+      }
+      if (boardTool === "pointer") {
+        closeInlineTextInput(false);
+        const p = canvasPoint(e);
+        if (!isFiniteWorldPoint(p)) return;
+        const badgeHit = hitTestLockedBadge(p);
+        if (badgeHit) {
+          e.preventDefault();
+          selectedElementIndex = badgeHit.index;
+          pointerAction = null;
+          drawBoard();
+          canvas.focus();
+          return;
+        }
+        if (e.altKey) e.preventDefault();
+        const hit = hitTestEditableElement(p, e.altKey);
+        if (!hit) {
+          selectedElementIndex = -1;
+          pointerAction = null;
+          drawBoard();
+          return;
+        }
+        if (hit.element.locked) {
+          selectedElementIndex = hit.index;
+          pointerAction = null;
+          drawBoard();
+          canvas.focus();
+          return;
+        }
+        selectedElementIndex = hit.index;
+        const hId = hitTestResizeHandle(p, hit.bounds);
+        const mode = hId ? "resize" : "drag";
+        pointerAction = {
+          mode,
+          resizeHandle: hId || null,
+          index: hit.index,
+          startPoint: p,
+          originalElement: { ...hit.element },
+          originalBounds: { ...hit.bounds },
+          snapshotBefore: cloneBoardState(boardState),
+        };
+        drawBoard();
+        canvas.setPointerCapture(e.pointerId);
+        canvas.focus();
+        return;
+      }
+      if (boardTool === "text") {
+        return;
+      }
       canvas.setPointerCapture(e.pointerId);
       drawing = true;
       const p = canvasPoint(e);
-      currentStroke = { type: "stroke", points: [p], color: "#111", lineWidth: 2 };
+      if (!isFiniteWorldPoint(p)) {
+        drawing = false;
+        try {
+          canvas.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        return;
+      }
+      const style = getCurrentStrokeStyle();
+      currentStroke = { type: "stroke", points: [p], color: style.color, lineWidth: style.lineWidth };
     });
     canvas.addEventListener("pointermove", (e) => {
+      if (handDrag) {
+        const r = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / r.width;
+        const scaleY = canvas.height / r.height;
+        const dcx = (e.clientX - handDrag.cx) * scaleX;
+        const dcy = (e.clientY - handDrag.cy) * scaleY;
+        boardPanX = handDrag.panX + dcx;
+        boardPanY = handDrag.panY + dcy;
+        drawBoard();
+        scheduleEmitPresenterView();
+        return;
+      }
+      if (boardTool === "pointer" && pointerAction) {
+        const p = canvasPoint(e);
+        if (!isFiniteWorldPoint(p)) return;
+        const dx = p.x - pointerAction.startPoint.x;
+        const dy = p.y - pointerAction.startPoint.y;
+        const idx = pointerAction.index;
+        const current = boardState.elementos?.[idx];
+        if (!current) return;
+        let nextEl = { ...pointerAction.originalElement };
+        if (pointerAction.mode === "drag") {
+          nextEl.x = Math.round((pointerAction.originalElement.x || 0) + dx);
+          nextEl.y = Math.round((pointerAction.originalElement.y || 0) + dy);
+        } else if (pointerAction.mode === "resize") {
+          const hid = pointerAction.resizeHandle || "se";
+          if (nextEl.type === "image") {
+            const o = pointerAction.originalElement;
+            const ox = o.x || 0;
+            const oy = o.y || 0;
+            const ow = Math.max(1, o.w || 100);
+            const oh = Math.max(1, o.h || 100);
+            const r = applyImageResize(hid, ox, oy, ow, oh, dx, dy, e.shiftKey);
+            nextEl.x = r.x;
+            nextEl.y = r.y;
+            nextEl.w = r.w;
+            nextEl.h = r.h;
+          } else if (nextEl.type === "text") {
+            const ob = pointerAction.originalBounds;
+            nextEl = applyTextUniformScale(pointerAction.originalElement, ob, pointerAction.startPoint, p);
+          }
+        }
+        boardState.elementos[idx] = nextEl;
+        drawBoard();
+        return;
+      }
       if (!drawing || !currentStroke) return;
-      currentStroke.points.push(canvasPoint(e));
+      const pm = canvasPoint(e);
+      if (!isFiniteWorldPoint(pm)) return;
+      currentStroke.points.push(pm);
       drawBoardWithPreview(currentStroke);
     });
     function endStroke(e) {
+      if (handDrag) {
+        try {
+          canvas.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        handDrag = null;
+        refreshBoardCursor();
+        drawBoard();
+        return;
+      }
+      if (pointerAction) {
+        try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+        const moved =
+          JSON.stringify(boardState.elementos?.[pointerAction.index] || null) !==
+          JSON.stringify(pointerAction.originalElement || null);
+        const snapshotBefore = pointerAction.snapshotBefore;
+        pointerAction = null;
+        if (moved) commitPointerMutation(snapshotBefore);
+        else drawBoard();
+        return;
+      }
       if (!drawing) return;
       drawing = false;
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
       if (!currentStroke || !activeRoomId) return;
-      currentStroke.points.push(canvasPoint(e));
-      boardState.elementos = [...(boardState.elementos || []), { ...currentStroke, points: [...currentStroke.points] }];
+      const pts = currentStroke.points.filter((q) => isFiniteWorldPoint(q));
+      if (pts.length === 0) {
+        currentStroke = null;
+        drawBoard();
+        return;
+      }
+      if (pts.length === 1) pts.push({ x: pts[0].x, y: pts[0].y });
+      const next = cloneBoardState(boardState);
+      next.elementos.push({ ...currentStroke, points: pts });
       currentStroke = null;
-      drawBoard();
-      emitBoardUpdate();
+      applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
     }
     canvas.addEventListener("pointerup", endStroke);
     canvas.addEventListener("pointercancel", endStroke);
+    canvas.addEventListener("click", (e) => {
+      if (!activeRoomId) return;
+      if (boardTool !== "text") return;
+      const p = canvasPoint(e);
+      openInlineTextInput(p);
+    });
+
+    canvas.addEventListener("dblclick", (e) => {
+      if (!activeRoomId || activeTextInput) return;
+      if (boardTool !== "pointer") return;
+      e.preventDefault();
+      const p = canvasPoint(e);
+      const hit = hitTestTextElement(p);
+      if (!hit) return;
+      openInlineTextInput({ x: hit.element.x, y: hit.element.y }, { editIndex: hit.index });
+    });
+
+    window.addEventListener("paste", async (e) => {
+      if (!activeRoomId) return;
+      if (activeTextInput && document.activeElement === activeTextInput) return;
+      const items = e.clipboardData?.items;
+      if (!items?.length) return;
+      const imageItem = [...items].find((it) => String(it.type || "").startsWith("image/"));
+      if (!imageItem) return;
+      const file = imageItem.getAsFile?.();
+      if (!file) return;
+
+      e.preventDefault();
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        const img = await loadImageFromSrc(dataUrl);
+        const visW = canvas.width / boardZoom;
+        const visH = canvas.height / boardZoom;
+        const maxW = Math.round(visW * 0.55);
+        const maxH = Math.round(visH * 0.55);
+        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+        const w = Math.max(32, Math.round(img.width * scale));
+        const h = Math.max(32, Math.round(img.height * scale));
+        const cx = (canvas.width / 2 - boardPanX) / boardZoom;
+        const cy = (canvas.height / 2 - boardPanY) / boardZoom;
+        const x = Math.round(cx - w / 2);
+        const y = Math.round(cy - h / 2);
+
+        boardImageCache.set(dataUrl, { loading: false, ready: true, image: img });
+        const next = cloneBoardState(boardState);
+        next.elementos.push({ type: "image", src: dataUrl, x, y, w, h });
+        applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+        log("Imagen pegada en el tablero.");
+      } catch (err) {
+        console.error(err);
+        log("No se pudo pegar la imagen: " + (err?.message || err));
+      }
+    });
+
+    function isBoardShortcutBlockedTarget(target) {
+      if (!target) return false;
+      const id = target.id || "";
+      if (id === "chatInput" || id === "email" || id === "password" || id === "nombre" || id === "roomIdInput") return true;
+      if (target.closest?.("#authSection")) return true;
+      return false;
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (!activeRoomId || activeTextInput) return;
+      if (isBoardShortcutBlockedTarget(e.target)) return;
+
+      if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
+        if (boardTool === "pointer" && selectedElementIndex >= 0) {
+          const el = boardState.elementos[selectedElementIndex];
+          if (el?.locked) return;
+          if (el && (el.type === "text" || el.type === "image")) {
+            e.preventDefault();
+            clipboardBoardElement = JSON.parse(JSON.stringify(el));
+            log("Copiado al portapapeles del tablero (Ctrl+V).");
+            return;
+          }
+        }
+      }
+      if (e.ctrlKey && (e.key === "v" || e.key === "V") && clipboardBoardElement) {
+        e.preventDefault();
+        const copy = JSON.parse(JSON.stringify(clipboardBoardElement));
+        delete copy.locked;
+        copy.x = Math.round((copy.x || 0) + 24);
+        copy.y = Math.round((copy.y || 0) + 24);
+        const next = cloneBoardState(boardState);
+        next.elementos.push(copy);
+        selectedElementIndex = next.elementos.length - 1;
+        applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+        log("Pegado en el tablero.");
+        return;
+      }
+
+      if (e.ctrlKey && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        performBoardUndo();
+        return;
+      }
+      if (
+        e.ctrlKey &&
+        (e.key === "y" ||
+          e.key === "Y" ||
+          (e.shiftKey && (e.key === "z" || e.key === "Z")))
+      ) {
+        e.preventDefault();
+        performBoardRedo();
+        return;
+      }
+
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        boardTool === "pointer" &&
+        selectedElementIndex >= 0
+      ) {
+        const delEl = boardState.elementos?.[selectedElementIndex];
+        if (delEl?.locked) return;
+        if (delEl && (delEl.type === "text" || delEl.type === "image")) {
+          e.preventDefault();
+          const next = cloneBoardState(boardState);
+          next.elementos.splice(selectedElementIndex, 1);
+          selectedElementIndex = -1;
+          applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+          return;
+        }
+      }
+
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+        const k = e.key.toLowerCase();
+        const tools = { v: "pointer", h: "hand", p: "pencil", e: "eraser", t: "text" };
+        if (tools[k]) {
+          e.preventDefault();
+          boardTool = tools[k];
+          updateBoardToolUi();
+          return;
+        }
+      }
+
+      if (selectedElementIndex < 0) return;
+      const target = e.target;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      const el = boardState.elementos?.[selectedElementIndex];
+      if (!el || (el.type !== "text" && el.type !== "image")) return;
+      if (el.locked) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 2;
+      const before = cloneBoardState(boardState);
+      const moved = { ...el };
+      if (e.key === "ArrowUp") moved.y = Math.round((moved.y || 0) - step);
+      if (e.key === "ArrowDown") moved.y = Math.round((moved.y || 0) + step);
+      if (e.key === "ArrowLeft") moved.x = Math.round((moved.x || 0) - step);
+      if (e.key === "ArrowRight") moved.x = Math.round((moved.x || 0) + step);
+      boardState.elementos[selectedElementIndex] = moved;
+      commitPointerMutation(before);
+    });
+    $("btnToolPointer")?.addEventListener("click", () => {
+      boardTool = "pointer";
+      updateBoardToolUi();
+    });
+    $("btnToolHand")?.addEventListener("click", () => {
+      boardTool = "hand";
+      updateBoardToolUi();
+    });
+    $("btnToolPencil")?.addEventListener("click", () => {
+      boardTool = "pencil";
+      updateBoardToolUi();
+    });
+    $("btnToolEraser")?.addEventListener("click", () => {
+      boardTool = "eraser";
+      updateBoardToolUi();
+    });
+    $("btnToolText")?.addEventListener("click", () => {
+      boardTool = "text";
+      updateBoardToolUi();
+    });
+    document.querySelectorAll(".color-swatch").forEach((el) => {
+      el.addEventListener("click", () => {
+        const c = el.dataset.color;
+        if (!c) return;
+        boardColor = c;
+        if (boardTool === "eraser") boardTool = "pencil";
+        updateBoardToolUi();
+      });
+    });
+    $("boardColor")?.addEventListener("input", (e) => {
+      boardColor = e.target.value || "#111111";
+      if (boardTool === "eraser") boardTool = "pencil";
+      updateBoardToolUi();
+    });
+    $("boardLineWidth")?.addEventListener("change", (e) => {
+      boardLineWidth = Number(e.target.value) || 4;
+    });
+    $("btnBoardUndo")?.addEventListener("click", performBoardUndo);
+    $("btnBoardRedo")?.addEventListener("click", performBoardRedo);
+    $("btnBoardToggleLock")?.addEventListener("click", () => toggleSelectedElementLock());
+    $("btnBoardToggleLockFloat")?.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
+    $("btnBoardToggleLockFloat")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelectedElementLock();
+    });
+    const boardViewportEl = $("boardViewportWrap");
+    if (boardViewportEl && typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => updateSelectionLockFloatPosition()).observe(boardViewportEl);
+    }
+    window.addEventListener("resize", () => updateSelectionLockFloatPosition());
+    $("btnBoardClear")?.addEventListener("click", () => {
+      if (!activeRoomId) return;
+      if (!confirm("¿Limpiar tablero para todos?")) return;
+      applyBoardState({ elementos: [] }, { recordHistory: true, clearFuture: true, emit: true });
+    });
+    $("btnExportPdf").addEventListener("click", exportBoardToPdf);
+    $("btnBoardFollowLead")?.addEventListener("click", () => {
+      if (!activeRoomId) {
+        log("Seguir vista: no hay sala activa.");
+        return;
+      }
+      if (!socket?.connected) {
+        log("Seguir vista: sin conexión Socket.IO.");
+        setMediaStatus("Sin conexión con el servidor. Recarga la página.");
+        return;
+      }
+      if (!isRoomDocente()) {
+        log(
+          "Seguir vista: solo el docente de esta reunión puede usar este botón (comprueba que iniciaste sesión como el creador de la sala)."
+        );
+        return;
+      }
+      const next = !presenterFollowLeadActive;
+      const rid = normRoomKey(activeRoomId);
+      socket.emit(
+        "board:follow:set",
+        { roomId: rid, enabled: next },
+        (r) => {
+          if (!r?.ok) {
+            log(r?.error || "No se pudo cambiar el modo «seguir vista».");
+            setMediaStatus(r?.error || "No se pudo cambiar «seguir vista».");
+            return;
+          }
+          log(next ? "Modo «audiencia sigue mi vista» activado." : "Vista de la audiencia liberada.");
+        }
+      );
+    });
+
+    canvas.addEventListener("contextmenu", (e) => {
+      if (activeRoomId) e.preventDefault();
+    });
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        if (!activeRoomId || !e.ctrlKey || isBoardViewLocked()) return;
+        e.preventDefault();
+        const r = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / r.width;
+        const scaleY = canvas.height / r.height;
+        const sx = (e.clientX - r.left) * scaleX;
+        const sy = (e.clientY - r.top) * scaleY;
+        const factor = e.deltaY > 0 ? 0.9 : 1.1;
+        setBoardZoomAnchored(boardZoom * factor, sx, sy);
+      },
+      { passive: false }
+    );
+
+    $("boardMinimap")?.addEventListener("click", (e) => {
+      if (!activeRoomId || isBoardViewLocked()) return;
+      const mini = $("boardMinimap");
+      const c = $("board");
+      if (!mini || !c) return;
+      const r = mini.getBoundingClientRect();
+      const mx = (e.clientX - r.left) * (mini.width / r.width);
+      const my = (e.clientY - r.top) * (mini.height / r.height);
+      const wx = (mx / mini.width) * WORLD_W;
+      const wy = (my / mini.height) * WORLD_H;
+      boardPanX = c.width / 2 - wx * boardZoom;
+      boardPanY = c.height / 2 - wy * boardZoom;
+      drawBoard();
+      scheduleEmitPresenterView();
+    });
+
+    $("btnZoomIn")?.addEventListener("click", () => {
+      const c = $("board");
+      if (!c) return;
+      const cur = Math.round(boardZoom * 100);
+      const nextPct = Math.min(300, Math.ceil(cur / 10) * 10 + 10);
+      setBoardZoomAnchored(nextPct / 100, c.width / 2, c.height / 2);
+    });
+    $("btnZoomOut")?.addEventListener("click", () => {
+      const c = $("board");
+      if (!c) return;
+      const cur = Math.round(boardZoom * 100);
+      const nextPct = Math.max(10, Math.floor(cur / 10) * 10 - 10);
+      setBoardZoomAnchored(nextPct / 100, c.width / 2, c.height / 2);
+    });
+    $("btnZoomReset")?.addEventListener("click", () => {
+      if (isBoardViewLocked()) return;
+      boardZoom = 1;
+      centerCamera();
+      syncZoomUi();
+      drawBoard();
+    });
+    $("boardZoomSelect")?.addEventListener("change", (e) => {
+      const sel = e.target;
+      if (sel._zoomSyncing) return;
+      const pct = Number(sel.value);
+      if (!Number.isFinite(pct)) return;
+      const c = $("board");
+      if (!c) return;
+      setBoardZoomAnchored(pct / 100, c.width / 2, c.height / 2);
+    });
+    $("btnMinimapToggle")?.addEventListener("click", () => {
+      $("boardMinimap")?.classList.toggle("hidden-map");
+      drawBoard();
+    });
 
     window.addEventListener("pagehide", () => {
       const room = activeRoomId;
@@ -1209,6 +3038,8 @@
 
     (async function init() {
       await loadIce();
+      updateBoardToolUi();
+      updateBoardHistoryButtons();
       ensureGeneralThread();
       renderChatThreadTabs();
       refreshChatThreadPicker();
