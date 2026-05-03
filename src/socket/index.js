@@ -277,6 +277,30 @@ function attachSocketIO(io) {
       }
     });
 
+    socket.on('recording:state', async ({ roomId, active }, cb) => {
+      try {
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        if (!roomKey) {
+          cb?.({ ok: false, error: 'roomId requerido' });
+          return;
+        }
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) {
+          cb?.({ ok: false, error: 'No participas en esta reunión' });
+          return;
+        }
+        socket.to(roomKey).emit('recording:notify', {
+          roomId: roomKey,
+          userId,
+          active: !!active,
+        });
+        cb?.({ ok: true });
+      } catch (e) {
+        console.error(e);
+        cb?.({ ok: false, error: 'Error' });
+      }
+    });
+
     socket.on('board:view', async ({ roomId, view }) => {
       const roomKey = normRoomId(roomId);
       if (!roomKey || !view) return;

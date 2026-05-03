@@ -253,6 +253,13 @@
         <button type="button" id="btnEntrarSala">Entrar a la sala (Socket + WebRTC)</button>
       </div>
       <p id="cupoInfo" style="font-size:0.9rem"></p>
+      <div class="row" style="flex-wrap: wrap; align-items: flex-start; gap: 0.5rem">
+        <button type="button" id="btnLocalRecordings">Grabaciones guardadas en este navegador</button>
+        <span style="font-size: 0.82rem; color: #64748b"
+          >Copia de seguridad local si el navegador bloquea la descarga al salir.</span
+        >
+      </div>
+      <div id="localRecordingsPanel" class="hidden" style="margin: 0.5rem 0; font-size: 0.9rem; max-width: 560px"></div>
     </fieldset>
   </section>
 
@@ -260,11 +267,26 @@
     <fieldset>
       <legend>En reunión</legend>
       <p>Sala: <code id="activeRoomLabel"></code></p>
+      <div class="row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.35rem">
+        <label style="margin: 0"
+          >Micrófono
+          <select id="audioInputSelect" style="min-width: 200px; max-width: min(100vw, 320px)"></select>
+        </label>
+        <label style="margin: 0"
+          >Cámara
+          <select id="videoInputSelect" style="min-width: 200px; max-width: min(100vw, 320px)"></select>
+        </label>
+        <button type="button" id="btnApplyMediaDevices">Aplicar dispositivos</button>
+        <button type="button" id="btnRefreshMediaDevices" title="Lista micrófonos y cámaras detectados">Actualizar lista</button>
+      </div>
       <div class="row room-controls" id="roomMediaControls">
         <button type="button" id="btnToggleMic" title="Silenciar o activar micrófono">Micrófono: encendido</button>
         <button type="button" id="btnToggleCam" title="Apagar o encender cámara">Cámara: encendida</button>
         <button type="button" id="btnReiniciarMedios" title="Vuelve a pedir cámara y micrófono y actualiza lo que envías">
           Reiniciar cámara y mic
+        </button>
+        <button type="button" id="btnRecordMic" title="Graba el micrófono local mezclado con el audio de todos los participantes conectados">
+          Grabar audio de la reunión
         </button>
         <button type="button" id="btnSalirSala">Colgar y salir de la reunión</button>
       </div>
@@ -464,7 +486,280 @@
     /** Vista del docente recibida antes de marcar `followingPresenter` (orden de red). */
     let pendingPresenterView = null;
 
+    /** Grabación de audio: MediaRecorder sobre mezcla Web Audio (mic local + remotos). */
+    let micMediaRecorder = null;
+    /** @type {BlobPart[]} */
+    let micRecordedChunks = [];
+    let micRecorderChosenMime = "";
+    /** @type {AudioContext | null} */
+    let mixAudioCtx = null;
+    /** @type {MediaStreamAudioDestinationNode | null} */
+    let mixDestination = null;
+    /** @type {MediaStreamAudioSourceNode | null} */
+    let mixLocalSource = null;
+    /** @type {Map<string, MediaStreamAudioSourceNode>} */
+    const mixRemoteSources = new Map();
+    /** Sala usada al nombrar/difundir grabación si `activeRoomId` aún no está (p. ej. cierre). */
+    let lastKnownRoomIdForRecording = null;
+
+    const IDB_NAME = "my-own-zoom";
+    const IDB_VERSION = 1;
+    const IDB_RECORDINGS = "recordings";
+
     const $ = (id) => document.getElementById(id);
+
+    function openIdb() {
+      return new Promise((resolve, reject) => {
+        const r = indexedDB.open(IDB_NAME, IDB_VERSION);
+        r.onerror = () => reject(r.error);
+        r.onupgradeneeded = () => {
+          const db = r.result;
+          if (!db.objectStoreNames.contains(IDB_RECORDINGS)) {
+            db.createObjectStore(IDB_RECORDINGS, { keyPath: "id", autoIncrement: true });
+          }
+        };
+        r.onsuccess = () => resolve(r.result);
+      });
+    }
+
+    async function idbSaveRecording(blob, mime, roomLabel) {
+      if (!blob || blob.size === 0) return;
+      const db = await openIdb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_RECORDINGS, "readwrite");
+        tx.objectStore(IDB_RECORDINGS).add({
+          blob,
+          mime: mime || "audio/webm",
+          roomLabel: String(roomLabel || "sin-sala").slice(0, 64),
+          createdAt: Date.now(),
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function idbListRecordings() {
+      const db = await openIdb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_RECORDINGS, "readonly");
+        const req = tx.objectStore(IDB_RECORDINGS).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function idbDeleteRecording(id) {
+      const db = await openIdb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_RECORDINGS, "readwrite");
+        tx.objectStore(IDB_RECORDINGS).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    function triggerDownloadBlob(blob, mime, roomLabel) {
+      try {
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const safe = String(roomLabel || "sin-sala").slice(0, 36);
+        const ext = String(mime || "").includes("webm") ? "webm" : "bin";
+        const filename = `grabacion-audio-reunion-${safe}-${stamp}.${ext}`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return true;
+      } catch (e) {
+        console.warn("triggerDownloadBlob", e);
+        return false;
+      }
+    }
+
+    function buildMediaConstraintsFromSelectors() {
+      const aSel = $("audioInputSelect");
+      const vSel = $("videoInputSelect");
+      /** Reduce “bombeo” de volumen en grabación; navegadores que no soporten autoGainControl lo ignoran. */
+      const audioBase = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: false,
+      };
+      const audio = aSel?.value ? { ...audioBase, deviceId: { exact: aSel.value } } : { ...audioBase };
+      const video = vSel?.value ? { deviceId: { exact: vSel.value } } : { facingMode: "user" };
+      return { audio, video };
+    }
+
+    function syncDeviceSelectorsFromLocalStream() {
+      const aSel = $("audioInputSelect");
+      const vSel = $("videoInputSelect");
+      if (!localStream || !aSel || !vSel) return;
+      const at = localStream.getAudioTracks()[0];
+      const vt = localStream.getVideoTracks()[0];
+      const as = at?.getSettings?.() || {};
+      const vs = vt?.getSettings?.() || {};
+      if (as.deviceId && [...aSel.options].some((o) => o.value === as.deviceId)) {
+        aSel.value = as.deviceId;
+      }
+      if (vs.deviceId && [...vSel.options].some((o) => o.value === vs.deviceId)) {
+        vSel.value = vs.deviceId;
+      }
+    }
+
+    async function refreshMediaDeviceSelectors() {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const aSel = $("audioInputSelect");
+      const vSel = $("videoInputSelect");
+      if (!aSel || !vSel) return;
+      const prevA = aSel.value;
+      const prevV = vSel.value;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter((d) => d.kind === "audioinput");
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      const fill = (sel, list, prev) => {
+        sel.innerHTML = "";
+        const def = document.createElement("option");
+        def.value = "";
+        def.textContent = "Predeterminado del sistema";
+        sel.appendChild(def);
+        list.forEach((d) => {
+          const opt = document.createElement("option");
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `${d.kind.slice(0, 5)}…${String(d.deviceId).slice(0, 8)}`;
+          sel.appendChild(opt);
+        });
+        if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+      };
+      fill(aSel, audioInputs, prevA);
+      fill(vSel, videoInputs, prevV);
+      syncDeviceSelectorsFromLocalStream();
+    }
+
+    async function applyMediaDevicesFromSelectors() {
+      if (!activeRoomId) {
+        log("Entra en una sala antes de cambiar dispositivos.");
+        return;
+      }
+      setMediaStatus("Cambiando micrófono o cámara…");
+      try {
+        await stopMicOnlyRecording({ download: false });
+        const constraints = buildMediaConstraintsFromSelectors();
+        if (localStream) {
+          localStream.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch (_) {}
+          });
+          localStream = null;
+        }
+        const lv = $("localVideo");
+        if (lv) lv.srcObject = null;
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (lv) lv.srcObject = localStream;
+        syncMediaButtons();
+        await syncLocalTracksToAllSenders();
+        updateLocalAggregateStatus();
+        await refreshMediaDeviceSelectors();
+        setMediaStatus("Dispositivos aplicados.");
+        log("Micrófono y/o cámara actualizados.");
+      } catch (e) {
+        const msg = humanizeGetUserMediaError(e);
+        setMediaStatus(msg);
+        log("Dispositivos: " + msg);
+      }
+    }
+
+    async function renderLocalRecordingsPanel() {
+      const panel = $("localRecordingsPanel");
+      if (!panel) return;
+      let rows;
+      try {
+        rows = await idbListRecordings();
+      } catch (e) {
+        panel.textContent = "No se pudo leer el almacenamiento local.";
+        return;
+      }
+      panel.innerHTML = "";
+      if (!rows.length) {
+        panel.appendChild(document.createTextNode("No hay grabaciones guardadas en este navegador."));
+        return;
+      }
+      rows
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        .forEach((row) => {
+          const wrap = document.createElement("div");
+          wrap.style.marginBottom = "0.45rem";
+          wrap.style.display = "flex";
+          wrap.style.flexWrap = "wrap";
+          wrap.style.gap = "0.35rem";
+          wrap.style.alignItems = "center";
+          const dt = new Date(row.createdAt || Date.now()).toLocaleString();
+          const span = document.createElement("span");
+          span.textContent = `${dt} · sala ${row.roomLabel || "?"} · ${Math.round((row.blob?.size || 0) / 1024)} KB`;
+          const btnDl = document.createElement("button");
+          btnDl.type = "button";
+          btnDl.textContent = "Descargar";
+          btnDl.addEventListener("click", () => {
+            if (!row.blob) return;
+            triggerDownloadBlob(row.blob, row.mime, row.roomLabel);
+          });
+          const btnDel = document.createElement("button");
+          btnDel.type = "button";
+          btnDel.textContent = "Eliminar";
+          btnDel.addEventListener("click", async () => {
+            if (!confirm("¿Eliminar esta copia local?")) return;
+            try {
+              await idbDeleteRecording(row.id);
+              await renderLocalRecordingsPanel();
+            } catch (e) {
+              log("No se pudo eliminar: " + (e?.message || e));
+            }
+          });
+          wrap.appendChild(span);
+          wrap.appendChild(btnDl);
+          wrap.appendChild(btnDel);
+          panel.appendChild(wrap);
+        });
+    }
+
+    function emitRecordingState(active) {
+      const rid = activeRoomId || lastKnownRoomIdForRecording;
+      if (!rid) return;
+      if (!socket?.connected) {
+        setMediaStatus("Sin Socket.IO: los demás no recibirán aviso de grabación.");
+        log("Grabación: servidor no conectado; aviso a otros no enviado.");
+        return;
+      }
+      socket.emit("recording:state", { roomId: normRoomKey(rid), active }, (resp) => {
+        if (resp && resp.ok === false) {
+          log("recording:state rechazado: " + (resp.error || "error"));
+          setMediaStatus("No se pudo avisar a la sala sobre la grabación.");
+        }
+      });
+    }
+
+    function appendRecordingNotice(text) {
+      ensureGeneralThread();
+      const thread = chatThreads.get("general");
+      if (!thread) return;
+      thread.messages.push({
+        mensajeId: "local-sys-" + Date.now(),
+        contenido: text,
+        tipo: "general",
+        marcaTiempo: new Date().toISOString(),
+        autor: { nombre: "Sala", usuarioId: null },
+      });
+      if (activeChatThreadKey !== "general") {
+        thread.unread = (thread.unread || 0) + 1;
+      }
+      renderChatThreadTabs();
+      renderChatMessages();
+      log(text);
+    }
 
     function sameActiveRoom(a, b) {
       return String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
@@ -498,7 +793,264 @@
       $("roomSection").classList.remove("hidden");
     }
 
-    function stopLocalMedia() {
+    function getPreferredMicRecorderMimeType() {
+      const candidates = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+      ];
+      if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+      for (const c of candidates) {
+        if (MediaRecorder.isTypeSupported(c)) return c;
+      }
+      return "";
+    }
+
+    function isMicRecordingActive() {
+      return !!(micMediaRecorder && micMediaRecorder.state === "recording");
+    }
+
+    function updateMicRecordButton() {
+      const btn = $("btnRecordMic");
+      if (!btn) return;
+      const rec = isMicRecordingActive();
+      btn.textContent = rec ? "Parar grabación de audio" : "Grabar audio de la reunión";
+      btn.setAttribute("aria-pressed", rec ? "true" : "false");
+    }
+
+    function disconnectRemotePeerFromMix(remoteSocketId) {
+      const src = mixRemoteSources.get(remoteSocketId);
+      if (!src) return;
+      try {
+        src.disconnect();
+      } catch (_) {}
+      mixRemoteSources.delete(remoteSocketId);
+    }
+
+    function teardownRecordingAudioMix() {
+      if (mixLocalSource) {
+        try {
+          mixLocalSource.disconnect();
+        } catch (_) {}
+        mixLocalSource = null;
+      }
+      for (const id of [...mixRemoteSources.keys()]) {
+        disconnectRemotePeerFromMix(id);
+      }
+      mixRemoteSources.clear();
+      if (mixAudioCtx && mixAudioCtx.state !== "closed") {
+        mixAudioCtx.close().catch(() => {});
+      }
+      mixAudioCtx = null;
+      mixDestination = null;
+    }
+
+    function connectLocalToMix() {
+      if (!mixDestination || !mixAudioCtx) return;
+      if (mixLocalSource) {
+        try {
+          mixLocalSource.disconnect();
+        } catch (_) {}
+        mixLocalSource = null;
+      }
+      const tracks = (localStream?.getAudioTracks() || []).filter((t) => t.readyState === "live");
+      if (!tracks.length) return;
+      try {
+        const src = mixAudioCtx.createMediaStreamSource(new MediaStream(tracks));
+        src.connect(mixDestination);
+        mixLocalSource = src;
+      } catch (e) {
+        console.warn("connectLocalToMix", e);
+      }
+    }
+
+    function connectRemotePeerToMix(remoteSocketId) {
+      if (!mixDestination || !mixAudioCtx) return;
+      disconnectRemotePeerFromMix(remoteSocketId);
+      const pc = pcs.get(remoteSocketId);
+      if (!pc) return;
+      const audioTracks = pc
+        .getReceivers()
+        .map((r) => r.track)
+        .filter((t) => t && t.kind === "audio" && t.readyState === "live");
+      if (!audioTracks.length) return;
+      try {
+        const stream = new MediaStream(audioTracks);
+        const src = mixAudioCtx.createMediaStreamSource(stream);
+        src.connect(mixDestination);
+        mixRemoteSources.set(remoteSocketId, src);
+      } catch (e) {
+        console.warn("connectRemotePeerToMix", e);
+      }
+    }
+
+    /**
+     * Detiene la grabación de audio mezclado. Si `download`, descarga un .webm (o mime del navegador).
+     * @param {{ download?: boolean }} options
+     */
+    async function stopMicOnlyRecording(options = { download: true }) {
+      const rec = micMediaRecorder;
+      const shouldNotifyStop = !!(rec && rec.state === "recording");
+      if (!rec || rec.state === "inactive") {
+        micMediaRecorder = null;
+        micRecordedChunks = [];
+        micRecorderChosenMime = "";
+        teardownRecordingAudioMix();
+        updateMicRecordButton();
+        return;
+      }
+      await new Promise((resolve) => {
+        const done = () => resolve();
+        rec.addEventListener("stop", done, { once: true });
+        try {
+          rec.stop();
+        } catch (e) {
+          console.warn("stopMicOnlyRecording", e);
+          resolve();
+        }
+      });
+      const mime = micRecorderChosenMime || rec.mimeType || "audio/webm";
+      const chunks = micRecordedChunks.slice();
+      micMediaRecorder = null;
+      micRecordedChunks = [];
+      micRecorderChosenMime = "";
+      updateMicRecordButton();
+      const blob = new Blob(chunks, { type: mime });
+      const roomKey = String(activeRoomId || lastKnownRoomIdForRecording || "sin-sala").slice(0, 36);
+      if (blob.size > 0) {
+        try {
+          await idbSaveRecording(blob, mime, roomKey);
+        } catch (e) {
+          console.warn("idbSaveRecording", e);
+          log("No se pudo guardar copia en IndexedDB: " + (e?.message || e));
+        }
+        if (options.download !== false) {
+          const okDl = triggerDownloadBlob(blob, mime, roomKey);
+          if (okDl) {
+            log("Grabación descargada; también hay copia local en el navegador (IndexedDB).");
+            setMediaStatus("Grabación terminada: archivo descargado.");
+          } else {
+            log(
+              "La descarga automática pudo bloquearse. Copia guardada en este navegador → botón «Grabaciones guardadas»."
+            );
+            setMediaStatus("Grabación guardada en el navegador (usa «Grabaciones guardadas» si no ves la descarga).");
+          }
+        } else {
+          log(
+            "Grabación detenida sin descarga automática; si había datos, quedó copia en IndexedDB (panel del lobby)."
+          );
+          setMediaStatus("");
+        }
+      } else {
+        log("Grabación sin datos (0 bytes). Revisa micrófono y permisos.");
+        setMediaStatus("No se grabó audio (0 bytes). ¿Micrófono silenciado o bloqueado?");
+      }
+      teardownRecordingAudioMix();
+      if (shouldNotifyStop) {
+        emitRecordingState(false);
+      }
+    }
+
+    async function startMicOnlyRecording() {
+      if (typeof MediaRecorder === "undefined") {
+        log("Este navegador no soporta MediaRecorder.");
+        setMediaStatus("Grabación no disponible en este navegador.");
+        return;
+      }
+      if (!activeRoomId) {
+        log("Entra en una sala antes de grabar.");
+        return;
+      }
+      if (isMicRecordingActive()) {
+        log("Ya hay una grabación de audio en curso.");
+        return;
+      }
+      try {
+        await ensureLocalStream();
+      } catch {
+        return;
+      }
+      teardownRecordingAudioMix();
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) {
+          log("Este navegador no expone AudioContext.");
+          setMediaStatus("Mezcla de audio no disponible.");
+          return;
+        }
+        mixAudioCtx = new AC();
+        await mixAudioCtx.resume();
+      } catch (e) {
+        log("No se pudo iniciar AudioContext: " + (e?.message || e));
+        setMediaStatus("Grabación de audio no disponible (AudioContext).");
+        teardownRecordingAudioMix();
+        return;
+      }
+      mixDestination = mixAudioCtx.createMediaStreamDestination();
+      connectLocalToMix();
+      for (const sid of pcs.keys()) {
+        connectRemotePeerToMix(sid);
+      }
+
+      const recordStream = mixDestination.stream;
+      const mime = getPreferredMicRecorderMimeType();
+      micRecordedChunks = [];
+      try {
+        micMediaRecorder = mime ? new MediaRecorder(recordStream, { mimeType: mime }) : new MediaRecorder(recordStream);
+      } catch (e) {
+        try {
+          micMediaRecorder = new MediaRecorder(recordStream);
+        } catch (e2) {
+          log("No se pudo iniciar MediaRecorder: " + (e2?.message || e2));
+          setMediaStatus("No se pudo iniciar la grabación.");
+          teardownRecordingAudioMix();
+          return;
+        }
+      }
+      micRecorderChosenMime = micMediaRecorder.mimeType || mime || "audio/webm";
+      micMediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) micRecordedChunks.push(e.data);
+      };
+      micMediaRecorder.onerror = (ev) => {
+        console.warn("MediaRecorder error", ev);
+        log("Error en la grabación: " + (ev.error?.message || "desconocido"));
+      };
+      try {
+        /** Sin timeslice: un solo flujo de datos al parar → menos artefactos en límites de chunk (.webm). */
+        micMediaRecorder.start();
+      } catch (e) {
+        micMediaRecorder = null;
+        micRecordedChunks = [];
+        teardownRecordingAudioMix();
+        log("Grabación: " + (e?.message || e));
+        return;
+      }
+      lastKnownRoomIdForRecording = activeRoomId;
+      emitRecordingState(true);
+      updateMicRecordButton();
+      setMediaStatus(
+        "Grabando audio… Pulsa «Parar grabación de audio» para terminar y descargar (o sal de la sala)."
+      );
+      log(
+        "Grabación de audio iniciada (mic local + participantes conectados). Pulsa de nuevo para parar y descargar."
+      );
+    }
+
+    async function toggleMicOnlyRecording() {
+      if (isMicRecordingActive()) {
+        await stopMicOnlyRecording({ download: true });
+      } else {
+        await startMicOnlyRecording();
+      }
+    }
+
+    /**
+     * Libera cámara/micrófono. Opcionalmente descarga la grabación de audio si sigue activa.
+     * @param {{ micRecordingDownload?: boolean }} opts
+     */
+    async function stopLocalMedia(opts = {}) {
+      const downloadMic = opts.micRecordingDownload === true;
+      await stopMicOnlyRecording({ download: downloadMic });
       if (localStream) {
         localStream.getTracks().forEach((t) => {
           try {
@@ -510,6 +1062,7 @@
       const lv = $("localVideo");
       if (lv) lv.srcObject = null;
       syncMediaButtons();
+      updateMicRecordButton();
     }
 
     function syncMediaButtons() {
@@ -560,6 +1113,9 @@
             console.warn("replaceTrack", e);
           }
         }
+      }
+      if (isMicRecordingActive()) {
+        connectLocalToMix();
       }
     }
 
@@ -612,13 +1168,11 @@
           syncMediaButtons();
           return localStream;
         }
-        stopLocalMedia();
+        await stopLocalMedia();
       }
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
-          audio: { echoCancellation: true, noiseSuppression: true },
-        });
+        const constraints = buildMediaConstraintsFromSelectors();
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
         acquiredNew = true;
       } catch (e) {
         setMediaStatus(humanizeGetUserMediaError(e));
@@ -627,6 +1181,7 @@
       $("localVideo").srcObject = localStream;
       setMediaStatus("");
       syncMediaButtons();
+      refreshMediaDeviceSelectors().catch(() => {});
       if (acquiredNew && pcs.size > 0) {
         try {
           await syncLocalTracksToAllSenders();
@@ -640,6 +1195,7 @@
 
     async function reiniciarMediosEnReunion() {
       if (!activeRoomId) return;
+      await stopMicOnlyRecording({ download: false });
       setMediaStatus("Reiniciando cámara y micrófono…");
       try {
         if (localStream) {
@@ -661,6 +1217,7 @@
     }
 
     function teardownPeerPcOnly(remoteSocketId) {
+      disconnectRemotePeerFromMix(remoteSocketId);
       const pc = pcs.get(remoteSocketId);
       if (pc) {
         if (pc._peerStatusHandler) {
@@ -728,6 +1285,9 @@
       pc.ontrack = (e) => {
         const vid = remoteVideos.get(remoteSocketId);
         if (vid) vid.srcObject = e.streams[0];
+        if (isMicRecordingActive()) {
+          connectRemotePeerToMix(remoteSocketId);
+        }
       };
 
       const onPcState = () => {
@@ -1597,6 +2157,21 @@
           }
           if (socketId) cleanupPeer(socketId);
         });
+        socket.on("recording:notify", ({ userId, active }) => {
+          if (!userId) return;
+          const sid = String(currentUser?.usuarioId || "").trim().toLowerCase();
+          const oid = String(userId || "").trim().toLowerCase();
+          if (sid && oid === sid) return;
+          const u = [...participantsById.values()].find(
+            (x) => String(x?.usuarioId || "").trim().toLowerCase() === oid
+          );
+          const name = u?.nombre || oid.slice(0, 8);
+          appendRecordingNotice(
+            active
+              ? `${name} inició una grabación de audio en esta sala.`
+              : `${name} detuvo la grabación de audio.`
+          );
+        });
       });
     }
 
@@ -1618,7 +2193,7 @@
           : e?.message || "Error al preparar la reunión";
         log(msg);
         setMediaStatus(msg);
-        stopLocalMedia();
+        await stopLocalMedia({ micRecordingDownload: false });
         return;
       }
 
@@ -1638,6 +2213,7 @@
             activeRoomId = normRoomKey(
               resp.roomId != null && resp.roomId !== "" ? resp.roomId : roomId
             );
+            lastKnownRoomIdForRecording = activeRoomId;
             roomDocenteUsuarioId =
               resp.docenteUsuarioId != null
                 ? String(resp.docenteUsuarioId)
@@ -1667,7 +2243,9 @@
               }
             }
             syncMediaButtons();
+            updateMicRecordButton();
             updateLocalAggregateStatus();
+            refreshMediaDeviceSelectors().catch(() => {});
             setTimeout(() => {
               if (!followingPresenter) {
                 resetBoardCamera();
@@ -1680,18 +2258,23 @@
           });
         });
       } catch {
-        stopLocalMedia();
+        await stopLocalMedia({ micRecordingDownload: false });
       }
     }
 
-    function leaveRoom() {
+    async function leaveRoom() {
       const room = activeRoomId;
       if (socket && room) {
         try {
           socket.emit("room:leave", { roomId: room });
         } catch (_) {}
       }
+      updateBoardFollowUi();
+      for (const id of [...pcs.keys()]) cleanupPeer(id);
+      await stopLocalMedia({ micRecordingDownload: true });
+
       activeRoomId = null;
+      lastKnownRoomIdForRecording = null;
       roomDocenteUsuarioId = null;
       presenterFollowLeadActive = false;
       boardFollowRoomActive = false;
@@ -1702,9 +2285,6 @@
         clearTimeout(presenterViewEmitTimer);
         presenterViewEmitTimer = null;
       }
-      updateBoardFollowUi();
-      for (const id of [...pcs.keys()]) cleanupPeer(id);
-      stopLocalMedia();
       closeInlineTextInput(false);
       drawing = false;
       currentStroke = null;
@@ -1779,7 +2359,7 @@
     });
 
     $("btnLogout").addEventListener("click", () => {
-      leaveRoom();
+      void leaveRoom().catch((err) => console.warn(err));
       if (socket) {
         socket.disconnect();
         socket = null;
@@ -1852,7 +2432,26 @@
     });
 
     $("btnEntrarSala").addEventListener("click", () => enterRoom().catch(() => {}));
-    $("btnSalirSala").addEventListener("click", () => leaveRoom());
+    $("btnSalirSala").addEventListener("click", () =>
+      void leaveRoom().catch((err) => console.warn(err))
+    );
+    $("btnRecordMic").addEventListener("click", () =>
+      void toggleMicOnlyRecording().catch((err) => console.warn(err))
+    );
+    $("btnApplyMediaDevices")?.addEventListener("click", () =>
+      void applyMediaDevicesFromSelectors().catch((err) => console.warn(err))
+    );
+    $("btnRefreshMediaDevices")?.addEventListener("click", () =>
+      void refreshMediaDeviceSelectors().catch((err) => console.warn(err))
+    );
+    $("btnLocalRecordings")?.addEventListener("click", async () => {
+      const panel = $("localRecordingsPanel");
+      if (!panel) return;
+      panel.classList.toggle("hidden");
+      if (!panel.classList.contains("hidden")) {
+        await renderLocalRecordingsPanel();
+      }
+    });
 
     $("btnEnviarChat").addEventListener("click", () => {
       const contenido = $("chatInput").value.trim();
@@ -3019,6 +3618,13 @@
       drawBoard();
     });
 
+    window.addEventListener("beforeunload", (e) => {
+      if (isMicRecordingActive()) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    });
+
     window.addEventListener("pagehide", () => {
       const room = activeRoomId;
       if (socket?.connected && room) {
@@ -3026,14 +3632,7 @@
           socket.emit("room:leave", { roomId: room });
         } catch (_) {}
       }
-      if (localStream) {
-        localStream.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch (_) {}
-        });
-        localStream = null;
-      }
+      void stopLocalMedia({ micRecordingDownload: true }).catch(() => {});
     });
 
     (async function init() {
