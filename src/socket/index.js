@@ -289,6 +289,10 @@ function attachSocketIO(io) {
           cb?.({ ok: false, error: 'No participas en esta reunión' });
           return;
         }
+        if (!sameUsuarioId(reunion.docenteUsuarioId, userId)) {
+          cb?.({ ok: false, error: 'Solo el docente de la reunión puede grabar' });
+          return;
+        }
         socket.to(roomKey).emit('recording:notify', {
           roomId: roomKey,
           userId,

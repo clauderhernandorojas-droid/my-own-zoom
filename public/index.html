@@ -301,7 +301,11 @@
         <button type="button" id="btnApplyMediaDevices">Aplicar dispositivos</button>
         <button type="button" id="btnRefreshMediaDevices" title="Lista micrófonos y cámaras detectados">Actualizar lista</button>
       </div>
-      <div class="record-mix-banner" title="Solo diagnóstico: qué entra en el archivo de grabación (no afecta la llamada WebRTC)">
+      <div
+        id="recordMixBanner"
+        class="record-mix-banner hidden"
+        title="Solo diagnóstico: qué entra en el archivo de grabación (no afecta la llamada WebRTC)"
+      >
         <label for="recordMixModeSelect">Mezcla grabación</label>
         <select id="recordMixModeSelect">
           <option value="full" selected>Completa (mic + remotos)</option>
@@ -315,7 +319,12 @@
         <button type="button" id="btnReiniciarMedios" title="Vuelve a pedir cámara y micrófono y actualiza lo que envías">
           Reiniciar cámara y mic
         </button>
-        <button type="button" id="btnRecordMic" title="Graba el micrófono local mezclado con el audio de todos los participantes conectados">
+        <button
+          type="button"
+          id="btnRecordMic"
+          class="hidden"
+          title="Graba el micrófono local mezclado con el audio de todos los participantes conectados"
+        >
           Grabar audio de la reunión
         </button>
         <button type="button" id="btnSalirSala">Colgar y salir de la reunión</button>
@@ -767,6 +776,7 @@
     }
 
     function emitRecordingState(active) {
+      if (!isRoomDocente()) return;
       const rid = activeRoomId || lastKnownRoomIdForRecording;
       if (!rid) return;
       if (!socket?.connected) {
@@ -1087,6 +1097,11 @@
         setMediaStatus("Grabación no disponible en este navegador.");
         return;
       }
+      if (!isRoomDocente()) {
+        log("Solo el docente de la reunión puede iniciar la grabación.");
+        setMediaStatus("La grabación solo está disponible para el docente de esta sala.");
+        return;
+      }
       if (!activeRoomId) {
         log("Entra en una sala antes de grabar.");
         return;
@@ -1183,6 +1198,10 @@
     }
 
     async function toggleMicOnlyRecording() {
+      if (!isRoomDocente()) {
+        log("Solo el docente de la reunión puede usar la grabación.");
+        return;
+      }
       if (isMicRecordingActive()) {
         await stopMicOnlyRecording({ download: true });
       } else {
@@ -1818,6 +1837,25 @@
       }
     }
 
+    /** Controles de grabación de audio: solo el docente dueño de la reunión (`roomDocenteUsuarioId`). */
+    function updateTeacherRecordingControlsVisibility() {
+      const show = !!(activeRoomId && isRoomDocente());
+      const banner = $("recordMixBanner");
+      const btn = $("btnRecordMic");
+      if (banner) {
+        banner.classList.toggle("hidden", !show);
+        banner.setAttribute("aria-hidden", show ? "false" : "true");
+      }
+      if (btn) {
+        btn.classList.toggle("hidden", !show);
+        btn.setAttribute("aria-hidden", show ? "false" : "true");
+      }
+      if (!show && isMicRecordingActive()) {
+        stopMicOnlyRecording({ download: false }).catch(() => {});
+      }
+      updateMicRecordButton();
+    }
+
     function setBoardZoomAnchored(newZoom, anchorSX, anchorSY) {
       if (isBoardViewLocked()) return;
       const canvas = $("board");
@@ -2188,6 +2226,7 @@
       roomDocenteUsuarioId =
         reunion?.docenteUsuarioId != null ? String(reunion.docenteUsuarioId) : null;
       updateBoardFollowUi();
+      updateTeacherRecordingControlsVisibility();
       if (!reunionId) return;
       const partData = await api("/api/reuniones/" + reunionId + "/participantes");
       (partData.participantes || []).forEach((p) => {
@@ -2422,6 +2461,7 @@
       activeRoomId = null;
       lastKnownRoomIdForRecording = null;
       roomDocenteUsuarioId = null;
+      updateTeacherRecordingControlsVisibility();
       presenterFollowLeadActive = false;
       boardFollowRoomActive = false;
       followingPresenter = false;

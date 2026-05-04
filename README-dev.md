@@ -24,7 +24,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 ### Cliente (`public/index.html`)
 
 - Una sola página: **login/registro**, listado y creación de **reuniones**, **chat** (general y privado con reglas docente↔estudiante), **tablero** colaborativo (herramientas, zoom, minimapa, seguimiento de vista del docente, persistencia vía socket + debounce a BD), **videollamadas WebRTC** (oferta/respuesta/ICE por Socket.io).
-- **Grabación de audio de la reunión**: `MediaRecorder` sobre una mezcla construida con **Web Audio API**. Selector **«Mezcla grabación»**: reunión completa (local + remotos), solo micrófono local o solo audio remoto. Cada ruta pasa por un **`GainNode`** (~−5 dB por rama) y un **`DynamicsCompressor`** maestro suave antes del `MediaStreamDestination`. Las restricciones de captura del mic para esa ruta evitan AGC/NS/AEC agresivos (**conviene auriculares** para limitar acople si varios hablan). Estado de grabación notificado por socket (`recording:state` / `recording:notify`); copias locales respaldadas en **IndexedDB** (`recordings`).
+- **Grabación de audio de la reunión**: `MediaRecorder` sobre una mezcla construida con **Web Audio API**. Solo el **docente dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles de grabación y el servidor rechaza `recording:state` para otros participantes. Selector **«Mezcla grabación»**: reunión completa (local + remotos), solo micrófono local o solo audio remoto. Cada ruta pasa por un **`GainNode`** (~−5 dB por rama) y un **`DynamicsCompressor`** maestro suave antes del `MediaStreamDestination`. Las restricciones de captura del mic para esa ruta evitan AGC/NS/AEC agresivos (**conviene auriculares** para limitar acople si varios hablan). Estado de grabación notificado por socket (`recording:state` / `recording:notify`); copias locales respaldadas en **IndexedDB** (`recordings`).
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
 ### Cupo de sala
@@ -43,6 +43,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | Chat **privado**: estudiante solo hacia docente; docente puede escribir a estudiante; reglas en Socket y REST | `src/socket/index.js`, `src/routes/mensajes.js` |
 | **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / SQL `lower(room_id)` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
+| **Grabación de audio**: solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) existen en modelo; comentarios «Etapa 2» | `src/models/reunion.js` |
 
 ---
