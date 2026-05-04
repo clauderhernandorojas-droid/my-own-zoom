@@ -21,6 +21,28 @@
     .peer-conn-status { font-size: 0.72rem; color: #555; margin: 0.15rem 0 0.25rem; font-variant-numeric: tabular-nums; }
     .peer-retry-btn { font-size: 0.72rem; margin-top: 0.2rem; }
     .room-controls button[data-off="true"] { opacity: 0.65; }
+    .record-mix-banner {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.55rem 0.65rem;
+      margin: 0.4rem 0 0.5rem;
+      background: #f0f9ff;
+      border: 1px solid #38bdf8;
+      border-radius: 8px;
+    }
+    .record-mix-banner label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.92rem;
+      color: #0c4a6e;
+      margin: 0 0 0.4rem 0;
+    }
+    .record-mix-banner select {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
     #mediaStatus { font-size: 0.85rem; color: #333; margin: 0.25rem 0; }
     .chat-topbar { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
     .chat-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.35rem 0 0.5rem; }
@@ -279,6 +301,14 @@
         <button type="button" id="btnApplyMediaDevices">Aplicar dispositivos</button>
         <button type="button" id="btnRefreshMediaDevices" title="Lista micrófonos y cámaras detectados">Actualizar lista</button>
       </div>
+      <div class="record-mix-banner" title="Solo diagnóstico: qué entra en el archivo de grabación (no afecta la llamada WebRTC)">
+        <label for="recordMixModeSelect">Mezcla grabación</label>
+        <select id="recordMixModeSelect">
+          <option value="full" selected>Completa (mic + remotos)</option>
+          <option value="local">Solo micrófono local</option>
+          <option value="remote">Solo audio remoto</option>
+        </select>
+      </div>
       <div class="row room-controls" id="roomMediaControls">
         <button type="button" id="btnToggleMic" title="Silenciar o activar micrófono">Micrófono: encendido</button>
         <button type="button" id="btnToggleCam" title="Apagar o encender cámara">Cámara: encendida</button>
@@ -497,8 +527,15 @@
     let mixDestination = null;
     /** @type {MediaStreamAudioSourceNode | null} */
     let mixLocalSource = null;
-    /** @type {Map<string, MediaStreamAudioSourceNode>} */
+    /** @type {GainNode | null} */
+    let mixLocalGainNode = null;
+    /** @type {Map<string, { source: MediaStreamAudioSourceNode; gain: GainNode }>} */
     const mixRemoteSources = new Map();
+    /** Salida común suave antes del destino (evita picos al sumar mic + remotos). */
+    /** @type {DynamicsCompressorNode | null} */
+    let mixMasterCompressor = null;
+    /** ~ −5 dB por rama lineal; reduce saturación al mezclar varias voces. */
+    const RECORDING_MIX_BRANCH_GAIN = 0.56;
     /** Sala usada al nombrar/difundir grabación si `activeRoomId` aún no está (p. ej. cierre). */
     let lastKnownRoomIdForRecording = null;
 
@@ -583,10 +620,13 @@
     function buildMediaConstraintsFromSelectors() {
       const aSel = $("audioInputSelect");
       const vSel = $("videoInputSelect");
-      /** Reduce “bombeo” de volumen en grabación; navegadores que no soporten autoGainControl lo ignoran. */
+      /**
+       * Audio más “seco” para evitar bombeo en duplex; usar auriculares (menos riesgo de acople).
+       * El navegador puede ignorar flags que no soporte.
+       */
       const audioBase = {
-        echoCancellation: true,
-        noiseSuppression: true,
+        echoCancellation: false,
+        noiseSuppression: false,
         autoGainControl: false,
       };
       const audio = aSel?.value ? { ...audioBase, deviceId: { exact: aSel.value } } : { ...audioBase };
@@ -806,8 +846,61 @@
       return "";
     }
 
+    /** Bitrate de audio explícito (Opus/WebM); evita defaults muy bajos que suenan “comprimidos”. */
+    const RECORDER_AUDIO_BITS_PER_SECOND = 128000;
+
+    /**
+     * Crea MediaRecorder probando opciones en orden hasta que el navegador acepte una.
+     * @param {MediaStream} recordStream
+     * @param {string} mime
+     */
+    function createMeetingAudioMediaRecorder(recordStream, mime) {
+      const attempts = [];
+      if (mime) {
+        attempts.push({ mimeType: mime, audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND });
+        attempts.push({ mimeType: mime });
+      }
+      attempts.push({ audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND });
+      attempts.push({});
+      let lastErr = null;
+      for (const opts of attempts) {
+        try {
+          if (Object.keys(opts).length === 0) {
+            return new MediaRecorder(recordStream);
+          }
+          return new MediaRecorder(recordStream, opts);
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error("MediaRecorder");
+    }
+
     function isMicRecordingActive() {
       return !!(micMediaRecorder && micMediaRecorder.state === "recording");
+    }
+
+    /** full | local | remote — solo para el grafo de grabación (diagnóstico). */
+    function getRecordMixMode() {
+      const sel = $("recordMixModeSelect");
+      const v = sel?.value;
+      if (v === "local" || v === "remote") return v;
+      return "full";
+    }
+
+    function shouldConnectLocalToRecordingMix() {
+      const m = getRecordMixMode();
+      return m === "full" || m === "local";
+    }
+
+    function shouldConnectRemoteToRecordingMix() {
+      const m = getRecordMixMode();
+      return m === "full" || m === "remote";
+    }
+
+    function setRecordMixModeSelectDisabled(disabled) {
+      const sel = $("recordMixModeSelect");
+      if (sel) sel.disabled = !!disabled;
     }
 
     function updateMicRecordButton() {
@@ -819,12 +912,20 @@
     }
 
     function disconnectRemotePeerFromMix(remoteSocketId) {
-      const src = mixRemoteSources.get(remoteSocketId);
-      if (!src) return;
+      const entry = mixRemoteSources.get(remoteSocketId);
+      if (!entry) return;
       try {
-        src.disconnect();
+        entry.source.disconnect();
+      } catch (_) {}
+      try {
+        entry.gain.disconnect();
       } catch (_) {}
       mixRemoteSources.delete(remoteSocketId);
+    }
+
+    /** Destino de la cadena de grabación: compresor maestro o el destino WebAudio. */
+    function mixRecordingOutputNode() {
+      return mixMasterCompressor || mixDestination;
     }
 
     function teardownRecordingAudioMix() {
@@ -834,10 +935,22 @@
         } catch (_) {}
         mixLocalSource = null;
       }
+      if (mixLocalGainNode) {
+        try {
+          mixLocalGainNode.disconnect();
+        } catch (_) {}
+        mixLocalGainNode = null;
+      }
       for (const id of [...mixRemoteSources.keys()]) {
         disconnectRemotePeerFromMix(id);
       }
       mixRemoteSources.clear();
+      if (mixMasterCompressor) {
+        try {
+          mixMasterCompressor.disconnect();
+        } catch (_) {}
+        mixMasterCompressor = null;
+      }
       if (mixAudioCtx && mixAudioCtx.state !== "closed") {
         mixAudioCtx.close().catch(() => {});
       }
@@ -846,26 +959,38 @@
     }
 
     function connectLocalToMix() {
-      if (!mixDestination || !mixAudioCtx) return;
+      const out = mixRecordingOutputNode();
+      if (!out || !mixAudioCtx) return;
       if (mixLocalSource) {
         try {
           mixLocalSource.disconnect();
         } catch (_) {}
         mixLocalSource = null;
       }
+      if (mixLocalGainNode) {
+        try {
+          mixLocalGainNode.disconnect();
+        } catch (_) {}
+        mixLocalGainNode = null;
+      }
       const tracks = (localStream?.getAudioTracks() || []).filter((t) => t.readyState === "live");
       if (!tracks.length) return;
       try {
         const src = mixAudioCtx.createMediaStreamSource(new MediaStream(tracks));
-        src.connect(mixDestination);
+        const gain = mixAudioCtx.createGain();
+        gain.gain.value = RECORDING_MIX_BRANCH_GAIN;
+        src.connect(gain);
+        gain.connect(out);
         mixLocalSource = src;
+        mixLocalGainNode = gain;
       } catch (e) {
         console.warn("connectLocalToMix", e);
       }
     }
 
     function connectRemotePeerToMix(remoteSocketId) {
-      if (!mixDestination || !mixAudioCtx) return;
+      const out = mixRecordingOutputNode();
+      if (!out || !mixAudioCtx) return;
       disconnectRemotePeerFromMix(remoteSocketId);
       const pc = pcs.get(remoteSocketId);
       if (!pc) return;
@@ -877,8 +1002,11 @@
       try {
         const stream = new MediaStream(audioTracks);
         const src = mixAudioCtx.createMediaStreamSource(stream);
-        src.connect(mixDestination);
-        mixRemoteSources.set(remoteSocketId, src);
+        const gain = mixAudioCtx.createGain();
+        gain.gain.value = RECORDING_MIX_BRANCH_GAIN;
+        src.connect(gain);
+        gain.connect(out);
+        mixRemoteSources.set(remoteSocketId, { source: src, gain });
       } catch (e) {
         console.warn("connectRemotePeerToMix", e);
       }
@@ -896,6 +1024,7 @@
         micRecordedChunks = [];
         micRecorderChosenMime = "";
         teardownRecordingAudioMix();
+        setRecordMixModeSelectDisabled(false);
         updateMicRecordButton();
         return;
       }
@@ -949,6 +1078,7 @@
       if (shouldNotifyStop) {
         emitRecordingState(false);
       }
+      setRecordMixModeSelectDisabled(false);
     }
 
     async function startMicOnlyRecording() {
@@ -987,25 +1117,38 @@
         return;
       }
       mixDestination = mixAudioCtx.createMediaStreamDestination();
-      connectLocalToMix();
-      for (const sid of pcs.keys()) {
-        connectRemotePeerToMix(sid);
+      try {
+        mixMasterCompressor = mixAudioCtx.createDynamicsCompressor();
+        mixMasterCompressor.threshold.setValueAtTime(-22, mixAudioCtx.currentTime);
+        mixMasterCompressor.knee.setValueAtTime(30, mixAudioCtx.currentTime);
+        mixMasterCompressor.ratio.setValueAtTime(2.5, mixAudioCtx.currentTime);
+        mixMasterCompressor.attack.setValueAtTime(0.01, mixAudioCtx.currentTime);
+        mixMasterCompressor.release.setValueAtTime(0.2, mixAudioCtx.currentTime);
+        mixMasterCompressor.connect(mixDestination);
+      } catch (e) {
+        console.warn("mixMasterCompressor", e);
+        mixMasterCompressor = null;
+      }
+      const mixMode = getRecordMixMode();
+      if (shouldConnectLocalToRecordingMix()) {
+        connectLocalToMix();
+      }
+      if (shouldConnectRemoteToRecordingMix()) {
+        for (const sid of pcs.keys()) {
+          connectRemotePeerToMix(sid);
+        }
       }
 
       const recordStream = mixDestination.stream;
       const mime = getPreferredMicRecorderMimeType();
       micRecordedChunks = [];
       try {
-        micMediaRecorder = mime ? new MediaRecorder(recordStream, { mimeType: mime }) : new MediaRecorder(recordStream);
-      } catch (e) {
-        try {
-          micMediaRecorder = new MediaRecorder(recordStream);
-        } catch (e2) {
-          log("No se pudo iniciar MediaRecorder: " + (e2?.message || e2));
-          setMediaStatus("No se pudo iniciar la grabación.");
-          teardownRecordingAudioMix();
-          return;
-        }
+        micMediaRecorder = createMeetingAudioMediaRecorder(recordStream, mime);
+      } catch (e2) {
+        log("No se pudo iniciar MediaRecorder: " + (e2?.message || e2));
+        setMediaStatus("No se pudo iniciar la grabación.");
+        teardownRecordingAudioMix();
+        return;
       }
       micRecorderChosenMime = micMediaRecorder.mimeType || mime || "audio/webm";
       micMediaRecorder.ondataavailable = (e) => {
@@ -1028,11 +1171,14 @@
       lastKnownRoomIdForRecording = activeRoomId;
       emitRecordingState(true);
       updateMicRecordButton();
+      setRecordMixModeSelectDisabled(true);
       setMediaStatus(
         "Grabando audio… Pulsa «Parar grabación de audio» para terminar y descargar (o sal de la sala)."
       );
       log(
-        "Grabación de audio iniciada (mic local + participantes conectados). Pulsa de nuevo para parar y descargar."
+        "Grabación iniciada · modo mezcla: " +
+          mixMode +
+          " (completa=mic+remotos; local/remoto=diagnóstico). Pulsa de nuevo para parar."
       );
     }
 
@@ -1114,7 +1260,7 @@
           }
         }
       }
-      if (isMicRecordingActive()) {
+      if (isMicRecordingActive() && shouldConnectLocalToRecordingMix()) {
         connectLocalToMix();
       }
     }
@@ -1285,7 +1431,7 @@
       pc.ontrack = (e) => {
         const vid = remoteVideos.get(remoteSocketId);
         if (vid) vid.srcObject = e.streams[0];
-        if (isMicRecordingActive()) {
+        if (isMicRecordingActive() && shouldConnectRemoteToRecordingMix()) {
           connectRemotePeerToMix(remoteSocketId);
         }
       };

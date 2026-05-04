@@ -24,6 +24,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 ### Cliente (`public/index.html`)
 
 - Una sola página: **login/registro**, listado y creación de **reuniones**, **chat** (general y privado con reglas docente↔estudiante), **tablero** colaborativo (herramientas, zoom, minimapa, seguimiento de vista del docente, persistencia vía socket + debounce a BD), **videollamadas WebRTC** (oferta/respuesta/ICE por Socket.io).
+- **Grabación de audio de la reunión**: `MediaRecorder` sobre una mezcla construida con **Web Audio API**. Selector **«Mezcla grabación»**: reunión completa (local + remotos), solo micrófono local o solo audio remoto. Cada ruta pasa por un **`GainNode`** (~−5 dB por rama) y un **`DynamicsCompressor`** maestro suave antes del `MediaStreamDestination`. Las restricciones de captura del mic para esa ruta evitan AGC/NS/AEC agresivos (**conviene auriculares** para limitar acople si varios hablan). Estado de grabación notificado por socket (`recording:state` / `recording:notify`); copias locales respaldadas en **IndexedDB** (`recordings`).
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
 ### Cupo de sala
@@ -91,7 +92,7 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ## 6. Buenas prácticas para sesiones en Cursor
 
-- **Actualizar este `README-dev.md`** cuando: se añadan rutas o eventos de socket; cambien modelos o estrategia de BD; se añadan variables de entorno; cambie el cupo o las reglas de chat; se creen migraciones o scripts.
+- **Actualizar este `README-dev.md`** cuando: se añadan rutas o eventos de socket; cambien modelos o estrategia de BD; se añadan variables de entorno; cambie el cupo o las reglas de chat; cambie la grabación de audio o la mezcla Web Audio; se creen migraciones o scripts.
 - Así el siguiente chat o sesión puede usar este archivo como **contexto inicial** (pegar resumen o `@README-dev.md`).
 
 ---
