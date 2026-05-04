@@ -122,6 +122,18 @@
       margin: 0 0.2rem;
     }
     #chatBox { border: 1px solid #ccc; height: 180px; overflow-y: auto; padding: 0.5rem; margin: 0.5rem 0; font-size: 0.9rem; }
+    .chat-adjunto-btn { margin-right: 0.35rem; font-size: 0.82rem; padding: 0.12rem 0.4rem; cursor: pointer; }
+    #chatAdjuntoPending { font-size: 0.82rem; color: #334155; margin-left: 0.35rem; }
+    .chat-drop-zone {
+      border-radius: 8px;
+      padding: 0.25rem 0.35rem 0.45rem;
+      margin: 0 -0.35rem;
+      transition: box-shadow 0.15s, background 0.15s;
+    }
+    .chat-drop-zone.chat-drop-zone--over {
+      box-shadow: inset 0 0 0 2px #3b82f6;
+      background: rgba(59, 130, 246, 0.07);
+    }
     .board-viewport-wrap {
       position: relative;
       display: inline-block;
@@ -306,12 +318,32 @@
         class="record-mix-banner hidden"
         title="Solo diagnóstico: qué entra en el archivo de grabación (no afecta la llamada WebRTC)"
       >
-        <label for="recordMixModeSelect">Mezcla grabación</label>
+        <label for="recordMixModeSelect">Mezcla de audio en la grabación</label>
         <select id="recordMixModeSelect">
           <option value="full" selected>Completa (mic + remotos)</option>
           <option value="local">Solo micrófono local</option>
           <option value="remote">Solo audio remoto</option>
         </select>
+        <label
+          for="recordVideoLayoutSelect"
+          id="recordVideoLayoutLabel"
+          class="hidden"
+          style="margin-top: 0.45rem; display: block; font-weight: 600; font-size: 0.92rem; color: #0c4a6e"
+        >
+          Disposición en el vídeo
+        </label>
+        <select
+          id="recordVideoLayoutSelect"
+          class="hidden"
+          style="margin-top: 0.2rem; width: 100%; max-width: 100%; box-sizing: border-box"
+        >
+          <option value="top" selected>Cámaras arriba (pequeñas) · tablero debajo</option>
+          <option value="right">Tablero izquierda · cámaras derecha (pequeñas)</option>
+        </select>
+        <label id="recordVideoIncludeBoardLabel" class="hidden" style="margin-top: 0.45rem; display: flex; align-items: center; gap: 0.35rem; font-weight: normal">
+          <input type="checkbox" id="recordVideoIncludeBoard" checked />
+          Incluir tablero en el vídeo (si lo desmarcas, solo cámaras a pantalla completa)
+        </label>
       </div>
       <div class="row room-controls" id="roomMediaControls">
         <button type="button" id="btnToggleMic" title="Silenciar o activar micrófono">Micrófono: encendido</button>
@@ -321,11 +353,11 @@
         </button>
         <button
           type="button"
-          id="btnRecordMic"
+          id="btnRecordMeetingVideo"
           class="hidden"
-          title="Graba el micrófono local mezclado con el audio de todos los participantes conectados"
+          title="Graba vídeo compuesto (cámaras + opcional tablero) con la mezcla de audio elegida arriba"
         >
-          Grabar audio de la reunión
+          Grabar vídeo de la reunión
         </button>
         <button type="button" id="btnSalirSala">Colgar y salir de la reunión</button>
       </div>
@@ -339,19 +371,26 @@
         <div id="remotesContainer"></div>
       </div>
       <h2>Chat</h2>
-      <div class="chat-topbar">
-        <label style="margin:0">
-          <span style="font-size:0.82rem;color:#64748b">Abrir conversación:</span>
-          <select id="chatThreadPicker" style="min-width:260px">
-            <option value="general">General</option>
-          </select>
-        </label>
-      </div>
-      <div id="chatThreadTabs" class="chat-tabs"></div>
-      <div id="chatBox"></div>
-      <div class="row">
-        <input id="chatInput" placeholder="Mensaje" style="flex:1;min-width:200px" />
-        <button type="button" id="btnEnviarChat">Enviar</button>
+      <div id="chatDropZone" class="chat-drop-zone" title="Arrastra archivos aquí para adjuntarlos">
+        <div class="chat-topbar">
+          <label style="margin:0">
+            <span style="font-size:0.82rem;color:#64748b">Abrir conversación:</span>
+            <select id="chatThreadPicker" style="min-width:260px">
+              <option value="general">General</option>
+            </select>
+          </label>
+        </div>
+        <div id="chatThreadTabs" class="chat-tabs"></div>
+        <div id="chatBox"></div>
+        <div class="row" style="flex-wrap: wrap; align-items: center; gap: 0.35rem">
+          <input type="file" id="chatAdjuntoInput" style="display: none" />
+          <button type="button" id="btnChatAdjunto" title="Imagen, audio, PDF, Office, zip… (máx. 20 MB)">
+            Adjunto
+          </button>
+          <span id="chatAdjuntoPending"></span>
+          <input id="chatInput" placeholder="Mensaje (opcional si envías adjunto)" style="flex:1;min-width:200px" />
+          <button type="button" id="btnEnviarChat">Enviar</button>
+        </div>
       </div>
       <h2>Tablero</h2>
       <p style="font-size:0.85rem">Dibuja con el ratón; se sincroniza con la sala.</p>
@@ -442,6 +481,111 @@
       });
 
     function getToken() { return localStorage.getItem(LS); }
+
+    async function uploadChatAdjuntoFile(file) {
+      if (!activeRoomId || !getToken()) throw new Error("Sin sala o sesión");
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(
+        "/api/reuniones/room/" + encodeURIComponent(activeRoomId) + "/chat-adjunto",
+        {
+          method: "POST",
+          headers: { Authorization: "Bearer " + getToken() },
+          body: fd,
+        }
+      );
+      const text = await r.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { raw: text };
+      }
+      if (!r.ok) throw new Error(data.error || r.statusText || "Error al subir");
+      return data;
+    }
+
+    async function downloadChatAdjunto(mensajeId, suggestedName) {
+      if (!getToken()) return;
+      const r = await fetch("/api/mensajes/adjunto/" + encodeURIComponent(mensajeId), {
+        headers: { Authorization: "Bearer " + getToken() },
+      });
+      if (!r.ok) {
+        log("No se pudo descargar el adjunto.");
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = suggestedName || "adjunto";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /** Portapapeles o soltar (DnD): `files` a veces viene vacío; usar también `items`. */
+    function getFirstFileFromDataTransfer(dataTransfer) {
+      if (!dataTransfer) return null;
+      if (dataTransfer.files && dataTransfer.files.length) return dataTransfer.files[0];
+      const items = dataTransfer.items;
+      if (!items?.length) return null;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file") {
+          const f = it.getAsFile?.();
+          if (f) return f;
+        }
+      }
+      return null;
+    }
+
+    function getClipboardFile(dataTransfer) {
+      return getFirstFileFromDataTransfer(dataTransfer);
+    }
+
+    function isChatPasteOrDropTarget(el) {
+      return !!(el && el.closest && el.closest("#chatDropZone"));
+    }
+
+    function chatInputHasFocus() {
+      const ci = $("chatInput");
+      return !!(ci && document.activeElement === ci);
+    }
+
+    async function uploadPendingChatFile(file) {
+      if (!file) return;
+      if (!activeRoomId) {
+        log("Entra en una sala antes de adjuntar archivos.");
+        return;
+      }
+      if (!getToken()) {
+        log("Sesión requerida: inicia sesión para adjuntar archivos.");
+        setMediaStatus("Inicia sesión para adjuntar.");
+        return;
+      }
+      setMediaStatus("Subiendo adjunto…");
+      try {
+        const data = await uploadChatAdjuntoFile(file);
+        pendingChatAdjunto = {
+          adjuntoRelPath: data.adjuntoRelPath,
+          adjuntoNombreOriginal: data.adjuntoNombreOriginal || file.name || "archivo",
+          adjuntoMime: data.adjuntoMime,
+          adjuntoBytes: data.adjuntoBytes,
+        };
+        updateChatAdjuntoPendingUi();
+        setMediaStatus("Adjunto listo. Pulsa Enviar (el mensaje de texto es opcional).");
+      } catch (e) {
+        pendingChatAdjunto = null;
+        updateChatAdjuntoPendingUi();
+        const msg = e?.message || String(e);
+        log("Adjunto: " + msg);
+        setMediaStatus(msg);
+      }
+    }
+
     function setToken(t) { if (t) localStorage.setItem(LS, t); else localStorage.removeItem(LS); }
     function log(msg) {
       const el = document.getElementById("log");
@@ -485,6 +629,10 @@
     const chatThreads = new Map();
     let activeChatThreadKey = "general";
     let activeRoomId = null;
+    /** UUID de reunión en BD (p. ej. historial / adjuntos); la sala Socket usa `activeRoomId` (room_id). */
+    let activeReunionId = null;
+    /** Tras subir archivo al servidor, se envía con el siguiente «Enviar». */
+    let pendingChatAdjunto = null;
     let boardState = { elementos: [] };
     const boardHistory = [];
     const boardFuture = [];
@@ -525,11 +673,29 @@
     /** Vista del docente recibida antes de marcar `followingPresenter` (orden de red). */
     let pendingPresenterView = null;
 
-    /** Grabación de audio: MediaRecorder sobre mezcla Web Audio (mic local + remotos). */
-    let micMediaRecorder = null;
+    /** Grabación vídeo compuesto (canvas + misma mezcla de audio). */
+    let meetingVideoMediaRecorder = null;
     /** @type {BlobPart[]} */
-    let micRecordedChunks = [];
-    let micRecorderChosenMime = "";
+    let meetingVideoRecordedChunks = [];
+    let meetingVideoRecorderChosenMime = "";
+    /** @type {HTMLCanvasElement | null} */
+    let compositeVideoCanvas = null;
+    /** @type {CanvasRenderingContext2D | null} */
+    let compositeVideoCtx = null;
+    let compositeVideoRafId = 0;
+    const MEETING_VIDEO_W = 1280;
+    const MEETING_VIDEO_H = 720;
+    const MEETING_VIDEO_FPS = 24;
+    /** Franja superior: alto acotado; un poco más alto que antes para que object-fit: contain no deje caras minúsculas. */
+    const MEETING_STRIP_TOP_H_MIN = 90;
+    const MEETING_STRIP_TOP_H_MAX = 112;
+    /** Columna derecha: ancho acotado; algo más ancho para ratios de celda menos extremos con contain. */
+    const MEETING_STRIP_RIGHT_W_MIN = 140;
+    const MEETING_STRIP_RIGHT_W_MAX = 182;
+    /** `?debugComposite=1` — bordes rojos en celdas de vídeo y azul en el rect del tablero (solo composición de grabación). */
+    const DEBUG_COMPOSITE =
+      typeof location !== "undefined" &&
+      new URLSearchParams(location.search).get("debugComposite") === "1";
     /** @type {AudioContext | null} */
     let mixAudioCtx = null;
     /** @type {MediaStreamAudioDestinationNode | null} */
@@ -609,7 +775,10 @@
         const stamp = new Date().toISOString().replace(/[:.]/g, "-");
         const safe = String(roomLabel || "sin-sala").slice(0, 36);
         const ext = String(mime || "").includes("webm") ? "webm" : "bin";
-        const filename = `grabacion-audio-reunion-${safe}-${stamp}.${ext}`;
+        const isVid = String(mime || "").startsWith("video/");
+        const filename = isVid
+          ? `grabacion-video-reunion-${safe}-${stamp}.${ext}`
+          : `grabacion-audio-reunion-${safe}-${stamp}.${ext}`;
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -641,6 +810,45 @@
       const audio = aSel?.value ? { ...audioBase, deviceId: { exact: aSel.value } } : { ...audioBase };
       const video = vSel?.value ? { deviceId: { exact: vSel.value } } : { facingMode: "user" };
       return { audio, video };
+    }
+
+    function buildAudioOnlyConstraintsFromSelectors() {
+      const { audio } = buildMediaConstraintsFromSelectors();
+      return { audio };
+    }
+
+    /**
+     * Intenta mic+cámara; si falla, solo mic; si `allowSilentJoin` y falla todo, `MediaStream` vacío.
+     * @returns {Promise<{ stream: MediaStream, level: "av" | "audio" | "none", mediaError: string }>}
+     */
+    async function acquireLocalMediaWithFallbacks(options = {}) {
+      const allowSilentJoin = options.allowSilentJoin === true;
+      let firstErr = null;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(buildMediaConstraintsFromSelectors());
+        return { stream, level: "av", mediaError: "" };
+      } catch (e1) {
+        firstErr = e1;
+        console.warn("getUserMedia audio+video", e1);
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(buildAudioOnlyConstraintsFromSelectors());
+        return {
+          stream,
+          level: "audio",
+          mediaError: humanizeGetUserMediaError(firstErr),
+        };
+      } catch (e2) {
+        console.warn("getUserMedia audio only", e2);
+        if (allowSilentJoin) {
+          return {
+            stream: new MediaStream(),
+            level: "none",
+            mediaError: humanizeGetUserMediaError(firstErr || e2),
+          };
+        }
+        throw e2;
+      }
     }
 
     function syncDeviceSelectorsFromLocalStream() {
@@ -695,8 +903,7 @@
       }
       setMediaStatus("Cambiando micrófono o cámara…");
       try {
-        await stopMicOnlyRecording({ download: false });
-        const constraints = buildMediaConstraintsFromSelectors();
+        await stopMeetingVideoRecording({ download: false });
         if (localStream) {
           localStream.getTracks().forEach((t) => {
             try {
@@ -707,14 +914,26 @@
         }
         const lv = $("localVideo");
         if (lv) lv.srcObject = null;
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const { stream, level, mediaError } = await acquireLocalMediaWithFallbacks({
+          allowSilentJoin: true,
+        });
+        localStream = stream;
         if (lv) lv.srcObject = localStream;
         syncMediaButtons();
         await syncLocalTracksToAllSenders();
         updateLocalAggregateStatus();
         await refreshMediaDeviceSelectors();
-        setMediaStatus("Dispositivos aplicados.");
-        log("Micrófono y/o cámara actualizados.");
+        let msg = "Dispositivos aplicados.";
+        if (level === "audio") {
+          msg = "Solo micrófono (cámara no disponible). " + (mediaError ? mediaError + " " : "") + msg;
+        } else if (level === "none") {
+          msg =
+            "Sin micrófono ni cámara; tablero y chat siguen disponibles. " +
+            (mediaError ? mediaError + " " : "") +
+            msg;
+        }
+        setMediaStatus(msg);
+        log("Micrófono y/o cámara actualizados (" + level + ").");
       } catch (e) {
         const msg = humanizeGetUserMediaError(e);
         setMediaStatus(msg);
@@ -843,11 +1062,15 @@
       $("roomSection").classList.remove("hidden");
     }
 
-    function getPreferredMicRecorderMimeType() {
+    /** Bitrate de audio explícito (Opus/WebM); evita defaults muy bajos que suenan “comprimidos”. */
+    const RECORDER_AUDIO_BITS_PER_SECOND = 128000;
+    const RECORDER_VIDEO_BITS_PER_SECOND = 2_500_000;
+
+    function getPreferredMeetingVideoMimeType() {
       const candidates = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/ogg;codecs=opus",
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
       ];
       if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
       for (const c of candidates) {
@@ -856,21 +1079,22 @@
       return "";
     }
 
-    /** Bitrate de audio explícito (Opus/WebM); evita defaults muy bajos que suenan “comprimidos”. */
-    const RECORDER_AUDIO_BITS_PER_SECOND = 128000;
-
     /**
-     * Crea MediaRecorder probando opciones en orden hasta que el navegador acepte una.
+     * Crea MediaRecorder de vídeo+audio probando opciones.
      * @param {MediaStream} recordStream
      * @param {string} mime
      */
-    function createMeetingAudioMediaRecorder(recordStream, mime) {
+    function createMeetingVideoMediaRecorder(recordStream, mime) {
       const attempts = [];
       if (mime) {
-        attempts.push({ mimeType: mime, audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND });
+        attempts.push({
+          mimeType: mime,
+          videoBitsPerSecond: RECORDER_VIDEO_BITS_PER_SECOND,
+          audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND,
+        });
         attempts.push({ mimeType: mime });
       }
-      attempts.push({ audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND });
+      attempts.push({ videoBitsPerSecond: RECORDER_VIDEO_BITS_PER_SECOND, audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND });
       attempts.push({});
       let lastErr = null;
       for (const opts of attempts) {
@@ -886,8 +1110,58 @@
       throw lastErr || new Error("MediaRecorder");
     }
 
-    function isMicRecordingActive() {
-      return !!(micMediaRecorder && micMediaRecorder.state === "recording");
+    /**
+     * `AudioContext`, destino de mezcla, compresor y ramas local/remoto según modo actual.
+     * Debe llamarse tras `teardownRecordingAudioMix()` y con medios listos.
+     * @returns {Promise<boolean>}
+     */
+    async function setupRecordingMixInfrastructure() {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) {
+          log("Este navegador no expone AudioContext.");
+          setMediaStatus("Mezcla de audio no disponible.");
+          return false;
+        }
+        mixAudioCtx = new AC();
+        await mixAudioCtx.resume();
+      } catch (e) {
+        log("No se pudo iniciar AudioContext: " + (e?.message || e));
+        setMediaStatus("Grabación de audio no disponible (AudioContext).");
+        teardownRecordingAudioMix();
+        return false;
+      }
+      mixDestination = mixAudioCtx.createMediaStreamDestination();
+      try {
+        mixMasterCompressor = mixAudioCtx.createDynamicsCompressor();
+        mixMasterCompressor.threshold.setValueAtTime(-22, mixAudioCtx.currentTime);
+        mixMasterCompressor.knee.setValueAtTime(30, mixAudioCtx.currentTime);
+        mixMasterCompressor.ratio.setValueAtTime(2.5, mixAudioCtx.currentTime);
+        mixMasterCompressor.attack.setValueAtTime(0.01, mixAudioCtx.currentTime);
+        mixMasterCompressor.release.setValueAtTime(0.2, mixAudioCtx.currentTime);
+        mixMasterCompressor.connect(mixDestination);
+      } catch (e) {
+        console.warn("mixMasterCompressor", e);
+        mixMasterCompressor = null;
+      }
+      if (shouldConnectLocalToRecordingMix()) {
+        connectLocalToMix();
+      }
+      if (shouldConnectRemoteToRecordingMix()) {
+        for (const sid of pcs.keys()) {
+          connectRemotePeerToMix(sid);
+        }
+      }
+      return true;
+    }
+
+    function isMeetingVideoRecordingActive() {
+      return !!(meetingVideoMediaRecorder && meetingVideoMediaRecorder.state === "recording");
+    }
+
+    /** Grafo de mezcla activo mientras se graba vídeo (el audio va en el mismo archivo). */
+    function isMeetingRecordingMixActive() {
+      return isMeetingVideoRecordingActive();
     }
 
     /** full | local | remote — solo para el grafo de grabación (diagnóstico). */
@@ -896,6 +1170,12 @@
       const v = sel?.value;
       if (v === "local" || v === "remote") return v;
       return "full";
+    }
+
+    /** @returns {"top" | "right"} */
+    function getRecordVideoLayout() {
+      const sel = $("recordVideoLayoutSelect");
+      return sel?.value === "right" ? "right" : "top";
     }
 
     function shouldConnectLocalToRecordingMix() {
@@ -913,11 +1193,19 @@
       if (sel) sel.disabled = !!disabled;
     }
 
-    function updateMicRecordButton() {
-      const btn = $("btnRecordMic");
+    function setRecordingMixControlsDisabled(disabled) {
+      setRecordMixModeSelectDisabled(disabled);
+      const cb = $("recordVideoIncludeBoard");
+      if (cb) cb.disabled = !!disabled;
+      const lo = $("recordVideoLayoutSelect");
+      if (lo) lo.disabled = !!disabled;
+    }
+
+    function updateMeetingVideoRecordButton() {
+      const btn = $("btnRecordMeetingVideo");
       if (!btn) return;
-      const rec = isMicRecordingActive();
-      btn.textContent = rec ? "Parar grabación de audio" : "Grabar audio de la reunión";
+      const rec = isMeetingVideoRecordingActive();
+      btn.textContent = rec ? "Parar grabación de vídeo" : "Grabar vídeo de la reunión";
       btn.setAttribute("aria-pressed", rec ? "true" : "false");
     }
 
@@ -1022,20 +1310,242 @@
       }
     }
 
+    function teardownMeetingVideoComposite() {
+      if (compositeVideoRafId) {
+        cancelAnimationFrame(compositeVideoRafId);
+        compositeVideoRafId = 0;
+      }
+      compositeVideoCanvas = null;
+      compositeVideoCtx = null;
+    }
+
+    /** @returns {HTMLVideoElement[]} */
+    function collectCompositeVideoElements() {
+      const out = [];
+      const lv = $("localVideo");
+      if (lv?.srcObject?.getVideoTracks) {
+        const vt = lv.srcObject.getVideoTracks()[0];
+        if (vt && vt.readyState === "live" && vt.enabled) out.push(lv);
+      }
+      for (const vid of remoteVideos.values()) {
+        if (vid?.srcObject?.getVideoTracks) {
+          const vt = vid.srcObject.getVideoTracks()[0];
+          if (vt && vt.readyState === "live" && vt.enabled) out.push(vid);
+        }
+      }
+      return out;
+    }
+
+    function strokeCompositeDebugVideoZone(ctx, x, y, w, h) {
+      if (!DEBUG_COMPOSITE) return;
+      const ix = Math.round(x);
+      const iy = Math.round(y);
+      const iw = Math.max(1, Math.round(w));
+      const ih = Math.max(1, Math.round(h));
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 0, 0, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ix, iy, iw, ih);
+      ctx.restore();
+    }
+
+    function strokeCompositeDebugBoardZone(ctx, x, y, w, h) {
+      if (!DEBUG_COMPOSITE) return;
+      const ix = Math.round(x);
+      const iy = Math.round(y);
+      const iw = Math.max(1, Math.round(w));
+      const ih = Math.max(1, Math.round(h));
+      ctx.save();
+      ctx.strokeStyle = "rgba(0, 100, 255, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ix, iy, iw, ih);
+      ctx.restore();
+    }
+
+    /** Reparte `total` px en `n` segmentos enteros que suman exactamente `total`. */
+    function partitionSegmentLengths(total, n) {
+      const nn = Math.max(1, n);
+      const t = Math.max(0, Math.floor(total));
+      const base = Math.floor(t / nn);
+      const rem = t - base * nn;
+      const out = [];
+      for (let i = 0; i < nn; i++) {
+        out.push(base + (i < rem ? 1 : 0));
+      }
+      return out;
+    }
+
+    /** object-fit: contain — encuadre completo dentro de la celda (barras negras si el ratio choca; evita recorte tipo cover en celdas muy alargadas). */
+    function drawVideoContainInCell(ctx, video, vx, vy, vw, vh) {
+      const ix = Math.round(vx);
+      const iy = Math.round(vy);
+      const iw = Math.max(1, Math.round(vw));
+      const ih = Math.max(1, Math.round(vh));
+      if (!video.videoWidth || !video.videoHeight) return;
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      const vr = w / h;
+      const tr = iw / ih;
+      let dw;
+      let dh;
+      let dx;
+      let dy;
+      if (vr > tr) {
+        dw = iw;
+        dh = iw / vr;
+        dx = ix;
+        dy = iy + (ih - dh) / 2;
+      } else {
+        dh = ih;
+        dw = ih * vr;
+        dx = ix + (iw - dw) / 2;
+        dy = iy;
+      }
+      ctx.fillStyle = "#000";
+      ctx.fillRect(ix, iy, iw, ih);
+      try {
+        ctx.drawImage(video, dx, dy, dw, dh);
+      } catch (_) {}
+    }
+
+    function drawVideosStripPlaceholder(ctx, x, y, rw, rh) {
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(x, y, rw, rh);
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "600 22px system-ui,sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Sin vídeo activo", x + rw / 2, y + rh / 2);
+    }
+
+    /** Una sola fila: miniaturas contiguas (anchos enteros que suman rw); siempre contain en grabación. */
+    function drawVideosHorizontalStrip(ctx, videos, x, y, rw, rh) {
+      const n = videos.length;
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+      const rwInt = Math.max(1, Math.round(rw));
+      const rhInt = Math.max(1, Math.round(rh));
+      if (n === 0) {
+        drawVideosStripPlaceholder(ctx, rx, ry, rwInt, rhInt);
+        strokeCompositeDebugVideoZone(ctx, rx, ry, rwInt, rhInt);
+        return;
+      }
+      const widths = partitionSegmentLengths(rwInt, n);
+      let cx = rx;
+      for (let i = 0; i < n; i++) {
+        drawVideoContainInCell(ctx, videos[i], cx, ry, widths[i], rhInt);
+        strokeCompositeDebugVideoZone(ctx, cx, ry, widths[i], rhInt);
+        cx += widths[i];
+      }
+    }
+
+    /** Una sola columna: miniaturas apiladas (altos enteros que suman rh); contain como la fila superior. */
+    function drawVideosVerticalStrip(ctx, videos, x, y, rw, rh) {
+      const n = videos.length;
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+      const rwInt = Math.max(1, Math.round(rw));
+      const rhInt = Math.max(1, Math.round(rh));
+      if (n === 0) {
+        drawVideosStripPlaceholder(ctx, rx, ry, rwInt, rhInt);
+        strokeCompositeDebugVideoZone(ctx, rx, ry, rwInt, rhInt);
+        return;
+      }
+      const heights = partitionSegmentLengths(rhInt, n);
+      let cy = ry;
+      for (let i = 0; i < n; i++) {
+        drawVideoContainInCell(ctx, videos[i], rx, cy, rwInt, heights[i]);
+        strokeCompositeDebugVideoZone(ctx, rx, cy, rwInt, heights[i]);
+        cy += heights[i];
+      }
+    }
+
+    function drawBoardLetterbox(ctx, boardEl, bx, by, bw, bh) {
+      if (!boardEl?.width) return;
+      const br = boardEl.width / boardEl.height;
+      const tr = bw / bh;
+      let dw;
+      let dh;
+      let dx;
+      let dy;
+      if (br > tr) {
+        dw = bw;
+        dh = bw / br;
+        dx = bx;
+        dy = by + (bh - dh) / 2;
+      } else {
+        dh = bh;
+        dw = bh * br;
+        dx = bx + (bw - dw) / 2;
+        dy = by;
+      }
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fillRect(bx, by, bw, bh);
+      try {
+        ctx.drawImage(boardEl, dx, dy, dw, dh);
+      } catch (_) {}
+    }
+
+    function compositeMeetingVideoFrame() {
+      if (!meetingVideoMediaRecorder || meetingVideoMediaRecorder.state !== "recording") {
+        compositeVideoRafId = 0;
+        return;
+      }
+      const ctx = compositeVideoCtx;
+      const canvas = compositeVideoCanvas;
+      if (!ctx || !canvas) {
+        compositeVideoRafId = 0;
+        return;
+      }
+      const W = canvas.width;
+      const H = canvas.height;
+      const includeBoard = $("recordVideoIncludeBoard")?.checked !== false;
+      const boardEl = $("board");
+      const layout = getRecordVideoLayout();
+      const vids = collectCompositeVideoElements();
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#0f0f0f";
+      ctx.fillRect(0, 0, W, H);
+
+      if (!includeBoard || !boardEl) {
+        drawVideosHorizontalStrip(ctx, vids, 0, 0, W, H);
+        compositeVideoRafId = requestAnimationFrame(compositeMeetingVideoFrame);
+        return;
+      }
+
+      if (layout === "top") {
+        let vh = Math.floor(H * 0.135);
+        vh = Math.max(MEETING_STRIP_TOP_H_MIN, Math.min(MEETING_STRIP_TOP_H_MAX, vh));
+        drawVideosHorizontalStrip(ctx, vids, 0, 0, W, vh);
+        drawBoardLetterbox(ctx, boardEl, 0, vh, W, H - vh);
+        strokeCompositeDebugBoardZone(ctx, 0, vh, W, H - vh);
+      } else {
+        let vw = Math.floor(W * 0.152);
+        vw = Math.max(MEETING_STRIP_RIGHT_W_MIN, Math.min(MEETING_STRIP_RIGHT_W_MAX, vw));
+        const bw = W - vw;
+        drawBoardLetterbox(ctx, boardEl, 0, 0, bw, H);
+        strokeCompositeDebugBoardZone(ctx, 0, 0, bw, H);
+        drawVideosVerticalStrip(ctx, vids, bw, 0, vw, H);
+      }
+      compositeVideoRafId = requestAnimationFrame(compositeMeetingVideoFrame);
+    }
+
     /**
-     * Detiene la grabación de audio mezclado. Si `download`, descarga un .webm (o mime del navegador).
+     * Detiene grabación vídeo compuesto.
      * @param {{ download?: boolean }} options
      */
-    async function stopMicOnlyRecording(options = { download: true }) {
-      const rec = micMediaRecorder;
+    async function stopMeetingVideoRecording(options = { download: true }) {
+      const rec = meetingVideoMediaRecorder;
       const shouldNotifyStop = !!(rec && rec.state === "recording");
       if (!rec || rec.state === "inactive") {
-        micMediaRecorder = null;
-        micRecordedChunks = [];
-        micRecorderChosenMime = "";
+        meetingVideoMediaRecorder = null;
+        meetingVideoRecordedChunks = [];
+        meetingVideoRecorderChosenMime = "";
+        teardownMeetingVideoComposite();
         teardownRecordingAudioMix();
-        setRecordMixModeSelectDisabled(false);
-        updateMicRecordButton();
+        setRecordingMixControlsDisabled(false);
+        updateMeetingVideoRecordButton();
         return;
       }
       await new Promise((resolve) => {
@@ -1044,16 +1554,17 @@
         try {
           rec.stop();
         } catch (e) {
-          console.warn("stopMicOnlyRecording", e);
+          console.warn("stopMeetingVideoRecording", e);
           resolve();
         }
       });
-      const mime = micRecorderChosenMime || rec.mimeType || "audio/webm";
-      const chunks = micRecordedChunks.slice();
-      micMediaRecorder = null;
-      micRecordedChunks = [];
-      micRecorderChosenMime = "";
-      updateMicRecordButton();
+      const mime = meetingVideoRecorderChosenMime || rec.mimeType || "video/webm";
+      const chunks = meetingVideoRecordedChunks.slice();
+      meetingVideoMediaRecorder = null;
+      meetingVideoRecordedChunks = [];
+      meetingVideoRecorderChosenMime = "";
+      teardownMeetingVideoComposite();
+      updateMeetingVideoRecordButton();
       const blob = new Blob(chunks, { type: mime });
       const roomKey = String(activeRoomId || lastKnownRoomIdForRecording || "sin-sala").slice(0, 36);
       if (blob.size > 0) {
@@ -1066,35 +1577,30 @@
         if (options.download !== false) {
           const okDl = triggerDownloadBlob(blob, mime, roomKey);
           if (okDl) {
-            log("Grabación descargada; también hay copia local en el navegador (IndexedDB).");
-            setMediaStatus("Grabación terminada: archivo descargado.");
+            log("Grabación de vídeo descargada; copia local en IndexedDB.");
+            setMediaStatus("Grabación de vídeo terminada: archivo descargado.");
           } else {
-            log(
-              "La descarga automática pudo bloquearse. Copia guardada en este navegador → botón «Grabaciones guardadas»."
-            );
-            setMediaStatus("Grabación guardada en el navegador (usa «Grabaciones guardadas» si no ves la descarga).");
+            log("Descarga bloqueada o cancelada; revisa «Grabaciones guardadas».");
+            setMediaStatus("Vídeo guardado en el navegador (IndexedDB).");
           }
         } else {
-          log(
-            "Grabación detenida sin descarga automática; si había datos, quedó copia en IndexedDB (panel del lobby)."
-          );
+          log("Grabación de vídeo detenida (copia en IndexedDB si hubo datos).");
           setMediaStatus("");
         }
       } else {
-        log("Grabación sin datos (0 bytes). Revisa micrófono y permisos.");
-        setMediaStatus("No se grabó audio (0 bytes). ¿Micrófono silenciado o bloqueado?");
+        log("Grabación de vídeo sin datos (0 bytes).");
+        setMediaStatus("No se grabó vídeo (0 bytes).");
       }
       teardownRecordingAudioMix();
       if (shouldNotifyStop) {
         emitRecordingState(false);
       }
-      setRecordMixModeSelectDisabled(false);
+      setRecordingMixControlsDisabled(false);
     }
 
-    async function startMicOnlyRecording() {
+    async function startMeetingVideoRecording() {
       if (typeof MediaRecorder === "undefined") {
         log("Este navegador no soporta MediaRecorder.");
-        setMediaStatus("Grabación no disponible en este navegador.");
         return;
       }
       if (!isRoomDocente()) {
@@ -1106,116 +1612,94 @@
         log("Entra en una sala antes de grabar.");
         return;
       }
-      if (isMicRecordingActive()) {
-        log("Ya hay una grabación de audio en curso.");
+      if (isMeetingVideoRecordingActive()) {
+        log("Ya hay una grabación de vídeo en curso.");
+        return;
+      }
+      const mimeV = getPreferredMeetingVideoMimeType();
+      if (!mimeV) {
+        log("Este navegador no soporta vídeo WebM para grabación.");
+        setMediaStatus("Grabación de vídeo no soportada en este navegador.");
         return;
       }
       try {
-        await ensureLocalStream();
+        await ensureLocalStream({ allowSilentJoin: false });
       } catch {
         return;
       }
       teardownRecordingAudioMix();
-      try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) {
-          log("Este navegador no expone AudioContext.");
-          setMediaStatus("Mezcla de audio no disponible.");
-          return;
-        }
-        mixAudioCtx = new AC();
-        await mixAudioCtx.resume();
-      } catch (e) {
-        log("No se pudo iniciar AudioContext: " + (e?.message || e));
-        setMediaStatus("Grabación de audio no disponible (AudioContext).");
-        teardownRecordingAudioMix();
+      teardownMeetingVideoComposite();
+      if (!(await setupRecordingMixInfrastructure())) {
         return;
-      }
-      mixDestination = mixAudioCtx.createMediaStreamDestination();
-      try {
-        mixMasterCompressor = mixAudioCtx.createDynamicsCompressor();
-        mixMasterCompressor.threshold.setValueAtTime(-22, mixAudioCtx.currentTime);
-        mixMasterCompressor.knee.setValueAtTime(30, mixAudioCtx.currentTime);
-        mixMasterCompressor.ratio.setValueAtTime(2.5, mixAudioCtx.currentTime);
-        mixMasterCompressor.attack.setValueAtTime(0.01, mixAudioCtx.currentTime);
-        mixMasterCompressor.release.setValueAtTime(0.2, mixAudioCtx.currentTime);
-        mixMasterCompressor.connect(mixDestination);
-      } catch (e) {
-        console.warn("mixMasterCompressor", e);
-        mixMasterCompressor = null;
-      }
-      const mixMode = getRecordMixMode();
-      if (shouldConnectLocalToRecordingMix()) {
-        connectLocalToMix();
-      }
-      if (shouldConnectRemoteToRecordingMix()) {
-        for (const sid of pcs.keys()) {
-          connectRemotePeerToMix(sid);
-        }
       }
 
-      const recordStream = mixDestination.stream;
-      const mime = getPreferredMicRecorderMimeType();
-      micRecordedChunks = [];
+      compositeVideoCanvas = document.createElement("canvas");
+      compositeVideoCanvas.width = MEETING_VIDEO_W;
+      compositeVideoCanvas.height = MEETING_VIDEO_H;
+      compositeVideoCtx = compositeVideoCanvas.getContext("2d");
+
+      const videoTracks = compositeVideoCanvas.captureStream(MEETING_VIDEO_FPS).getVideoTracks();
+      const audioTracks = mixDestination.stream.getAudioTracks();
+      const combined = new MediaStream([...videoTracks, ...audioTracks]);
+
+      meetingVideoRecordedChunks = [];
       try {
-        micMediaRecorder = createMeetingAudioMediaRecorder(recordStream, mime);
+        meetingVideoMediaRecorder = createMeetingVideoMediaRecorder(combined, mimeV);
       } catch (e2) {
-        log("No se pudo iniciar MediaRecorder: " + (e2?.message || e2));
-        setMediaStatus("No se pudo iniciar la grabación.");
+        log("No se pudo iniciar MediaRecorder de vídeo: " + (e2?.message || e2));
+        setMediaStatus("No se pudo iniciar la grabación de vídeo.");
+        teardownMeetingVideoComposite();
         teardownRecordingAudioMix();
         return;
       }
-      micRecorderChosenMime = micMediaRecorder.mimeType || mime || "audio/webm";
-      micMediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) micRecordedChunks.push(e.data);
+      meetingVideoRecorderChosenMime = meetingVideoMediaRecorder.mimeType || mimeV || "video/webm";
+      meetingVideoMediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) meetingVideoRecordedChunks.push(e.data);
       };
-      micMediaRecorder.onerror = (ev) => {
-        console.warn("MediaRecorder error", ev);
-        log("Error en la grabación: " + (ev.error?.message || "desconocido"));
+      meetingVideoMediaRecorder.onerror = (ev) => {
+        console.warn("MediaRecorder vídeo", ev);
+        log("Error en la grabación de vídeo: " + (ev.error?.message || "desconocido"));
       };
       try {
-        /** Sin timeslice: un solo flujo de datos al parar → menos artefactos en límites de chunk (.webm). */
-        micMediaRecorder.start();
+        meetingVideoMediaRecorder.start();
       } catch (e) {
-        micMediaRecorder = null;
-        micRecordedChunks = [];
+        meetingVideoMediaRecorder = null;
+        meetingVideoRecordedChunks = [];
+        teardownMeetingVideoComposite();
         teardownRecordingAudioMix();
-        log("Grabación: " + (e?.message || e));
+        log("Grabación vídeo: " + (e?.message || e));
         return;
       }
       lastKnownRoomIdForRecording = activeRoomId;
       emitRecordingState(true);
-      updateMicRecordButton();
-      setRecordMixModeSelectDisabled(true);
+      updateMeetingVideoRecordButton();
+      setRecordingMixControlsDisabled(true);
+      compositeMeetingVideoFrame();
       setMediaStatus(
-        "Grabando audio… Pulsa «Parar grabación de audio» para terminar y descargar (o sal de la sala)."
+        "Grabando vídeo (cámaras + audio mezclado). «Parar grabación de vídeo» para terminar."
       );
-      log(
-        "Grabación iniciada · modo mezcla: " +
-          mixMode +
-          " (completa=mic+remotos; local/remoto=diagnóstico). Pulsa de nuevo para parar."
-      );
+      log("Grabación de vídeo iniciada · " + MEETING_VIDEO_W + "×" + MEETING_VIDEO_H + " @ ~" + MEETING_VIDEO_FPS + " fps.");
     }
 
-    async function toggleMicOnlyRecording() {
+    async function toggleMeetingVideoRecording() {
       if (!isRoomDocente()) {
         log("Solo el docente de la reunión puede usar la grabación.");
         return;
       }
-      if (isMicRecordingActive()) {
-        await stopMicOnlyRecording({ download: true });
+      if (isMeetingVideoRecordingActive()) {
+        await stopMeetingVideoRecording({ download: true });
       } else {
-        await startMicOnlyRecording();
+        await startMeetingVideoRecording();
       }
     }
 
     /**
-     * Libera cámara/micrófono. Opcionalmente descarga la grabación de audio si sigue activa.
+     * Libera cámara/micrófono. Opcionalmente descarga la grabación de vídeo si sigue activa.
      * @param {{ micRecordingDownload?: boolean }} opts
      */
     async function stopLocalMedia(opts = {}) {
       const downloadMic = opts.micRecordingDownload === true;
-      await stopMicOnlyRecording({ download: downloadMic });
+      await stopMeetingVideoRecording({ download: downloadMic });
       if (localStream) {
         localStream.getTracks().forEach((t) => {
           try {
@@ -1227,7 +1711,7 @@
       const lv = $("localVideo");
       if (lv) lv.srcObject = null;
       syncMediaButtons();
-      updateMicRecordButton();
+      updateMeetingVideoRecordButton();
     }
 
     function syncMediaButtons() {
@@ -1239,9 +1723,17 @@
       const micOn = !!(a && a.readyState === "live" && a.enabled);
       const camOn = !!(v && v.readyState === "live" && v.enabled);
       btnMic.textContent = micOn ? "Micrófono: encendido" : "Micrófono: silenciado";
-      btnCam.textContent = camOn ? "Cámara: encendida" : "Cámara: apagada";
+      btnMic.disabled = !a;
+      if (!v) {
+        btnCam.textContent = localStream ? "Cámara: no disponible" : "Cámara: apagada";
+        btnCam.dataset.off = "true";
+        btnCam.disabled = true;
+      } else {
+        btnCam.disabled = false;
+        btnCam.textContent = camOn ? "Cámara: encendida" : "Cámara: apagada";
+        btnCam.dataset.off = camOn ? "false" : "true";
+      }
       btnMic.dataset.off = micOn ? "false" : "true";
-      btnCam.dataset.off = camOn ? "false" : "true";
     }
 
     function setMicEnabled(on) {
@@ -1266,20 +1758,55 @@
       const video = localStream.getVideoTracks()[0] ?? null;
       for (const [, pc] of pcs) {
         for (const sender of pc.getSenders()) {
+          if (typeof sender.replaceTrack !== "function") continue;
           const cur = sender.track;
-          if (!cur || typeof sender.replaceTrack !== "function") continue;
           try {
-            if (cur.kind === "audio") {
+            if (cur?.kind === "audio") {
               await sender.replaceTrack(audio);
-            } else if (cur.kind === "video") {
+            } else if (cur?.kind === "video") {
               await sender.replaceTrack(video);
             }
           } catch (e) {
             console.warn("replaceTrack", e);
           }
         }
+        let hasLiveVideo = false;
+        for (const sender of pc.getSenders()) {
+          if (sender.track?.kind === "video") hasLiveVideo = true;
+        }
+        if (video && !hasLiveVideo) {
+          for (const sender of pc.getSenders()) {
+            if (!sender.track && typeof sender.replaceTrack === "function") {
+              try {
+                await sender.replaceTrack(video);
+                hasLiveVideo = true;
+                break;
+              } catch (e) {
+                console.warn("replaceTrack resume video", e);
+              }
+            }
+          }
+          if (!hasLiveVideo) {
+            try {
+              pc.addTrack(video, localStream);
+            } catch (e) {
+              console.warn("addTrack video", e);
+            }
+          }
+        }
+        if (!video) {
+          for (const sender of pc.getSenders()) {
+            if (sender.track?.kind === "video" && typeof sender.replaceTrack === "function") {
+              try {
+                await sender.replaceTrack(null);
+              } catch (e) {
+                console.warn("replaceTrack video null", e);
+              }
+            }
+          }
+        }
       }
-      if (isMicRecordingActive() && shouldConnectLocalToRecordingMix()) {
+      if (isMeetingRecordingMixActive() && shouldConnectLocalToRecordingMix()) {
         connectLocalToMix();
       }
     }
@@ -1323,7 +1850,13 @@
       el.textContent = "Tus enlaces (" + pcs.size + "): " + parts.join(" · ");
     }
 
-    async function ensureLocalStream() {
+    /**
+     * Garantiza `localStream` con medios o vacío.
+     * @param {{ allowSilentJoin?: boolean }} opts `allowSilentJoin` por defecto true: si falla mic+cámara y mic, entra sin pistas. false: lanza error si no hay al menos mic.
+     * @returns {Promise<{ level: "av" | "audio" | "none"; mediaError: string }>}
+     */
+    async function ensureLocalStream(opts = {}) {
+      const allowSilentJoin = opts.allowSilentJoin !== false;
       let acquiredNew = false;
       if (localStream) {
         const a = localStream.getAudioTracks()[0];
@@ -1331,20 +1864,32 @@
         if (a?.readyState === "live" || v?.readyState === "live") {
           $("localVideo").srcObject = localStream;
           syncMediaButtons();
-          return localStream;
+          const level =
+            v?.readyState === "live" && a?.readyState === "live"
+              ? "av"
+              : v?.readyState === "live"
+                ? "av"
+                : "audio";
+          return { level, mediaError: "" };
         }
-        await stopLocalMedia();
+        await stopLocalMedia({ micRecordingDownload: false });
       }
-      try {
-        const constraints = buildMediaConstraintsFromSelectors();
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
-        acquiredNew = true;
-      } catch (e) {
-        setMediaStatus(humanizeGetUserMediaError(e));
-        throw e;
-      }
+      const { stream, level, mediaError } = await acquireLocalMediaWithFallbacks({ allowSilentJoin });
+      localStream = stream;
+      acquiredNew = true;
       $("localVideo").srcObject = localStream;
-      setMediaStatus("");
+      if (level === "av") {
+        setMediaStatus("");
+      } else if (level === "audio") {
+        setMediaStatus(
+          (mediaError ? mediaError + " " : "") + "Solo micrófono activo (sin cámara o cámara ocupada)."
+        );
+      } else {
+        setMediaStatus(
+          (mediaError ? mediaError + " " : "") +
+            "Sin micrófono ni cámara: puedes usar tablero y chat. Pulsa «Reiniciar cámara y mic» cuando haya dispositivos libres."
+        );
+      }
       syncMediaButtons();
       refreshMediaDeviceSelectors().catch(() => {});
       if (acquiredNew && pcs.size > 0) {
@@ -1355,25 +1900,23 @@
         }
       }
       updateLocalAggregateStatus();
-      return localStream;
+      return { level, mediaError };
     }
 
     async function reiniciarMediosEnReunion() {
       if (!activeRoomId) return;
-      await stopMicOnlyRecording({ download: false });
+      await stopMeetingVideoRecording({ download: false });
       setMediaStatus("Reiniciando cámara y micrófono…");
       try {
-        if (localStream) {
-          localStream.getTracks().forEach((t) => {
-            try {
-              t.stop();
-            } catch (_) {}
-          });
-          localStream = null;
+        await stopLocalMedia({ micRecordingDownload: false });
+        const { level, mediaError } = await ensureLocalStream({ allowSilentJoin: true });
+        let msg = "Medios reiniciados; tracks actualizados en los enlaces activos.";
+        if (level === "audio") {
+          msg = (mediaError ? mediaError + " " : "") + "Solo micrófono. " + msg;
+        } else if (level === "none") {
+          msg = (mediaError ? mediaError + " " : "") + "Sin mic ni cámara. " + msg;
         }
-        $("localVideo").srcObject = null;
-        await ensureLocalStream();
-        setMediaStatus("Medios reiniciados; tracks actualizados en los enlaces activos.");
+        setMediaStatus(msg);
       } catch (e) {
         const msg = humanizeGetUserMediaError(e);
         setMediaStatus(msg);
@@ -1437,6 +1980,15 @@
       pc._pendingIce = [];
       if (localStream) {
         localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+        const hasLive = (kind) =>
+          localStream.getTracks().filter((t) => t.kind === kind).some((t) => t.readyState === "live");
+        if (!hasLive("video")) {
+          try {
+            pc.addTransceiver("video", { direction: "recvonly" });
+          } catch (e) {
+            console.warn("addTransceiver video recvonly", e);
+          }
+        }
       }
       pc.onicecandidate = (e) => {
         if (e.candidate && activeRoomId) {
@@ -1450,7 +2002,7 @@
       pc.ontrack = (e) => {
         const vid = remoteVideos.get(remoteSocketId);
         if (vid) vid.srcObject = e.streams[0];
-        if (isMicRecordingActive() && shouldConnectRemoteToRecordingMix()) {
+        if (isMeetingRecordingMixActive() && shouldConnectRemoteToRecordingMix()) {
           connectRemotePeerToMix(remoteSocketId);
         }
       };
@@ -1837,23 +2389,38 @@
       }
     }
 
-    /** Controles de grabación de audio: solo el docente dueño de la reunión (`roomDocenteUsuarioId`). */
+    /** Controles de grabación de vídeo: solo el docente dueño de la reunión (`roomDocenteUsuarioId`). */
     function updateTeacherRecordingControlsVisibility() {
       const show = !!(activeRoomId && isRoomDocente());
       const banner = $("recordMixBanner");
-      const btn = $("btnRecordMic");
+      const btnV = $("btnRecordMeetingVideo");
+      const labBoard = $("recordVideoIncludeBoardLabel");
+      const labLayout = $("recordVideoLayoutLabel");
+      const selLayout = $("recordVideoLayoutSelect");
       if (banner) {
         banner.classList.toggle("hidden", !show);
         banner.setAttribute("aria-hidden", show ? "false" : "true");
       }
-      if (btn) {
-        btn.classList.toggle("hidden", !show);
-        btn.setAttribute("aria-hidden", show ? "false" : "true");
+      if (btnV) {
+        btnV.classList.toggle("hidden", !show);
+        btnV.setAttribute("aria-hidden", show ? "false" : "true");
       }
-      if (!show && isMicRecordingActive()) {
-        stopMicOnlyRecording({ download: false }).catch(() => {});
+      if (labBoard) {
+        labBoard.classList.toggle("hidden", !show);
+        labBoard.setAttribute("aria-hidden", show ? "false" : "true");
       }
-      updateMicRecordButton();
+      if (labLayout) {
+        labLayout.classList.toggle("hidden", !show);
+        labLayout.setAttribute("aria-hidden", show ? "false" : "true");
+      }
+      if (selLayout) {
+        selLayout.classList.toggle("hidden", !show);
+        selLayout.setAttribute("aria-hidden", show ? "false" : "true");
+      }
+      if (!show && isMeetingVideoRecordingActive()) {
+        stopMeetingVideoRecording({ download: false }).catch(() => {});
+      }
+      updateMeetingVideoRecordButton();
     }
 
     function setBoardZoomAnchored(newZoom, anchorSX, anchorSY) {
@@ -2174,7 +2741,24 @@
         const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
         const tipo = m.tipo === "privado" ? " (privado)" : "";
         div.className = m.tipo === "privado" ? "msg-privado" : "";
-        div.textContent = `[${new Date(m.marcaTiempo || Date.now()).toLocaleTimeString()}] ${autor}${tipo}: ${m.contenido}`;
+        const tstr = new Date(m.marcaTiempo || Date.now()).toLocaleTimeString();
+        div.appendChild(
+          document.createTextNode(`[${tstr}] ${autor}${tipo}: `)
+        );
+        if (m.adjuntoRelPath && m.mensajeId) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "chat-adjunto-btn";
+          btn.textContent = `📎 ${m.adjuntoNombreOriginal || "archivo"}`;
+          btn.title = "Descargar adjunto";
+          btn.addEventListener("click", () =>
+            downloadChatAdjunto(m.mensajeId, m.adjuntoNombreOriginal || "adjunto")
+          );
+          div.appendChild(btn);
+        }
+        const cap = document.createElement("span");
+        cap.textContent = m.contenido || "";
+        div.appendChild(cap);
         box.appendChild(div);
       });
       box.scrollTop = box.scrollHeight;
@@ -2223,6 +2807,7 @@
       const roomData = await api("/api/reuniones/room/" + encodeURIComponent(roomId));
       const reunion = roomData?.reunion;
       const reunionId = reunion?.reunionId;
+      activeReunionId = reunionId != null ? String(reunionId) : activeReunionId;
       roomDocenteUsuarioId =
         reunion?.docenteUsuarioId != null ? String(reunion.docenteUsuarioId) : null;
       updateBoardFollowUi();
@@ -2352,9 +2937,7 @@
           );
           const name = u?.nombre || oid.slice(0, 8);
           appendRecordingNotice(
-            active
-              ? `${name} inició una grabación de audio en esta sala.`
-              : `${name} detuvo la grabación de audio.`
+            active ? `${name} inició una grabación en esta sala.` : `${name} detuvo la grabación en esta sala.`
           );
         });
       });
@@ -2368,9 +2951,10 @@
       }
       setMediaStatus("Preparando cámara y micrófono…");
       log("Entrando en la sala…");
+      let joinMediaLevel = "av";
       try {
         await loadIce();
-        await ensureLocalStream();
+        ({ level: joinMediaLevel } = await ensureLocalStream({ allowSilentJoin: true }));
         await connectSocketIfNeeded();
       } catch (e) {
         const msg = e?.name === "NotAllowedError" || e?.message?.includes("Permiso")
@@ -2398,6 +2982,7 @@
             activeRoomId = normRoomKey(
               resp.roomId != null && resp.roomId !== "" ? resp.roomId : roomId
             );
+            activeReunionId = resp.reunionId != null ? String(resp.reunionId) : null;
             lastKnownRoomIdForRecording = activeRoomId;
             roomDocenteUsuarioId =
               resp.docenteUsuarioId != null
@@ -2416,7 +3001,15 @@
             });
             await loadParticipantsForRoom(activeRoomId);
             setActiveChatThread("general");
-            setMediaStatus("En reunión. " + (resp.peers?.length ? resp.peers.length + " participante(s) ya en la sala." : "Eres el primero en la sala."));
+            let statusJoin =
+              "En reunión. " +
+              (resp.peers?.length ? resp.peers.length + " participante(s) ya en la sala." : "Eres el primero en la sala.");
+            if (joinMediaLevel === "audio") {
+              statusJoin += " Solo micrófono (sin cámara o cámara ocupada).";
+            } else if (joinMediaLevel === "none") {
+              statusJoin += " Sin mic ni cámara: tablero y chat disponibles.";
+            }
+            setMediaStatus(statusJoin);
             log("En sala. Peers: " + JSON.stringify(resp.peers));
             const peers = resp.peers || [];
             for (const p of peers) {
@@ -2428,7 +3021,7 @@
               }
             }
             syncMediaButtons();
-            updateMicRecordButton();
+            updateMeetingVideoRecordButton();
             updateLocalAggregateStatus();
             refreshMediaDeviceSelectors().catch(() => {});
             setTimeout(() => {
@@ -2459,6 +3052,10 @@
       await stopLocalMedia({ micRecordingDownload: true });
 
       activeRoomId = null;
+      activeReunionId = null;
+      pendingChatAdjunto = null;
+      updateChatAdjuntoPendingUi();
+      $("chatDropZone")?.classList.remove("chat-drop-zone--over");
       lastKnownRoomIdForRecording = null;
       roomDocenteUsuarioId = null;
       updateTeacherRecordingControlsVisibility();
@@ -2609,7 +3206,10 @@
     $("btnToggleCam").addEventListener("click", () => {
       if (!localStream) return;
       const t = localStream.getVideoTracks()[0];
-      if (!t) return;
+      if (!t) {
+        log("No hay cámara activa; usa «Reiniciar cámara y mic» cuando el dispositivo esté libre.");
+        return;
+      }
       setCamEnabled(!t.enabled);
     });
 
@@ -2621,8 +3221,8 @@
     $("btnSalirSala").addEventListener("click", () =>
       void leaveRoom().catch((err) => console.warn(err))
     );
-    $("btnRecordMic").addEventListener("click", () =>
-      void toggleMicOnlyRecording().catch((err) => console.warn(err))
+    $("btnRecordMeetingVideo")?.addEventListener("click", () =>
+      void toggleMeetingVideoRecording().catch((err) => console.warn(err))
     );
     $("btnApplyMediaDevices")?.addEventListener("click", () =>
       void applyMediaDevicesFromSelectors().catch((err) => console.warn(err))
@@ -2639,11 +3239,82 @@
       }
     });
 
+    function updateChatAdjuntoPendingUi() {
+      const el = $("chatAdjuntoPending");
+      if (!el) return;
+      if (pendingChatAdjunto?.adjuntoRelPath) {
+        const name = pendingChatAdjunto.adjuntoNombreOriginal || "archivo";
+        el.textContent = "📎 Pendiente: " + name + " · pulsa Enviar";
+      } else {
+        el.textContent = "";
+      }
+    }
+
+    $("btnChatAdjunto")?.addEventListener("click", () => {
+      if (!activeRoomId) {
+        log("Entra en una sala antes de adjuntar archivos.");
+        return;
+      }
+      $("chatAdjuntoInput")?.click();
+    });
+
+    $("chatAdjuntoInput")?.addEventListener("change", async () => {
+      const inp = $("chatAdjuntoInput");
+      const file = inp?.files?.[0];
+      if (inp) inp.value = "";
+      if (!activeRoomId) {
+        log("Entra en una sala antes de adjuntar archivos.");
+        return;
+      }
+      if (!file) return;
+      await uploadPendingChatFile(file);
+    });
+
+    (function bindChatDropZone() {
+      const z = $("chatDropZone");
+      if (!z) return;
+      z.addEventListener("dragenter", (e) => {
+        if (!activeRoomId) return;
+        e.preventDefault();
+      });
+      z.addEventListener("dragover", (e) => {
+        if (!activeRoomId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        z.classList.add("chat-drop-zone--over");
+      });
+      z.addEventListener("dragleave", (e) => {
+        if (!z.contains(e.relatedTarget)) z.classList.remove("chat-drop-zone--over");
+      });
+      z.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        z.classList.remove("chat-drop-zone--over");
+        if (!activeRoomId) {
+          log("Entra en una sala antes de adjuntar archivos.");
+          return;
+        }
+        const f = getFirstFileFromDataTransfer(e.dataTransfer);
+        if (!f) {
+          log(
+            "Soltar: no se recibió ningún archivo (algunos orígenes no envían el fichero al navegador). Prueba Adjunto o arrastra desde el Explorador de archivos."
+          );
+          setMediaStatus("No se pudo leer el archivo al soltar.");
+          return;
+        }
+        await uploadPendingChatFile(f);
+      });
+    })();
+
     $("btnEnviarChat").addEventListener("click", () => {
       const contenido = $("chatInput").value.trim();
-      if (!contenido || !activeRoomId || !socket) return;
+      if ((!contenido && !pendingChatAdjunto) || !activeRoomId || !socket) return;
       const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
-      const payload = { roomId: normRoomKey(activeRoomId), contenido, tipo: "general" };
+      const payload = {
+        roomId: normRoomKey(activeRoomId),
+        contenido,
+        tipo: "general",
+        ...(pendingChatAdjunto || {}),
+      };
       if (active?.type === "dm" && active.targetUserId) {
         payload.tipo = "privado";
         payload.destinatarioUsuarioId = active.targetUserId;
@@ -2652,6 +3323,9 @@
         if (r && !r.ok) log("Chat: " + (r.error || "error"));
       });
       $("chatInput").value = "";
+      pendingChatAdjunto = null;
+      updateChatAdjuntoPendingUi();
+      setMediaStatus("");
     });
 
     const canvas = $("board");
@@ -3509,6 +4183,19 @@
     window.addEventListener("paste", async (e) => {
       if (!activeRoomId) return;
       if (activeTextInput && document.activeElement === activeTextInput) return;
+
+      const clipFile = getClipboardFile(e.clipboardData);
+      const routeToChat = isChatPasteOrDropTarget(e.target) || chatInputHasFocus();
+
+      if (routeToChat && clipFile) {
+        e.preventDefault();
+        await uploadPendingChatFile(clipFile);
+        return;
+      }
+      if (routeToChat) {
+        return;
+      }
+
       const items = e.clipboardData?.items;
       if (!items?.length) return;
       const imageItem = [...items].find((it) => String(it.type || "").startsWith("image/"));
@@ -3805,7 +4492,7 @@
     });
 
     window.addEventListener("beforeunload", (e) => {
-      if (isMicRecordingActive()) {
+      if (isMeetingVideoRecordingActive()) {
         e.preventDefault();
         e.returnValue = "";
       }

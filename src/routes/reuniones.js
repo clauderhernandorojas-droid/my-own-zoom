@@ -1,12 +1,54 @@
 const express = require('express');
+const fs = require('fs');
+const multer = require('multer');
 const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
 const { Reunion, Participa, Tablero, Usuario } = require('../models');
 const { MAX_ESTUDIANTES, puedeUnirseParticipar } = require('../services/reunionParticipacion');
+const {
+  MAX_BYTES,
+  isAllowedExtension,
+  reunionUploadDir,
+  multerFilename,
+  posixRelPath,
+} = require('../services/chatAdjuntos');
 
 const router = express.Router();
 
 router.use(authRequired, loadUsuario);
+
+const uploadChatAdjunto = multer({
+  storage: multer.diskStorage({
+    destination(req, file, cb) {
+      const roomKey = String(req.params.roomId || '')
+        .trim()
+        .toLowerCase();
+      Reunion.findOne({
+        where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
+      })
+        .then((reunion) => {
+          if (!reunion) {
+            cb(new Error('Sala no encontrada'));
+            return;
+          }
+          req._chatAdjReunion = reunion;
+          cb(null, reunionUploadDir(reunion.reunionId));
+        })
+        .catch((e) => cb(e));
+    },
+    filename(req, file, cb) {
+      cb(null, multerFilename(file.originalname));
+    },
+  }),
+  limits: { fileSize: MAX_BYTES },
+  fileFilter(req, file, cb) {
+    if (!isAllowedExtension(file.originalname)) {
+      cb(new Error('Tipo de archivo no permitido'));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 router.post('/', async (req, res, next) => {
   try {
@@ -212,6 +254,54 @@ router.post('/room/:roomId/unirse', async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+/** Sube un archivo al disco (sin crear fila en `mensajes`; el cliente envía el mensaje por Socket con los metadatos). */
+router.post('/room/:roomId/chat-adjunto', (req, res, next) => {
+  uploadChatAdjunto.single('file')(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Archivo demasiado grande (máx. 20 MB)' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir archivo' });
+    }
+    try {
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: 'No se recibió el archivo' });
+
+      const roomKey = String(req.params.roomId || '')
+        .trim()
+        .toLowerCase();
+      const reunion =
+        req._chatAdjReunion ||
+        (await Reunion.findOne({
+          where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
+        }));
+      if (!reunion) {
+        fs.unlink(file.path, () => {});
+        return res.status(404).json({ error: 'Reunión no encontrada' });
+      }
+
+      const participa = await Participa.findOne({
+        where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+      });
+      if (!participa && req.usuario.rol !== 'admin') {
+        fs.unlink(file.path, () => {});
+        return res.status(403).json({ error: 'No participas en esta reunión' });
+      }
+
+      const rel = posixRelPath(reunion.reunionId, file.filename);
+      return res.status(201).json({
+        adjuntoRelPath: rel,
+        adjuntoNombreOriginal: file.originalname,
+        adjuntoMime: file.mimetype || null,
+        adjuntoBytes: file.size,
+      });
+    } catch (e) {
+      if (req.file?.path) fs.unlink(req.file.path, () => {});
+      next(e);
+    }
+  });
 });
 
 module.exports = router;

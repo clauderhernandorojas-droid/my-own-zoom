@@ -15,16 +15,19 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **WebRTC / ICE**: `GET /api/rtc/config` — STUN desde `STUN_URLS` o por defecto Google; TURN opcional vía `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
 - **Estáticos**: `public/`; la raíz sirve `public/index.html`.
 - **Base de datos**: Sequelize. Sin `DATABASE_URL` → **SQLite** en `data/app.sqlite`. Con `DATABASE_URL` → **PostgreSQL**.
+- **Adjuntos de chat (archivos)**: `multer` escribe en `data/chat-adjuntos/<reunionId>/` (carpeta `data/` en `.gitignore`). **`POST /api/reuniones/room/:roomId/chat-adjunto`** con `multipart/form-data`, campo **`file`**, máximo **20 MB** y extensiones acotadas en `src/services/chatAdjuntos.js`. La subida **no** crea fila en `mensajes`: el cliente envía luego **`chat:message`** por Socket con `adjuntoRelPath`, `adjuntoNombreOriginal`, `adjuntoMime`, `adjuntoBytes`. Descarga autenticada: **`GET /api/mensajes/adjunto/:mensajeId`**.
+- **Arranque BD**: tras `sequelize.sync()` se ejecuta **`ensureMensajeAdjuntoColumns()`** (añade columnas de adjunto en `mensajes` si faltan) para no depender de `sync({ alter: true })` global (evita errores con tablas auxiliares SQLite como backups).
 
 ### Persistencia y esquema
 
 - Modelos en `src/models/`: `Usuario`, `Reunion`, `Participa`, `Mensaje`, `Tablero` y asociaciones en `src/models/index.js`.
-- **Importante:** el esquema se aplica con **`sequelize.sync()`** al iniciar el servidor (`server.js`). **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
+- **Importante:** el esquema base se aplica con **`sequelize.sync()`** al iniciar (`server.js`); las columnas nuevas de adjuntos en `mensajes` se completan con el helper anterior. **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
 
 ### Cliente (`public/index.html`)
 
-- Una sola página: **login/registro**, listado y creación de **reuniones**, **chat** (general y privado con reglas docente↔estudiante), **tablero** colaborativo (herramientas, zoom, minimapa, seguimiento de vista del docente, persistencia vía socket + debounce a BD), **videollamadas WebRTC** (oferta/respuesta/ICE por Socket.io).
-- **Grabación de audio de la reunión**: `MediaRecorder` sobre una mezcla construida con **Web Audio API**. Solo el **docente dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles de grabación y el servidor rechaza `recording:state` para otros participantes. Selector **«Mezcla grabación»**: reunión completa (local + remotos), solo micrófono local o solo audio remoto. Cada ruta pasa por un **`GainNode`** (~−5 dB por rama) y un **`DynamicsCompressor`** maestro suave antes del `MediaStreamDestination`. Las restricciones de captura del mic para esa ruta evitan AGC/NS/AEC agresivos (**conviene auriculares** para limitar acople si varios hablan). Estado de grabación notificado por socket (`recording:state` / `recording:notify`); copias locales respaldadas en **IndexedDB** (`recordings`).
+- Una sola página: **login/registro**, listado y creación de **reuniones**, **chat** (general y privado con reglas docente↔estudiante; **adjuntos** por botón 📎, pegar o arrastrar sobre la zona de chat; texto opcional si hay adjunto pendiente), **tablero** colaborativo (herramientas, zoom, minimapa, seguimiento de vista del docente, persistencia vía socket + debounce a BD), **videollamadas WebRTC** (oferta/respuesta/ICE por Socket.io).
+- **Medios locales**: si cámara y micrófono fallan, se intenta **solo micrófono** y, en último caso, unión con **stream vacío** y transceiver de vídeo **`recvonly`** para seguir en la sala; mensajes de estado en UI.
+- **Grabación de la reunión (docente)**: Solo el **dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles; el servidor rechaza `recording:state` para otros. Un único botón **grabar vídeo**: `MediaRecorder` sobre **canvas** offscreen (1280×720 @ ~24 fps) + misma **mezcla Web Audio** en el archivo (`canvas.captureStream` + pistas del `MediaStreamDestination`: `GainNode` por rama, `DynamicsCompressor`, selector de mezcla local/remoto/completa). **Disposición**: dos modos — franja **superior pequeña** (~14 %) con cámaras y tablero debajo, o **tablero a la izquierda** y columna **derecha estrecha** (~22 %) con cámaras; casilla para **excluir tablero** (solo cámaras a pantalla completa). Composición de franjas de vídeo en **`object-fit: contain`** para no recortar caras. Query opcional **`?debugComposite=1`**: bordes de depuración en celdas y rectángulo del tablero. Sin grabación solo-audio ni compartir pantalla en esta fase. Mic sin AGC/NS/AEC agresivos para la ruta de grabación (**auriculares** recomendados). **IndexedDB** y `recording:state` / `recording:notify`.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
 ### Cupo de sala
@@ -41,9 +44,10 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | Reunión nueva en estado **activa** y docente auto-inscrito como participante; **Tablero** vacío creado en la misma transacción de flujo | mismo archivo |
 | **Cupo** 5 no-docentes + docente | `puedeUnirseParticipar`, mensaje de error fijo en español |
 | Chat **privado**: estudiante solo hacia docente; docente puede escribir a estudiante; reglas en Socket y REST | `src/socket/index.js`, `src/routes/mensajes.js` |
+| **Adjuntos de chat**: subida HTTP; mensaje con metadatos vía Socket; comprobación de que el fichero exista en disco antes de persistir | `src/routes/reuniones.js`, `src/socket/index.js`, `src/services/chatAdjuntos.js`, `GET .../mensajes/adjunto/...` |
 | **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / SQL `lower(room_id)` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
-| **Grabación de audio**: solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
+| **Grabación** (vídeo + audio mezclado): solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) existen en modelo; comentarios «Etapa 2» | `src/models/reunion.js` |
 
 ---
@@ -93,9 +97,9 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ## 6. Buenas prácticas para sesiones en Cursor
 
-- **Actualizar este `README-dev.md`** cuando: se añadan rutas o eventos de socket; cambien modelos o estrategia de BD; se añadan variables de entorno; cambie el cupo o las reglas de chat; cambie la grabación de audio o la mezcla Web Audio; se creen migraciones o scripts.
+- **Actualizar este `README-dev.md`** cuando: se añadan rutas o eventos de socket; cambien modelos o estrategia de BD; se añadan variables de entorno; cambie el cupo o las reglas de chat; cambie la grabación (audio/vídeo) o la mezcla Web Audio; se creen migraciones o scripts.
 - Así el siguiente chat o sesión puede usar este archivo como **contexto inicial** (pegar resumen o `@README-dev.md`).
 
 ---
 
-*Última revisión del código descrita aquí: auditoría del repo “My Own Zoom” (Node ≥18, MVP videoconferencia pedagógica).*
+*Última actualización de este documento: mayo 2026 — adjuntos de chat, columnas `mensajes` vía helper, cliente medios/composite/grabación.*

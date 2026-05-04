@@ -1,11 +1,40 @@
 const express = require('express');
+const fs = require('fs');
 const { Op } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
 const { Mensaje, Participa, Reunion } = require('../models');
+const { adjuntoAbsoluteOrNull } = require('../services/chatAdjuntos');
 
 const router = express.Router();
 
 router.use(authRequired, loadUsuario);
+
+router.get('/adjunto/:mensajeId', async (req, res, next) => {
+  try {
+    const { mensajeId } = req.params;
+    const m = await Mensaje.findByPk(mensajeId);
+    if (!m || !m.adjuntoRelPath) {
+      return res.status(404).json({ error: 'Adjunto no encontrado' });
+    }
+
+    const participa = await assertParticipa(m.reunionId, req.usuario.usuarioId);
+    if (!participa && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    const abs = adjuntoAbsoluteOrNull(m.reunionId, m.adjuntoRelPath);
+    if (!abs || !fs.existsSync(abs)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+
+    res.setHeader('Content-Type', m.adjuntoMime || 'application/octet-stream');
+    const name = m.adjuntoNombreOriginal || 'adjunto';
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    fs.createReadStream(abs).pipe(res);
+  } catch (e) {
+    next(e);
+  }
+});
 
 async function assertParticipa(reunionId, usuarioId) {
   return Participa.findOne({ where: { reunionId, usuarioId } });

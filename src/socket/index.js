@@ -1,6 +1,8 @@
+const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const { Sequelize } = require('sequelize');
 const { Participa, Reunion, Mensaje, Tablero } = require('../models');
+const { adjuntoAbsoluteOrNull, MAX_BYTES } = require('../services/chatAdjuntos');
 
 const boardSaveTimers = new Map();
 /** roomId (string) → true cuando el docente activó «la audiencia sigue mi vista» */
@@ -151,9 +153,24 @@ function attachSocketIO(io) {
 
     socket.on('chat:message', async (payload, cb) => {
       try {
-        const { roomId, contenido, tipo, destinatarioUsuarioId } = payload || {};
-        if (!roomId || !contenido) {
-          cb?.({ ok: false, error: 'roomId y contenido requeridos' });
+        const {
+          roomId,
+          contenido,
+          tipo,
+          destinatarioUsuarioId,
+          adjuntoRelPath,
+          adjuntoNombreOriginal,
+          adjuntoMime,
+          adjuntoBytes,
+        } = payload || {};
+        const contenidoTrim = contenido != null ? String(contenido).trim() : '';
+        const hasAdjunto =
+          adjuntoRelPath &&
+          adjuntoNombreOriginal &&
+          Number.isFinite(Number(adjuntoBytes)) &&
+          Number(adjuntoBytes) > 0;
+        if (!roomId || (!contenidoTrim && !hasAdjunto)) {
+          cb?.({ ok: false, error: 'roomId y contenido (o adjunto) requeridos' });
           return;
         }
         const reunion = await obtenerReunionPorRoom(roomId);
@@ -177,12 +194,33 @@ function attachSocketIO(io) {
           }
         }
 
+        let adjuntoFields = {};
+        if (hasAdjunto) {
+          const abs = adjuntoAbsoluteOrNull(reunion.reunionId, adjuntoRelPath);
+          if (!abs || !fs.existsSync(abs)) {
+            cb?.({ ok: false, error: 'Adjunto no encontrado en el servidor' });
+            return;
+          }
+          const bytes = Math.min(Math.max(0, Math.floor(Number(adjuntoBytes))), MAX_BYTES);
+          adjuntoFields = {
+            adjuntoRelPath: String(adjuntoRelPath).trim(),
+            adjuntoNombreOriginal: String(adjuntoNombreOriginal).trim().slice(0, 512),
+            adjuntoMime: adjuntoMime ? String(adjuntoMime).trim().slice(0, 255) : null,
+            adjuntoBytes: bytes,
+          };
+        }
+
+        const textoFinal =
+          contenidoTrim ||
+          (hasAdjunto ? `[Archivo] ${adjuntoFields.adjuntoNombreOriginal}` : '');
+
         const mensaje = await Mensaje.create({
           reunionId: reunion.reunionId,
           usuarioId: userId,
           tipo: tipoMsg,
-          contenido: String(contenido).trim(),
+          contenido: textoFinal,
           destinatarioUsuarioId: tipoMsg === 'privado' ? destinatario : null,
+          ...adjuntoFields,
         });
         const full = await Mensaje.findByPk(mensaje.mensajeId, {
           include: [

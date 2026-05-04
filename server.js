@@ -5,9 +5,11 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const { DataTypes } = require('sequelize');
 const apiRoutes = require('./src/routes');
 const { sequelize } = require('./src/models');
 const { attachSocketIO } = require('./src/socket');
+const { ensureChatAdjRoot } = require('./src/services/chatAdjuntos');
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -68,8 +70,28 @@ const io = new Server(server, {
 
 attachSocketIO(io);
 
+async function ensureMensajeAdjuntoColumns() {
+  const qi = sequelize.getQueryInterface();
+  const tryAdd = async (col, def) => {
+    try {
+      await qi.addColumn('mensajes', col, def);
+    } catch (e) {
+      const m = String(e?.message || e?.parent?.message || '');
+      if (!/duplicate|already exists|Duplicate column/i.test(m)) {
+        console.warn('ensureMensajeAdjuntoColumns:', col, m);
+      }
+    }
+  };
+  await tryAdd('adjunto_rel_path', { type: DataTypes.STRING(1024), allowNull: true });
+  await tryAdd('adjunto_nombre_original', { type: DataTypes.STRING(512), allowNull: true });
+  await tryAdd('adjunto_mime', { type: DataTypes.STRING(255), allowNull: true });
+  await tryAdd('adjunto_bytes', { type: DataTypes.INTEGER, allowNull: true });
+}
+
 async function main() {
+  ensureChatAdjRoot();
   await sequelize.sync();
+  await ensureMensajeAdjuntoColumns();
   server.listen(PORT, () => {
     console.log(`Servidor en http://localhost:${PORT}`);
     console.log(`API: http://localhost:${PORT}/api`);

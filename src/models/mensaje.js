@@ -51,6 +51,26 @@ module.exports = (sequelize) => {
         field: 'destinatario_usuario_id',
         references: { model: 'usuarios', key: 'usuario_id' },
       },
+      adjuntoRelPath: {
+        type: DataTypes.STRING(1024),
+        allowNull: true,
+        field: 'adjunto_rel_path',
+      },
+      adjuntoNombreOriginal: {
+        type: DataTypes.STRING(512),
+        allowNull: true,
+        field: 'adjunto_nombre_original',
+      },
+      adjuntoMime: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        field: 'adjunto_mime',
+      },
+      adjuntoBytes: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        field: 'adjunto_bytes',
+      },
     },
     {
       tableName: 'mensajes',
