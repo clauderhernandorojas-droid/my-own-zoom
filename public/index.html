@@ -3285,6 +3285,7 @@
       if (!modal || !title || !start || !duration || !tz || !err || !linkInput || !recMode || !recEndMode || !recUntil || !recCustomBase || !recInterval) return;
       err.textContent = "";
       scheduleEditingReunionId = meeting?.reunionId ? String(meeting.reunionId) : null;
+      if (!meeting) scheduleModalScrollTop = 0;
       if (modalTitle) modalTitle.textContent = meeting ? "Editar reunión" : "Agendar reunión";
       if (saveBtn) saveBtn.textContent = meeting ? "Guardar cambios" : "Guardar agenda";
       if (meeting) {
@@ -6218,6 +6219,7 @@
     $("scheduleCustomBase")?.addEventListener("change", () => updateScheduleRecurrenceUi());
     $("scheduleRecurrenceInterval")?.addEventListener("input", () => updateScheduleRecurrenceUi());
     $("scheduleStartInput")?.addEventListener("change", () => updateScheduleRecurrenceUi());
+    $("scheduleStartInput")?.addEventListener("input", () => updateScheduleRecurrenceUi());
     document.querySelectorAll(".recurrence-day-chip").forEach((el) => {
       el.addEventListener("click", () => {
         el.classList.toggle("active");
