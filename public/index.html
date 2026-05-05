@@ -145,6 +145,83 @@
       min-height: 96px;
       max-height: 28vh;
       overflow: hidden;
+      position: relative;
+    }
+    .room-video-layout-switch {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      z-index: 30;
+      display: inline-flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.42);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+    }
+    .room-video-layout-switch__row {
+      display: inline-flex;
+      gap: 6px;
+    }
+    .room-layout-btn {
+      width: 30px;
+      height: 30px;
+      border: 1px solid rgba(203, 213, 225, 0.4);
+      border-radius: 7px;
+      background: rgba(15, 23, 42, 0.8);
+      color: #e2e8f0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    .room-layout-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+    }
+    .room-layout-btn[aria-pressed="true"] {
+      background: #1d4ed8;
+      border-color: #60a5fa;
+      color: #fff;
+    }
+    .room-chat-toggle-inline {
+      min-height: 28px;
+      border: none;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0.2rem 0.5rem;
+    }
+    .room-chat-toggle-inline:hover {
+      background: #1d4ed8;
+    }
+    .room-shell.room-shell--videos-right .room-primary {
+      flex-direction: row;
+    }
+    .room-shell.room-shell--videos-right .room-video-strip {
+      width: min(22vw, 240px);
+      max-height: none;
+      min-height: 0;
+      border-bottom: none;
+      border-left: 1px solid var(--z-border);
+      order: 2;
+    }
+    .room-shell.room-shell--videos-right #videos {
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .room-shell.room-shell--videos-right .remote-peer {
+      width: auto;
+      max-width: none;
     }
     .room-shell.room-shell--gallery .room-video-strip {
       flex: 1 1 auto;
@@ -153,6 +230,9 @@
       min-height: 0;
       justify-content: center;
       align-items: stretch;
+    }
+    .room-shell.room-shell--gallery .room-video-layout-switch {
+      display: none;
     }
     .room-shell.room-shell--gallery .room-center-wrap { display: none; }
     #videos {
@@ -278,6 +358,10 @@
     }
     .room-pane-splitter:hover {
       background: #5a5a5a;
+    }
+    .room-shell.room-shell--chat-hidden .room-pane-splitter,
+    .room-shell.room-shell--chat-hidden .room-chat-panel {
+      display: none !important;
     }
     .room-chat-panel {
       flex: 0 0 var(--room-chat-width);
@@ -516,14 +600,13 @@
       font-weight: 600;
     }
     .room-board-toolbar-wrap .board-ol--vbar .tool-btn {
-      border: 1px solid #cbd5e1;
-      background: #fff;
-      color: #111;
+      border: none;
+      background: transparent;
+      color: #0f172a;
     }
     .room-board-toolbar-wrap .board-ol--vbar .tool-btn.active {
-      background: var(--z-accent-blue);
-      border-color: var(--z-accent-blue);
-      color: #fff;
+      background: rgba(29, 78, 216, 0.18);
+      color: #1d4ed8;
     }
     .peer-conn-status { font-size: 0.72rem; color: #555; margin: 0.15rem 0 0.25rem; font-variant-numeric: tabular-nums; }
     .peer-retry-btn { font-size: 0.72rem; margin-top: 0.2rem; }
@@ -623,6 +706,48 @@
     }
     .chat-adjunto-btn { margin-right: 0.35rem; font-size: 0.82rem; padding: 0.12rem 0.4rem; cursor: pointer; }
     #chatAdjuntoPending { font-size: 0.82rem; color: #334155; margin-left: 0.35rem; }
+    .chat-adjunto-preview {
+      margin: 0.28rem 0 0.15rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+      padding: 0.28rem;
+      max-width: 220px;
+    }
+    .chat-adjunto-preview img {
+      display: block;
+      max-width: 100%;
+      max-height: 160px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #f1f5f9;
+    }
+    .chat-adjunto-preview video {
+      display: block;
+      width: 100%;
+      max-height: 180px;
+      border-radius: 6px;
+      background: #0f172a;
+    }
+    .chat-adjunto-preview audio {
+      width: 100%;
+      max-width: 210px;
+    }
+    .chat-adjunto-preview iframe,
+    .chat-adjunto-preview embed {
+      width: 100%;
+      height: 180px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #fff;
+    }
+    .chat-adjunto-preview--file {
+      font-size: 0.78rem;
+      color: #334155;
+      display: inline-flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
     .chat-drop-zone {
       border-radius: 8px;
       padding: 0.25rem 0.35rem 0.45rem;
@@ -686,8 +811,8 @@
       font-size: 0.82rem;
     }
     .board-zoom-toolbar button {
-      min-width: 28px;
-      padding: 2px 6px;
+      min-width: 32px;
+      padding: 4px 7px;
       cursor: pointer;
       border-radius: 4px;
       border: 1px solid #cbd5e1;
@@ -697,9 +822,9 @@
       background: #e2e8f0;
     }
     .board-zoom-toolbar select {
-      max-width: 76px;
-      padding: 2px 4px;
-      font-size: 0.8rem;
+      max-width: 86px;
+      padding: 4px 6px;
+      font-size: 0.9rem;
     }
     #btnZoomReset {
       font-variant-numeric: tabular-nums;
@@ -718,7 +843,7 @@
       border-radius: 1px;
       box-shadow: none;
       background: transparent;
-      font-size: 16px;
+      font-size: 30px;
       line-height: 1.2;
       font-family: sans-serif;
       outline: 1.5px dashed #2563eb;
@@ -726,6 +851,9 @@
       resize: none;
       box-sizing: content-box;
       caret-color: #111;
+      appearance: none;
+      -webkit-appearance: none;
+      display: block;
     }
     .msg-privado { color: #6a1b9a; }
     .hidden { display: none !important; }
@@ -804,7 +932,347 @@
       padding: 1.5rem 1rem 3rem;
       min-height: 100vh;
       box-sizing: border-box;
-      background: #f5f5f5;
+      background: radial-gradient(1200px 520px at 12% -8%, rgba(37, 99, 235, 0.28), transparent 58%),
+        radial-gradient(980px 420px at 95% 12%, rgba(30, 64, 175, 0.22), transparent 52%),
+        #0b1220;
+      color: #f8fafc;
+    }
+    .auth-shell {
+      width: min(560px, 100%);
+      margin: 2.5rem auto 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      align-items: stretch;
+    }
+    .auth-card,
+    .home-card,
+    .home-header {
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      background: rgba(15, 23, 42, 0.8);
+      border-radius: 16px;
+      box-shadow: 0 14px 30px rgba(2, 6, 23, 0.35);
+      backdrop-filter: blur(2px);
+    }
+    .auth-card {
+      padding: 1.25rem;
+    }
+    .auth-eyebrow {
+      margin: 0;
+      color: #93c5fd;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 700;
+    }
+    .auth-card h2,
+    .home-header h2 {
+      margin: 0.3rem 0 0;
+      font-size: 1.6rem;
+      color: #ffffff;
+    }
+    .auth-subtitle,
+    .home-subtitle {
+      margin: 0.35rem 0 1rem;
+      color: #cbd5e1;
+      font-size: 0.95rem;
+    }
+    .auth-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.8rem;
+      margin-bottom: 0.8rem;
+    }
+    .auth-grid--compact {
+      margin-bottom: 1rem;
+    }
+    .auth-grid label,
+    .home-card label {
+      color: #dbeafe;
+      font-size: 0.85rem;
+    }
+    .auth-grid input,
+    .auth-grid select,
+    .home-card input,
+    .home-card select {
+      width: 100%;
+      margin-top: 0.3rem;
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    .auth-actions,
+    .home-actions {
+      display: flex;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btn-primary,
+    .btn-ghost {
+      border-radius: 9px;
+      cursor: pointer;
+      font-weight: 600;
+      border: 1px solid transparent;
+      min-height: 36px;
+    }
+    .btn-primary {
+      background: #2563eb;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+    .btn-ghost {
+      background: #111827;
+      color: #e2e8f0;
+      border-color: #334155;
+    }
+    .btn-ghost:hover {
+      background: #1f2937;
+    }
+    .home-shell {
+      width: min(1100px, 100%);
+      margin: 2rem auto 0;
+    }
+    .home-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.8rem;
+      align-items: start;
+      padding: 1rem 1.1rem;
+    }
+    .home-header__actions {
+      display: inline-flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .role-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      border: 1px solid #3b82f6;
+      padding: 0 0.65rem;
+      font-size: 0.8rem;
+      color: #bfdbfe;
+      background: rgba(37, 99, 235, 0.2);
+    }
+    .home-grid {
+      margin-top: 0.9rem;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.8rem;
+    }
+    .home-card {
+      padding: 0.9rem 1rem;
+    }
+    .home-card h3 {
+      margin: 0 0 0.6rem;
+      font-size: 1rem;
+    }
+    .home-card--wide {
+      grid-column: 1 / -1;
+    }
+    .home-muted {
+      color: #94a3b8;
+      font-size: 0.86rem;
+      margin: 0.15rem 0 0.75rem;
+    }
+    .home-result {
+      margin: 0.55rem 0 0;
+      font-size: 0.9rem;
+      color: #bfdbfe;
+      min-height: 1.2em;
+    }
+    .calendar-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.45rem;
+    }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 0.3rem;
+    }
+    .calendar-grid--week {
+      margin-bottom: 0.35rem;
+      color: #93c5fd;
+      font-size: 0.76rem;
+      text-align: center;
+      font-weight: 600;
+    }
+    .calendar-day {
+      min-height: 34px;
+      border-radius: 7px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.82rem;
+    }
+    .calendar-day--empty {
+      opacity: 0.35;
+    }
+    .calendar-day--today {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35) inset;
+      color: #ffffff;
+      font-weight: 700;
+    }
+    .calendar-day--event {
+      background: rgba(37, 99, 235, 0.2);
+      color: #dbeafe;
+    }
+    .profile-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .profile-modal__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.72);
+    }
+    .profile-modal__card {
+      position: relative;
+      width: min(460px, 100%);
+      max-height: min(86vh, 760px);
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: #0f172a;
+      color: #f8fafc;
+      box-shadow: 0 20px 34px rgba(2, 6, 23, 0.55);
+      padding: 1rem;
+      overflow: auto;
+    }
+    .profile-modal__card h3 {
+      margin: 0 0 0.35rem;
+      font-size: 1.12rem;
+    }
+    .profile-modal__card p {
+      margin: 0 0 0.65rem;
+      color: #cbd5e1;
+    }
+    .profile-modal__card label {
+      display: block;
+      color: #dbeafe;
+      font-size: 0.85rem;
+    }
+    .profile-modal__card input {
+      width: 100%;
+      margin-top: 0.35rem;
+      box-sizing: border-box;
+      background: #0b1220;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #fff;
+    }
+    .profile-modal__actions {
+      margin-top: 0.5rem;
+      display: flex;
+      justify-content: flex-end;
+      position: sticky;
+      bottom: -1rem;
+      background: linear-gradient(to top, #0f172a 78%, rgba(15, 23, 42, 0));
+      padding-top: 0.4rem;
+    }
+    .scheduled-list {
+      margin-top: 0.65rem;
+      display: grid;
+      gap: 0.45rem;
+    }
+    .scheduled-item {
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0b1220;
+      padding: 0.5rem 0.55rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+    }
+    .scheduled-item__main {
+      min-width: 0;
+    }
+    .scheduled-item__title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #f8fafc;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .scheduled-item__meta {
+      font-size: 0.78rem;
+      color: #93c5fd;
+      margin-top: 0.15rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .scheduled-item button {
+      flex: 0 0 auto;
+      min-height: 30px;
+      font-size: 0.78rem;
+      padding: 0.2rem 0.55rem;
+    }
+    .scheduled-item__actions {
+      display: inline-flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .scheduled-item__actions .btn-primary,
+    .scheduled-item__actions .btn-ghost {
+      min-width: 102px;
+      justify-content: center;
+      text-align: center;
+    }
+    .recurrence-days {
+      display: inline-flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      margin-top: 0.35rem;
+    }
+    .recurrence-day-chip {
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: #cbd5e1;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0;
+    }
+    .recurrence-day-chip.active {
+      background: #2563eb;
+      border-color: #60a5fa;
+      color: #fff;
+    }
+    .home-muted--error {
+      color: #fca5a5 !important;
+    }
+    #scheduleHint.hidden {
+      display: none;
+    }
+    @media (max-width: 880px) {
+      .home-grid {
+        grid-template-columns: 1fr;
+      }
     }
     .board-stage {
       display: flex;
@@ -879,10 +1347,11 @@
       max-width: min(46%, 340px);
       display: flex;
       justify-content: flex-end;
+      z-index: 50;
     }
     .board-ol-btn {
-      font-size: 0.78rem;
-      padding: 0.4rem 0.75rem;
+      font-size: 0.88rem;
+      padding: 0.48rem 0.9rem;
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.2);
       background: rgba(23, 23, 23, 0.88);
@@ -894,66 +1363,174 @@
       background: rgba(45, 45, 45, 0.95);
     }
     .board-ol-btn--wide {
-      font-size: 0.82rem;
-      padding: 0.45rem 0.95rem;
+      font-size: 0.9rem;
+      padding: 0.52rem 1rem;
       line-height: 1.25;
       text-align: center;
     }
     .board-ol--vbar {
       left: 8px;
       top: 52px;
-      bottom: 52px;
-      width: 48px;
+      bottom: auto;
+      width: 56px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 5px;
-      padding: 8px 5px;
-      background: rgba(250, 250, 250, 0.96);
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
+      gap: 7px;
+      padding: 10px 6px;
+      background: rgba(2, 6, 23, 0.92);
+      border: 1px solid #334155;
+      border-radius: 16px;
       box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
-      overflow-x: hidden;
-      overflow-y: auto;
-      scrollbar-width: thin;
+      overflow: visible;
       z-index: 43;
+      max-height: calc(100% - 132px);
     }
     .board-ol--vbar .tool-btn {
-      width: 38px;
-      min-width: 38px;
-      padding: 5px 3px;
-      font-size: 0.65rem;
-      border: 1px solid #cbd5e1;
-      background: #fff;
-      color: #111;
+      width: 54px;
+      min-width: 54px;
+      height: 52px;
+      padding: 0;
+      font-size: 1.8rem;
+      border: none;
+      background: transparent;
+      color: #f8fafc;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+    .board-tool-icon {
+      width: 28px;
+      height: 28px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      pointer-events: none;
+    }
+    .board-tool-emoji {
+      font-size: 2rem;
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+    }
+    .board-ol--vbar .tool-btn:hover {
+      background: rgba(96, 165, 250, 0.2);
+      color: #93c5fd;
     }
     .board-ol--vbar .tool-btn.active {
-      background: var(--z-accent-blue);
-      border-color: var(--z-accent-blue);
-      color: #fff;
+      background: rgba(37, 99, 235, 0.35);
+      color: #ffffff;
+    }
+    .board-ol--vbar .tool-btn.hidden {
+      display: none;
     }
     .board-ol--vbar .tool-sep {
-      width: 26px;
+      width: 34px;
       height: 1px;
       margin: 3px 0;
-      background: #cbd5e1;
+      background: #475569;
     }
     .board-ol--vbar .color-swatch {
       width: 22px;
       height: 22px;
     }
+    .board-side-menu {
+      position: absolute;
+      left: calc(100% + 8px);
+      top: 0;
+      min-width: 160px;
+      max-width: 220px;
+      background: rgba(17, 24, 39, 0.96);
+      border: 1px solid #374151;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      padding: 8px;
+      display: none;
+      z-index: 60;
+      pointer-events: auto;
+    }
+    .board-side-menu--open {
+      display: block;
+    }
+    .board-side-menu__title {
+      margin: 0 0 6px;
+      font-size: 0.72rem;
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+    .board-color-grid,
+    .board-emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .board-color-grid .color-swatch {
+      width: 24px;
+      height: 24px;
+      margin: 0 auto;
+    }
+    .board-emoji-btn {
+      border: 1px solid #475569;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #f8fafc;
+      font-size: 1rem;
+      height: 30px;
+      cursor: pointer;
+    }
+    .board-emoji-btn:hover {
+      background: #1e293b;
+    }
+    .board-more-item {
+      width: 100%;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.45rem;
+      text-align: left;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .board-more-item:hover {
+      background: #1e293b;
+    }
     .board-vtoolbar-label {
-      font-size: 0.58rem !important;
-      color: #475569 !important;
+      font-size: 0.66rem !important;
+      color: #cbd5e1 !important;
       margin: 0 !important;
       text-align: center;
       width: 100%;
     }
     .board-vtoolbar-label select {
       width: 100%;
-      font-size: 0.65rem;
+      font-size: 0.74rem;
       margin-top: 2px;
-      padding: 2px;
+      padding: 3px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+    }
+    .board-tool-glyph {
+      font-size: 2.2rem;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      pointer-events: none;
+      user-select: none;
+    }
+    .board-tool-icon--cursor {
+      width: 36px;
+      height: 36px;
+      fill: #facc15;
+      stroke: #854d0e;
+      stroke-width: 1.2;
     }
     .board-bottom-bar {
       position: absolute;
@@ -971,8 +1548,8 @@
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
     }
     .board-bottom-bar button {
-      font-size: 0.72rem;
-      padding: 0.3rem 0.5rem;
+      font-size: 0.82rem;
+      padding: 0.38rem 0.62rem;
       border-radius: 6px;
       border: 1px solid var(--z-border);
       background: #363636;
@@ -994,49 +1571,178 @@
   <p id="log"></p>
 
   <section id="authSection">
-    <fieldset>
-      <legend>Entrar</legend>
-      <div class="row">
-        <label>Email <input id="email" type="email" autocomplete="username" /></label>
-        <label>Contraseña <input id="password" type="password" autocomplete="current-password" /></label>
+    <div class="auth-shell">
+      <div class="auth-card">
+        <p class="auth-eyebrow">My Own Zoom</p>
+        <h2>Inicia sesión</h2>
+        <p class="auth-subtitle">Accede a tus clases y reuniones con una interfaz unificada.</p>
+        <div class="auth-grid">
+          <label>Email <input id="email" type="email" autocomplete="username" /></label>
+          <label>Contraseña <input id="password" type="password" autocomplete="current-password" /></label>
+        </div>
+        <div class="auth-grid auth-grid--compact">
+          <label>Rol (registro)
+            <select id="rolRegistro">
+              <option value="estudiante">Estudiante</option>
+              <option value="docente">Profesor</option>
+            </select>
+          </label>
+          <label>Nombre * <input id="nombre" placeholder="Tu nombre" /></label>
+        </div>
+        <div class="auth-actions">
+          <button type="button" id="btnLogin" class="btn-primary">Iniciar sesión</button>
+          <button type="button" id="btnRegister" class="btn-ghost">Crear cuenta</button>
+        </div>
       </div>
-      <div class="row">
-        <button type="button" id="btnLogin">Iniciar sesión</button>
-        <button type="button" id="btnRegister">Registrarse</button>
-        <label>Rol (registro) <select id="rolRegistro"><option value="estudiante">Estudiante</option><option value="docente">Docente</option></select></label>
-        <label>Nombre <input id="nombre" placeholder="Tu nombre" /></label>
-      </div>
-    </fieldset>
+    </div>
   </section>
 
   <section id="lobbySection" class="hidden">
-    <fieldset>
-      <legend>Sala</legend>
-      <p>Usuario: <strong id="userLabel"></strong></p>
-      <p style="font-size:0.9rem;color:#444">Cupo por sala: <strong>1 docente</strong> (dueño) + <strong>5 estudiantes</strong> (6 personas en total).</p>
-      <div class="row">
-        <button type="button" id="btnLogout">Cerrar sesión</button>
+    <div class="home-shell">
+      <header class="home-header">
+        <div>
+          <p class="auth-eyebrow">Inicio</p>
+          <h2>Bienvenido, <span id="homeUserName">usuario</span></h2>
+          <p class="home-subtitle">Gestiona tus reuniones y entra con un clic.</p>
+        </div>
+        <div class="home-header__actions">
+          <span id="homeRoleBadge" class="role-badge">Rol</span>
+          <button type="button" id="btnLogout" class="btn-ghost">Cerrar sesión</button>
+        </div>
+      </header>
+
+      <div class="home-grid">
+        <section class="home-card">
+          <h3>Acciones rápidas</h3>
+          <p class="home-muted">Cupo por sala: <strong>1 profesor</strong> + <strong>5 estudiantes</strong>.</p>
+          <div class="home-actions">
+            <button type="button" id="btnCrearReunion" class="btn-primary">Agendar reunión</button>
+          </div>
+          <p id="crearResult" class="home-result"></p>
+          <p id="cupoInfo" class="home-result"></p>
+          <p id="scheduleHint" class="home-muted">Solo los profesores pueden agendar reuniones.</p>
+          <div id="scheduledList" class="scheduled-list"></div>
+        </section>
+
+        <section class="home-card">
+          <h3>Calendario</h3>
+          <div class="calendar-head">
+            <strong id="homeCalendarMonth">Mes</strong>
+            <span id="homeCalendarRoleHint" class="home-muted">Vista</span>
+          </div>
+          <div class="calendar-grid calendar-grid--week">
+            <span>Lu</span><span>Ma</span><span>Mi</span><span>Ju</span><span>Vi</span><span>Sá</span><span>Do</span>
+          </div>
+          <div id="homeCalendarGrid" class="calendar-grid"></div>
+        </section>
+
+        <section class="home-card home-card--wide">
+          <h3>Grabaciones locales</h3>
+          <div class="row" style="flex-wrap: wrap; align-items: flex-start; gap: 0.5rem">
+            <button type="button" id="btnLocalRecordings" class="btn-ghost">Ver grabaciones guardadas en este navegador</button>
+            <span class="home-muted">Copia de seguridad local si el navegador bloquea la descarga al salir.</span>
+          </div>
+          <div id="localRecordingsPanel" class="hidden" style="margin: 0.5rem 0; font-size: 0.9rem; max-width: 560px"></div>
+        </section>
       </div>
-      <div class="row">
-        <button type="button" id="btnCrearReunion">Crear reunión (docente)</button>
-        <span id="crearResult"></span>
-      </div>
-      <div class="row">
-        <label>Room ID (UUID de la reunión) <input id="roomIdInput" placeholder="pega room_id" style="min-width:280px" /></label>
-        <button type="button" id="btnUnirseApi">Unirse (API)</button>
-        <button type="button" id="btnConsultarCupo">Consultar cupo</button>
-        <button type="button" id="btnEntrarSala">Entrar a la sala (Socket + WebRTC)</button>
-      </div>
-      <p id="cupoInfo" style="font-size:0.9rem"></p>
-      <div class="row" style="flex-wrap: wrap; align-items: flex-start; gap: 0.5rem">
-        <button type="button" id="btnLocalRecordings">Grabaciones guardadas en este navegador</button>
-        <span style="font-size: 0.82rem; color: #64748b"
-          >Copia de seguridad local si el navegador bloquea la descarga al salir.</span
-        >
-      </div>
-      <div id="localRecordingsPanel" class="hidden" style="margin: 0.5rem 0; font-size: 0.9rem; max-width: 560px"></div>
-    </fieldset>
+      <p style="margin-top: 0.75rem">Usuario: <strong id="userLabel"></strong></p>
+    </div>
   </section>
+
+  <div id="profileNameModal" class="profile-modal hidden" role="dialog" aria-modal="true" aria-labelledby="profileNameModalTitle">
+    <div class="profile-modal__backdrop" id="profileNameModalBackdrop"></div>
+    <div class="profile-modal__card">
+      <h3 id="profileNameModalTitle">Nombre requerido</h3>
+      <p>Antes de entrar a una reunión, define tu nombre para que los demás te identifiquen.</p>
+      <label>Nombre *
+        <input id="profileNameModalInput" type="text" placeholder="Tu nombre" maxlength="80" />
+      </label>
+      <p id="profileNameModalError" class="home-muted" style="color:#fecaca;min-height:1.1em;margin-top:0.45rem"></p>
+      <div class="profile-modal__actions">
+        <button type="button" id="btnProfileNameModalSave" class="btn-primary">Guardar y continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="scheduleModal" class="profile-modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduleModalTitle">
+    <div class="profile-modal__backdrop" id="scheduleModalBackdrop"></div>
+    <div class="profile-modal__card">
+      <h3 id="scheduleModalTitle">Agendar reunión</h3>
+      <p>Configura título, fecha y duración. Se guardará en tu calendario.</p>
+      <label>Título *
+        <input id="scheduleTitleInput" type="text" placeholder="Clase de matemáticas" maxlength="140" />
+      </label>
+      <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
+        <label>Inicio *
+          <input id="scheduleStartInput" type="datetime-local" />
+        </label>
+        <label>Duración (min) *
+          <input id="scheduleDurationInput" type="number" min="15" step="5" value="60" />
+        </label>
+      </div>
+      <label>Zona horaria
+        <input id="scheduleTimezoneInput" type="text" />
+      </label>
+      <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
+        <label>Repetición
+          <select id="scheduleRecurrenceMode">
+            <option value="none" selected>No repetir</option>
+            <option value="daily">Diario</option>
+            <option value="weekly">Semanal</option>
+            <option value="monthly">Mensual</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </label>
+        <label id="scheduleRecurrenceEndModeWrap" class="hidden">Fin de secuencia
+          <select id="scheduleRecurrenceEndMode">
+            <option value="never" selected>Nunca</option>
+            <option value="until">Hasta fecha</option>
+          </select>
+        </label>
+      </div>
+      <label id="scheduleRecurrenceUntilWrap" class="hidden">Fecha de fin
+        <input id="scheduleRecurrenceUntil" type="date" />
+      </label>
+      <div id="scheduleCustomRecurrenceWrap" class="hidden" style="margin-top:0.35rem">
+        <div class="auth-grid auth-grid--compact">
+          <label>Base personalizada
+            <select id="scheduleCustomBase">
+              <option value="weekly" selected>Semanal</option>
+              <option value="daily">Diaria</option>
+              <option value="monthly">Mensual</option>
+            </select>
+          </label>
+          <label>Cada
+            <input id="scheduleRecurrenceInterval" type="number" min="1" step="1" value="1" />
+          </label>
+        </div>
+        <div id="scheduleCustomDaysWrap">
+          <span class="home-muted" style="display:block;margin:0.2rem 0 0.1rem">Días</span>
+          <div class="recurrence-days">
+            <button type="button" class="recurrence-day-chip" data-day="1">L</button>
+            <button type="button" class="recurrence-day-chip" data-day="2">M</button>
+            <button type="button" class="recurrence-day-chip" data-day="3">X</button>
+            <button type="button" class="recurrence-day-chip" data-day="4">J</button>
+            <button type="button" class="recurrence-day-chip" data-day="5">V</button>
+            <button type="button" class="recurrence-day-chip" data-day="6">S</button>
+            <button type="button" class="recurrence-day-chip" data-day="7">D</button>
+          </div>
+        </div>
+      </div>
+      <p id="scheduleRecurrenceSummary" class="home-muted" style="margin:0.45rem 0 0.2rem"></p>
+      <div class="row" style="margin-top:0.35rem;align-items:flex-end">
+        <label style="flex:1 1 auto;margin:0">Link compartible
+          <input id="scheduleShareLinkInput" type="text" readonly placeholder="Se generará al guardar" />
+        </label>
+        <button type="button" id="btnScheduleCopyLink" class="btn-ghost">Copiar link</button>
+      </div>
+      <p id="scheduleModalError" class="home-muted" style="color:#fecaca;min-height:1.1em;margin-top:0.45rem"></p>
+      <div class="profile-modal__actions" style="justify-content:space-between">
+        <button type="button" id="btnScheduleModalCancel" class="btn-ghost">Cancelar</button>
+        <button type="button" id="btnScheduleModalSave" class="btn-primary">Guardar agenda</button>
+      </div>
+    </div>
+  </div>
 
   <section id="roomSection" class="hidden">
     <div class="room-shell" id="roomShell">
@@ -1045,7 +1751,8 @@
         <span class="room-topbar__room" id="activeRoomLabel" title="Room ID"></span>
         <div class="room-topbar__actions">
           <p id="roomEventsLog" class="room-events-log" aria-live="polite"></p>
-          <button type="button" class="room-btn-ghost" id="btnRoomViewToggle" aria-pressed="false">
+          <button type="button" class="room-btn-ghost hidden" id="btnToggleChat" aria-pressed="false">Ocultar chat</button>
+          <button type="button" class="room-btn-ghost hidden" id="btnRoomViewToggle" aria-pressed="false">
             Vista galería
           </button>
         </div>
@@ -1064,6 +1771,23 @@
       <div class="room-body">
         <div class="room-primary">
           <div class="room-video-strip" id="roomVideoStrip">
+            <div class="room-video-layout-switch" id="roomVideoLayoutSwitch" aria-label="Layout de videollamada">
+              <div class="room-video-layout-switch__row">
+                <button type="button" id="btnLayoutTop" class="room-layout-btn" aria-pressed="true" title="Vídeos arriba · tablero abajo">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="5" rx="1"></rect>
+                    <rect x="3" y="10" width="18" height="11" rx="1"></rect>
+                  </svg>
+                </button>
+                <button type="button" id="btnLayoutRight" class="room-layout-btn" aria-pressed="false" title="Tablero izquierda · vídeos derecha">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="3" width="12" height="18" rx="1"></rect>
+                    <rect x="17" y="3" width="4" height="18" rx="1"></rect>
+                  </svg>
+                </button>
+              </div>
+              <button type="button" id="btnToggleChatInline" class="room-chat-toggle-inline" aria-pressed="false">Ocultar chat</button>
+            </div>
             <div id="videos">
               <div class="remote-peer" data-label="Tú">
                 <div class="peer-cap" aria-hidden="true">Tú</div>
@@ -1091,32 +1815,114 @@
                       class="board-ol-btn board-ol-btn--wide hidden"
                       title="Los estudiantes verán tu zoom y posición; al desactivar recuperan su vista anterior"
                     >
-                      Hacer que la audiencia siga mi vista
+                      Seguir vista del presentador
                     </button>
                   </div>
                   <div class="board-vtoolbar board-toolbar board-ol board-ol--vbar" id="boardVToolbar">
-                    <button type="button" id="btnToolPointer" class="tool-btn">Puntero</button>
-                    <button type="button" id="btnToolHand" class="tool-btn" title="Desplazar vista (o clic derecho)">Mano</button>
-                    <button type="button" id="btnToolPencil" class="tool-btn active">Lápiz</button>
-                    <button type="button" id="btnToolEraser" class="tool-btn">Borrador</button>
-                    <button type="button" id="btnToolText" class="tool-btn">Texto</button>
+                    <button type="button" id="btnToolPointer" class="tool-btn" title="Puntero">
+                      <svg class="board-tool-icon board-tool-icon--cursor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 3l7.8 15 2.1-5.5 5.6-2.2z"></path>
+                      </svg>
+                    </button>
+                    <button type="button" id="btnToolHand" class="tool-btn" title="Mano (desplazar vista)">
+                      <span class="board-tool-emoji" aria-hidden="true">✋</span>
+                    </button>
+                    <button type="button" id="btnToolPencil" class="tool-btn active" title="Lápiz">
+                      <span class="board-tool-emoji" aria-hidden="true">✏️</span>
+                    </button>
+                    <button type="button" id="btnToolEraser" class="tool-btn" title="Borrador">
+                      <span class="board-tool-emoji" aria-hidden="true">🧽</span>
+                    </button>
+                    <button type="button" id="btnToolText" class="tool-btn" title="Texto">
+                      <span class="board-tool-glyph" aria-hidden="true">T</span>
+                    </button>
+                    <button type="button" id="btnPaletteMenu" class="tool-btn board-tool-optional" title="Colores">
+                      <span class="board-tool-emoji" aria-hidden="true">🎨</span>
+                    </button>
+                    <button type="button" id="btnEmojiMenu" class="tool-btn board-tool-optional" title="Emojis">
+                      <span class="board-tool-emoji" aria-hidden="true">😀</span>
+                    </button>
+                    <button type="button" id="btnToolbarMore" class="tool-btn hidden" title="Más opciones">...</button>
                     <div class="tool-sep"></div>
-                    <button type="button" class="color-swatch active" data-color="#111111" style="background: #111111" title="Negro"></button>
-                    <button type="button" class="color-swatch" data-color="#e53935" style="background: #e53935" title="Rojo"></button>
-                    <button type="button" class="color-swatch" data-color="#fb8c00" style="background: #fb8c00" title="Naranja"></button>
-                    <button type="button" class="color-swatch" data-color="#fdd835" style="background: #fdd835" title="Amarillo"></button>
-                    <button type="button" class="color-swatch" data-color="#43a047" style="background: #43a047" title="Verde"></button>
-                    <button type="button" class="color-swatch" data-color="#1e88e5" style="background: #1e88e5" title="Azul"></button>
-                    <button type="button" class="color-swatch" data-color="#8e24aa" style="background: #8e24aa" title="Violeta"></button>
-                    <input id="boardColor" type="color" value="#111111" title="Color personalizado" />
-                    <div class="tool-sep"></div>
-                    <label class="board-vtoolbar-label">Grosor
+                    <label class="board-vtoolbar-label board-tool-optional">Grosor
                       <select id="boardLineWidth">
                         <option value="2">Fino</option>
                         <option value="4" selected>Medio</option>
                         <option value="7">Grueso</option>
                       </select>
                     </label>
+                    <label class="board-vtoolbar-label">Texto
+                      <select id="boardTextSizeSelect">
+                        <option value="24">24px</option>
+                        <option value="30" selected>30px</option>
+                        <option value="36">36px</option>
+                        <option value="42">42px</option>
+                        <option value="48">48px</option>
+                      </select>
+                    </label>
+                    <div id="boardMoreMenu" class="board-side-menu" role="menu" aria-label="Más opciones de tablero">
+                      <p class="board-side-menu__title">Más opciones</p>
+                      <button type="button" class="board-more-item" id="btnMorePalette">Colores</button>
+                      <button type="button" class="board-more-item" id="btnMoreEmoji">Emojis</button>
+                      <label class="board-vtoolbar-label" style="margin-top:8px;display:block">Grosor
+                        <select id="boardLineWidthMore">
+                          <option value="2">Fino</option>
+                          <option value="4" selected>Medio</option>
+                          <option value="7">Grueso</option>
+                        </select>
+                      </label>
+                      <label class="board-vtoolbar-label" style="margin-top:8px;display:block">Texto
+                        <select id="boardTextSizeSelectMore">
+                          <option value="24">24px</option>
+                          <option value="30" selected>30px</option>
+                          <option value="36">36px</option>
+                          <option value="42">42px</option>
+                          <option value="48">48px</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div id="boardPaletteMenu" class="board-side-menu" role="menu" aria-label="Colores de tablero">
+                      <p class="board-side-menu__title">Color</p>
+                      <div class="board-color-grid">
+                        <button type="button" class="color-swatch active" data-color="#111111" style="background: #111111" title="Negro"></button>
+                        <button type="button" class="color-swatch" data-color="#e53935" style="background: #e53935" title="Rojo"></button>
+                        <button type="button" class="color-swatch" data-color="#fb8c00" style="background: #fb8c00" title="Naranja"></button>
+                        <button type="button" class="color-swatch" data-color="#fdd835" style="background: #fdd835" title="Amarillo"></button>
+                        <button type="button" class="color-swatch" data-color="#43a047" style="background: #43a047" title="Verde"></button>
+                        <button type="button" class="color-swatch" data-color="#1e88e5" style="background: #1e88e5" title="Azul"></button>
+                        <button type="button" class="color-swatch" data-color="#8e24aa" style="background: #8e24aa" title="Violeta"></button>
+                      </div>
+                      <input id="boardColor" type="color" value="#111111" title="Color personalizado" style="margin-top:8px;width:100%" />
+                    </div>
+                    <div id="boardEmojiMenu" class="board-side-menu" role="menu" aria-label="Emojis del tablero">
+                      <p class="board-side-menu__title">Insertar emoji</p>
+                      <div class="board-emoji-grid">
+                        <button type="button" class="board-emoji-btn" data-emoji="😀">😀</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="😂">😂</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="😍">😍</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🤔">🤔</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="👏">👏</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="👍">👍</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🎉">🎉</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="✅">✅</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="❓">❓</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="💡">💡</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="📌">📌</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🧠">🧠</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="📚">📚</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="📝">📝</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🧪">🧪</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="📐">📐</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🧮">🧮</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🌍">🌍</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🔬">🔬</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="⚠️">⚠️</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="⭐">⭐</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🙋">🙋</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🤝">🤝</button>
+                        <button type="button" class="board-emoji-btn" data-emoji="🔁">🔁</button>
+                      </div>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -1360,8 +2166,16 @@
         return;
       }
       setMediaStatus("Subiendo adjunto…");
+      if (pendingChatPreviewUrl) {
+        URL.revokeObjectURL(pendingChatPreviewUrl);
+        pendingChatPreviewUrl = "";
+      }
       try {
         const data = await uploadChatAdjuntoFile(file);
+        const ft = String(file.type || "").toLowerCase();
+        if (ft.startsWith("image/") || ft.startsWith("video/") || ft.startsWith("audio/") || ft.includes("pdf")) {
+          pendingChatPreviewUrl = URL.createObjectURL(file);
+        }
         pendingChatAdjunto = {
           adjuntoRelPath: data.adjuntoRelPath,
           adjuntoNombreOriginal: data.adjuntoNombreOriginal || file.name || "archivo",
@@ -1372,6 +2186,10 @@
         setMediaStatus("Adjunto listo. Pulsa Enviar (el mensaje de texto es opcional).");
       } catch (e) {
         pendingChatAdjunto = null;
+        if (pendingChatPreviewUrl) {
+          URL.revokeObjectURL(pendingChatPreviewUrl);
+          pendingChatPreviewUrl = "";
+        }
         updateChatAdjuntoPendingUi();
         const msg = e?.message || String(e);
         log("Adjunto: " + msg);
@@ -1420,6 +2238,7 @@
     /** @type {Map<string, HTMLElement>} */
     const peerStatusEls = new Map();
     let currentUser = null;
+    let pendingNameModalResolver = null;
     const participantsById = new Map();
     const connectedUserIds = new Set();
     const chatThreads = new Map();
@@ -1429,6 +2248,7 @@
     let activeReunionId = null;
     /** Tras subir archivo al servidor, se envía con el siguiente «Enviar». */
     let pendingChatAdjunto = null;
+    let pendingChatPreviewUrl = "";
     let boardState = { elementos: [] };
     const boardHistory = [];
     const boardFuture = [];
@@ -1436,6 +2256,7 @@
     let boardTool = "pencil";
     let boardColor = "#111111";
     let boardLineWidth = 4;
+    let boardTextSize = 30;
     let activeTextInput = null;
     /** Índice en `boardState.elementos` del texto que se está editando (no dibujarlo en canvas para evitar doble capa / desfase). */
     let editingTextElementIndex = -1;
@@ -1446,9 +2267,9 @@
     let pointerAction = null;
     /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
     let clipboardBoardElement = null;
-    const HANDLE_SCREEN_PX = 10;
+    const HANDLE_SCREEN_PX = 14;
     /** Zona clicable más grande que el dibujo de la manija (mismo centro). */
-    const HANDLE_HIT_SCREEN_PX = 24;
+    const HANDLE_HIT_SCREEN_PX = 36;
     /** Tamaño de referencia para el encuadre inicial (no limita el tablero). */
     const BOARD_DEFAULT_VIEW_W = 1600;
     const BOARD_DEFAULT_VIEW_H = 900;
@@ -1513,10 +2334,19 @@
     let lastKnownRoomIdForRecording = null;
     let openToolbarMenuId = null;
     let preferredShareTarget = "screen";
+    let shareWithAudio = true;
     let screenShareStream = null;
     let screenShareTrack = null;
+    let screenShareAudioTrack = null;
     /** @type {HTMLVideoElement | null} */
     let screenSharePreviewVideo = null;
+    let roomBoardLayout = "top";
+    let chatPanelHidden = false;
+    let homeMeetings = [];
+    let scheduleEditingReunionId = null;
+    let scheduleModalScrollTop = 0;
+    let boardSideMenuOpen = "";
+    const chatAdjuntoPreviewCache = new Map();
 
     const IDB_NAME = "my-own-zoom";
     const IDB_VERSION = 1;
@@ -1797,6 +2627,15 @@
       if (!menu) return;
       menu.innerHTML = "";
       appendMenuTitle(menu, "Compartir");
+      appendMenuItem(menu, shareWithAudio ? "Audio compartido: activado" : "Audio compartido: desactivado", {
+        role: "menuitemcheckbox",
+        checked: shareWithAudio,
+        onClick: () => {
+          shareWithAudio = !shareWithAudio;
+          renderShareMenu();
+        },
+      });
+      appendMenuSeparator(menu);
       if (screenShareTrack?.readyState === "live") {
         appendMenuItem(menu, "Dejar de compartir", {
           onClick: () => {
@@ -1855,6 +2694,11 @@
       return localStream?.getVideoTracks()[0] ?? null;
     }
 
+    function getOutgoingAudioTrack() {
+      if (screenShareAudioTrack?.readyState === "live") return screenShareAudioTrack;
+      return localStream?.getAudioTracks()[0] ?? null;
+    }
+
     async function replaceVideoTrackForAllPeers(track, streamForAddTrack) {
       for (const [, pc] of pcs) {
         let replaced = false;
@@ -1872,6 +2716,19 @@
             pc.addTrack(track, streamForAddTrack);
           } catch (e) {
             console.warn("addTrack video share", e);
+          }
+        }
+      }
+    }
+
+    async function replaceAudioTrackForAllPeers(track) {
+      for (const [, pc] of pcs) {
+        for (const sender of pc.getSenders()) {
+          if (sender.track?.kind !== "audio" || typeof sender.replaceTrack !== "function") continue;
+          try {
+            await sender.replaceTrack(track || null);
+          } catch (e) {
+            console.warn("replaceTrack audio share", e);
           }
         }
       }
@@ -1900,6 +2757,7 @@
       }
       screenShareStream = null;
       screenShareTrack = null;
+      screenShareAudioTrack = null;
       if (screenSharePreviewVideo) {
         try {
           screenSharePreviewVideo.pause();
@@ -1908,7 +2766,9 @@
         screenSharePreviewVideo = null;
       }
       const fallbackVideo = localStream?.getVideoTracks()[0] ?? null;
+      const fallbackAudio = localStream?.getAudioTracks()[0] ?? null;
       await replaceVideoTrackForAllPeers(fallbackVideo, localStream || null);
+      await replaceAudioTrackForAllPeers(fallbackAudio);
       syncShareButtonState();
       renderShareMenu();
       if (restoreStatus) {
@@ -1929,7 +2789,7 @@
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 30, max: 30 } },
-          audio: false,
+          audio: shareWithAudio,
         });
         const track = stream.getVideoTracks()[0];
         if (!track) {
@@ -1939,11 +2799,13 @@
         await stopScreenShare();
         screenShareStream = stream;
         screenShareTrack = track;
+        screenShareAudioTrack = stream.getAudioTracks()[0] || null;
         screenSharePreviewVideo = null;
         track.onended = () => {
           void stopScreenShare({ restoreStatus: true });
         };
         await replaceVideoTrackForAllPeers(track, stream);
+        await replaceAudioTrackForAllPeers(screenShareAudioTrack || localStream?.getAudioTracks()[0] || null);
         syncShareButtonState();
         renderShareMenu();
         setMediaStatus("Compartiendo pantalla con la sala.");
@@ -2111,6 +2973,594 @@
       return String(id).trim().toLowerCase();
     }
 
+    function isTeacherRole(rol) {
+      const normalized = String(rol || "")
+        .trim()
+        .toLowerCase();
+      return normalized === "docente" || normalized === "profesor";
+    }
+
+    function getUserRoleLabel(rol) {
+      return isTeacherRole(rol) ? "Profesor" : "Estudiante";
+    }
+
+    function getStoredDisplayName() {
+      const uid = currentUser?.usuarioId;
+      if (!uid) return "";
+      try {
+        return localStorage.getItem(`moj_display_name_${uid}`) || "";
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function getCurrentDisplayName() {
+      return String(currentUser?.nombre || getStoredDisplayName() || "").trim();
+    }
+
+    function setCurrentDisplayName(name) {
+      const clean = String(name || "").trim();
+      if (!currentUser) return;
+      currentUser.nombre = clean;
+      try {
+        if (currentUser?.usuarioId) localStorage.setItem(`moj_display_name_${currentUser.usuarioId}`, clean);
+      } catch (_) {}
+      const u = $("userLabel");
+      if (u) u.textContent = `${clean || "Usuario"} (${getUserRoleLabel(currentUser.rol)})`;
+      const homeName = $("homeUserName");
+      if (homeName) homeName.textContent = clean || "usuario";
+    }
+
+    function openProfileNameModal(initial = "") {
+      const modal = $("profileNameModal");
+      const input = $("profileNameModalInput");
+      const err = $("profileNameModalError");
+      if (!modal || !input || !err) return Promise.resolve("");
+      err.textContent = "";
+      input.value = String(initial || "");
+      modal.classList.remove("hidden");
+      requestAnimationFrame(() => input.focus({ preventScroll: true }));
+      return new Promise((resolve) => {
+        pendingNameModalResolver = resolve;
+      });
+    }
+
+    function closeProfileNameModal(result = "") {
+      const modal = $("profileNameModal");
+      if (modal) modal.classList.add("hidden");
+      if (pendingNameModalResolver) {
+        const resolve = pendingNameModalResolver;
+        pendingNameModalResolver = null;
+        resolve(String(result || "").trim());
+      }
+    }
+
+    async function ensureDisplayNameBeforeJoin() {
+      const current = getCurrentDisplayName();
+      if (current) return current;
+      const typed = await openProfileNameModal("");
+      if (!typed) return "";
+      setCurrentDisplayName(typed);
+      return typed;
+    }
+
+    function toLocalDateTimeInputValue(date) {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+      const pad = (n) => String(n).padStart(2, "0");
+      return (
+        date.getFullYear() +
+        "-" +
+        pad(date.getMonth() + 1) +
+        "-" +
+        pad(date.getDate()) +
+        "T" +
+        pad(date.getHours()) +
+        ":" +
+        pad(date.getMinutes())
+      );
+    }
+
+    function weekdayIdFromDate(date) {
+      return ((date.getDay() + 6) % 7) + 1;
+    }
+
+    function parseMeetingRecurrence(recRaw) {
+      if (!recRaw) return null;
+      let obj = recRaw;
+      if (typeof recRaw === "string") {
+        try {
+          obj = JSON.parse(recRaw);
+        } catch (_) {
+          return null;
+        }
+      }
+      if (!obj || typeof obj !== "object") return null;
+      const mode = String(obj.mode || "none").toLowerCase();
+      if (mode === "none") return null;
+      const base = String(obj.base || "weekly").toLowerCase();
+      const interval = Math.max(1, Number(obj.interval) || 1);
+      const until = obj.until ? String(obj.until) : "";
+      const weekDays = Array.isArray(obj.weekDays)
+        ? obj.weekDays.map((n) => Number(n)).filter((n) => n >= 1 && n <= 7)
+        : [];
+      return { mode, base, interval, until, weekDays };
+    }
+
+    function recurrenceSummaryLabel(rec) {
+      if (!rec) return "Sin repetición";
+      if (rec.mode === "daily") return "Repite diario";
+      if (rec.mode === "weekly") return "Repite semanal";
+      if (rec.mode === "monthly") return "Repite mensual";
+      if (rec.mode === "custom") {
+        const baseLabel = rec.base === "daily" ? "diaria" : rec.base === "monthly" ? "mensual" : "semanal";
+        return `Personalizada (${baseLabel})`;
+      }
+      return "Repite";
+    }
+
+    function buildRecurrenceSummaryText() {
+      const mode = String($("scheduleRecurrenceMode")?.value || "none").toLowerCase();
+      if (mode === "none") return "Sin repetición.";
+      const endMode = String($("scheduleRecurrenceEndMode")?.value || "never").toLowerCase();
+      const until = String($("scheduleRecurrenceUntil")?.value || "").trim();
+      const startRaw = String($("scheduleStartInput")?.value || "").trim();
+      if (endMode === "until" && until && startRaw) {
+        const startDate = new Date(startRaw);
+        const untilDate = new Date(`${until}T23:59:59`);
+        if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(untilDate.getTime()) && untilDate < startDate) {
+          return "La fecha de fin de secuencia no puede ser anterior al inicio.";
+        }
+      }
+      const endLabel =
+        endMode === "until" && until
+          ? `hasta ${new Date(`${until}T12:00:00`).toLocaleDateString("es-CO", { dateStyle: "medium" })}`
+          : "sin fecha de fin";
+      if (mode === "daily") return `Se repetirá todos los días, ${endLabel}.`;
+      if (mode === "weekly") return `Se repetirá semanalmente, ${endLabel}.`;
+      if (mode === "monthly") return `Se repetirá mensualmente, ${endLabel}.`;
+      const base = String($("scheduleCustomBase")?.value || "weekly").toLowerCase();
+      const interval = Math.max(1, Number($("scheduleRecurrenceInterval")?.value) || 1);
+      if (base === "weekly") {
+        const labels = { 1: "Lunes", 2: "Martes", 3: "Miércoles", 4: "Jueves", 5: "Viernes", 6: "Sábado", 7: "Domingo" };
+        const days = getSelectedRecurrenceDays();
+        const txt = days.length ? days.map((d) => labels[d] || "").filter(Boolean).join(", ") : "día base";
+        return `Personalizada semanal: cada ${interval} semana(s), días ${txt}, ${endLabel}.`;
+      }
+      if (base === "monthly") return `Personalizada mensual: cada ${interval} mes(es), ${endLabel}.`;
+      return `Personalizada diaria: cada ${interval} día(s), ${endLabel}.`;
+    }
+
+    function addMonthsKeepClock(date, months) {
+      const d = new Date(date);
+      const day = d.getDate();
+      d.setMonth(d.getMonth() + months, 1);
+      const maxDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(day, maxDay));
+      return d;
+    }
+
+    function getMeetingOccurrencesInRange(reunion, rangeStart, rangeEnd) {
+      if (!reunion?.fechaHora) return [];
+      const start = new Date(reunion.fechaHora);
+      if (Number.isNaN(start.getTime())) return [];
+      const rec = parseMeetingRecurrence(reunion.recurrencia);
+      const untilDate = rec?.until ? new Date(`${rec.until}T23:59:59`) : null;
+      const capEnd = untilDate && !Number.isNaN(untilDate.getTime()) && untilDate < rangeEnd ? untilDate : rangeEnd;
+      if (!rec) {
+        return start >= rangeStart && start <= capEnd ? [start] : [];
+      }
+      const out = [];
+      const safetyMax = 700;
+      if (rec.mode === "daily" || (rec.mode === "custom" && rec.base === "daily")) {
+        const interval = rec.interval || 1;
+        let cur = new Date(start);
+        let guard = 0;
+        while (cur <= capEnd && guard++ < safetyMax) {
+          if (cur >= rangeStart) out.push(new Date(cur));
+          cur.setDate(cur.getDate() + interval);
+        }
+        return out;
+      }
+      if (rec.mode === "monthly" || (rec.mode === "custom" && rec.base === "monthly")) {
+        const interval = rec.interval || 1;
+        let cur = new Date(start);
+        let guard = 0;
+        while (cur <= capEnd && guard++ < safetyMax) {
+          if (cur >= rangeStart) out.push(new Date(cur));
+          cur = addMonthsKeepClock(cur, interval);
+        }
+        return out;
+      }
+      const weekDays = rec.mode === "weekly"
+        ? [weekdayIdFromDate(start)]
+        : rec.weekDays?.length
+          ? rec.weekDays
+          : [weekdayIdFromDate(start)];
+      const interval = rec.interval || 1;
+      let cur = new Date(Math.max(start.getTime(), rangeStart.getTime()));
+      cur.setHours(start.getHours(), start.getMinutes(), start.getSeconds(), start.getMilliseconds());
+      let guard = 0;
+      while (cur <= capEnd && guard++ < 3500) {
+        if (cur >= start) {
+          const diffDays = Math.floor((cur - start) / 86400000);
+          const weekSpan = Math.floor(diffDays / 7);
+          if (weekSpan % interval === 0 && weekDays.includes(weekdayIdFromDate(cur))) {
+            out.push(new Date(cur));
+          }
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+      return out;
+    }
+
+    function getNextMeetingOccurrence(reunion, fromDate = new Date()) {
+      const horizon = new Date(fromDate.getTime() + 180 * 86400000);
+      const occurrences = getMeetingOccurrencesInRange(reunion, fromDate, horizon);
+      return occurrences.length ? occurrences[0] : null;
+    }
+
+    function setRecurrenceDaysSelected(days = []) {
+      const set = new Set((days || []).map((n) => Number(n)));
+      document.querySelectorAll(".recurrence-day-chip").forEach((el) => {
+        const day = Number(el.dataset.day);
+        el.classList.toggle("active", set.has(day));
+      });
+    }
+
+    function getSelectedRecurrenceDays() {
+      return [...document.querySelectorAll(".recurrence-day-chip.active")]
+        .map((el) => Number(el.dataset.day))
+        .filter((n) => n >= 1 && n <= 7);
+    }
+
+    function updateScheduleRecurrenceUi() {
+      const mode = $("scheduleRecurrenceMode")?.value || "none";
+      const customWrap = $("scheduleCustomRecurrenceWrap");
+      const untilWrap = $("scheduleRecurrenceUntilWrap");
+      const endModeWrap = $("scheduleRecurrenceEndModeWrap");
+      const endMode = $("scheduleRecurrenceEndMode")?.value || "never";
+      const customBase = $("scheduleCustomBase")?.value || "weekly";
+      if (customWrap) customWrap.classList.toggle("hidden", mode !== "custom");
+      if (endModeWrap) endModeWrap.classList.toggle("hidden", mode === "none");
+      if (untilWrap) untilWrap.classList.toggle("hidden", mode === "none" || endMode !== "until");
+      const daysWrap = $("scheduleCustomDaysWrap");
+      if (daysWrap) daysWrap.classList.toggle("hidden", !(mode === "custom" && customBase === "weekly"));
+      const summary = $("scheduleRecurrenceSummary");
+      if (summary) {
+        const txt = buildRecurrenceSummaryText();
+        summary.textContent = txt;
+        const hasError = txt.toLowerCase().includes("no puede ser anterior");
+        summary.classList.toggle("home-muted--error", hasError);
+      }
+    }
+
+    function collectRecurrenceFromModal(startDate) {
+      const mode = String($("scheduleRecurrenceMode")?.value || "none").toLowerCase();
+      if (mode === "none") return null;
+      const endMode = String($("scheduleRecurrenceEndMode")?.value || "never").toLowerCase();
+      const until = endMode === "until" ? String($("scheduleRecurrenceUntil")?.value || "").trim() : "";
+      if (mode === "daily" || mode === "weekly" || mode === "monthly") {
+        return { mode, interval: 1, until: until || null };
+      }
+      const base = String($("scheduleCustomBase")?.value || "weekly").toLowerCase();
+      const interval = Math.max(1, Number($("scheduleRecurrenceInterval")?.value) || 1);
+      const weekDays = base === "weekly"
+        ? getSelectedRecurrenceDays()
+        : [];
+      const fallback = weekdayIdFromDate(startDate);
+      return {
+        mode: "custom",
+        base,
+        interval,
+        weekDays: base === "weekly" ? (weekDays.length ? weekDays : [fallback]) : [],
+        until: until || null,
+      };
+    }
+
+    function buildMeetingJoinLink(roomId) {
+      const rid = String(roomId || "").trim();
+      if (!rid) return "";
+      return `${location.origin}${location.pathname}#/meet/${encodeURIComponent(rid)}/board`;
+    }
+
+    function getScheduleModalCard() {
+      return document.querySelector("#scheduleModal .profile-modal__card");
+    }
+
+    function openScheduleModal(meeting = null) {
+      const modal = $("scheduleModal");
+      const modalTitle = $("scheduleModalTitle");
+      const saveBtn = $("btnScheduleModalSave");
+      const err = $("scheduleModalError");
+      const title = $("scheduleTitleInput");
+      const start = $("scheduleStartInput");
+      const duration = $("scheduleDurationInput");
+      const tz = $("scheduleTimezoneInput");
+      const linkInput = $("scheduleShareLinkInput");
+      const recMode = $("scheduleRecurrenceMode");
+      const recEndMode = $("scheduleRecurrenceEndMode");
+      const recUntil = $("scheduleRecurrenceUntil");
+      const recCustomBase = $("scheduleCustomBase");
+      const recInterval = $("scheduleRecurrenceInterval");
+      if (!modal || !title || !start || !duration || !tz || !err || !linkInput || !recMode || !recEndMode || !recUntil || !recCustomBase || !recInterval) return;
+      err.textContent = "";
+      scheduleEditingReunionId = meeting?.reunionId ? String(meeting.reunionId) : null;
+      if (modalTitle) modalTitle.textContent = meeting ? "Editar reunión" : "Agendar reunión";
+      if (saveBtn) saveBtn.textContent = meeting ? "Guardar cambios" : "Guardar agenda";
+      if (meeting) {
+        title.value = meeting.titulo || "";
+        const startDate = meeting.fechaHora ? new Date(meeting.fechaHora) : null;
+        const endDate = meeting.fechaHoraFin ? new Date(meeting.fechaHoraFin) : null;
+        start.value = startDate ? toLocalDateTimeInputValue(startDate) : "";
+        const durMinutes =
+          startDate && endDate && Number.isFinite(endDate.getTime()) && Number.isFinite(startDate.getTime())
+            ? Math.max(15, Math.round((endDate.getTime() - startDate.getTime()) / 60000))
+            : 60;
+        duration.value = String(durMinutes);
+        tz.value = meeting.zonaHoraria || "";
+        linkInput.value = buildMeetingJoinLink(meeting.roomId);
+        const rec = parseMeetingRecurrence(meeting.recurrencia);
+        recMode.value = rec?.mode || "none";
+        recEndMode.value = rec?.until ? "until" : "never";
+        recUntil.value = rec?.until || "";
+        recCustomBase.value = rec?.base || "weekly";
+        recInterval.value = String(rec?.interval || 1);
+        setRecurrenceDaysSelected(rec?.weekDays?.length ? rec.weekDays : [weekdayIdFromDate(startDate || new Date())]);
+      } else {
+        title.value = "";
+        const base = new Date();
+        base.setMinutes(Math.ceil((base.getMinutes() + 10) / 5) * 5, 0, 0);
+        start.value = toLocalDateTimeInputValue(base);
+        duration.value = "60";
+        linkInput.value = "";
+        recMode.value = "none";
+        recEndMode.value = "never";
+        recUntil.value = "";
+        recCustomBase.value = "weekly";
+        recInterval.value = "1";
+        setRecurrenceDaysSelected([weekdayIdFromDate(base)]);
+      }
+      try {
+        tz.value = tz.value || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      } catch (_) {
+        tz.value = tz.value || "UTC";
+      }
+      updateScheduleRecurrenceUi();
+      modal.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        const card = getScheduleModalCard();
+        if (card) card.scrollTop = scheduleModalScrollTop || 0;
+        title.focus({ preventScroll: true });
+      });
+    }
+
+    function closeScheduleModal() {
+      const card = getScheduleModalCard();
+      if (card) scheduleModalScrollTop = card.scrollTop;
+      $("scheduleModal")?.classList.add("hidden");
+      scheduleEditingReunionId = null;
+      const title = $("scheduleModalTitle");
+      const saveBtn = $("btnScheduleModalSave");
+      if (title) title.textContent = "Agendar reunión";
+      if (saveBtn) saveBtn.textContent = "Guardar agenda";
+    }
+
+    async function copyTextToClipboard(text) {
+      const raw = String(text || "").trim();
+      if (!raw) return false;
+      try {
+        await navigator.clipboard.writeText(raw);
+        return true;
+      } catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = raw;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        let ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch (_) {
+          ok = false;
+        }
+        ta.remove();
+        return ok;
+      }
+    }
+
+    async function showCupoByRoomId(roomId) {
+      const rid = String(roomId || "").trim();
+      if (!rid) return;
+      try {
+        const data = await api("/api/reuniones/room/" + encodeURIComponent(rid));
+        const c = data.cupo;
+        $("cupoInfo").textContent =
+          c != null
+            ? `Room ${rid}: ${c.participantes}/${c.maxTotal} participantes (${c.estudiantes}/${c.maxEstudiantes} estudiantes).`
+            : "";
+        log("Cupo consultado.");
+      } catch (e) {
+        $("cupoInfo").textContent = "";
+        log("Consultar cupo: " + e.message);
+      }
+    }
+
+    function renderScheduledMeetings() {
+      const host = $("scheduledList");
+      if (!host) return;
+      const now = Date.now();
+      const upcoming = (homeMeetings || [])
+        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
+        .map((r) => {
+          const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
+          return { ...r, _next: next, _ts: next?.getTime?.() || NaN };
+        })
+        .filter((r) => Number.isFinite(r._ts))
+        .sort((a, b) => a._ts - b._ts)
+        .slice(0, 10);
+      host.innerHTML = "";
+      if (upcoming.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "home-muted";
+        empty.textContent = "No hay reuniones programadas próximas.";
+        host.appendChild(empty);
+        return;
+      }
+      upcoming.forEach((r) => {
+        const item = document.createElement("div");
+        item.className = "scheduled-item";
+        const main = document.createElement("div");
+        main.className = "scheduled-item__main";
+        const title = document.createElement("div");
+        title.className = "scheduled-item__title";
+        title.textContent = r.titulo || "Reunión";
+        const meta = document.createElement("div");
+        meta.className = "scheduled-item__meta";
+        const when = r._next.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+        meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
+        main.appendChild(title);
+        main.appendChild(meta);
+        const actions = document.createElement("div");
+        actions.className = "scheduled-item__actions";
+        const btnEnter = document.createElement("button");
+        btnEnter.type = "button";
+        btnEnter.className = "btn-primary";
+        btnEnter.textContent = "Entrar";
+        btnEnter.addEventListener("click", () => {
+          void enterRoom(r.roomId).catch(() => {});
+        });
+        actions.appendChild(btnEnter);
+        const btnEdit = document.createElement("button");
+        btnEdit.type = "button";
+        btnEdit.className = "btn-ghost";
+        btnEdit.textContent = "Editar";
+        btnEdit.addEventListener("click", () => openScheduleModal(r));
+        actions.appendChild(btnEdit);
+        const btnCupo = document.createElement("button");
+        btnCupo.type = "button";
+        btnCupo.className = "btn-ghost";
+        btnCupo.textContent = "Cupo";
+        btnCupo.addEventListener("click", () => {
+          void showCupoByRoomId(r.roomId);
+        });
+        actions.appendChild(btnCupo);
+        const btnDelete = document.createElement("button");
+        btnDelete.type = "button";
+        btnDelete.className = "btn-ghost";
+        btnDelete.textContent = "Eliminar";
+        btnDelete.addEventListener("click", async () => {
+          if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
+          try {
+            await api("/api/reuniones/" + encodeURIComponent(r.reunionId), { method: "DELETE" });
+            $("crearResult").textContent = "Reunión eliminada.";
+            void loadHomeMeetings();
+          } catch (e) {
+            log("Eliminar reunión: " + e.message);
+          }
+        });
+        actions.appendChild(btnDelete);
+        const btnLink = document.createElement("button");
+        btnLink.type = "button";
+        btnLink.className = "btn-ghost";
+        btnLink.textContent = "Copiar link";
+        btnLink.addEventListener("click", async () => {
+          const ok = await copyTextToClipboard(buildMeetingJoinLink(r.roomId));
+          $("crearResult").textContent = ok ? "Link copiado al portapapeles." : "No se pudo copiar el link.";
+        });
+        actions.appendChild(btnLink);
+        item.appendChild(main);
+        item.appendChild(actions);
+        host.appendChild(item);
+      });
+    }
+
+    function updateLobbyRoleUi() {
+      const role = currentUser?.rol || "";
+      const isTeacher = isTeacherRole(role);
+      const createBtn = $("btnCrearReunion");
+      const roleBadge = $("homeRoleBadge");
+      const hint = $("scheduleHint");
+      const roleHint = $("homeCalendarRoleHint");
+      const homeName = $("homeUserName");
+      if (homeName) homeName.textContent = getCurrentDisplayName() || "usuario";
+      if (roleBadge) roleBadge.textContent = getUserRoleLabel(role);
+      if (roleHint) roleHint.textContent = isTeacher ? "Modo profesor (agenda editable)" : "Modo estudiante (solo lectura)";
+      if (createBtn) {
+        createBtn.classList.toggle("hidden", !isTeacher);
+        createBtn.disabled = !isTeacher;
+      }
+      if (hint) hint.classList.toggle("hidden", isTeacher);
+    }
+
+    function renderHomeCalendar(baseDate = new Date()) {
+      const grid = $("homeCalendarGrid");
+      const monthLabel = $("homeCalendarMonth");
+      if (!grid || !monthLabel) return;
+      const year = baseDate.getFullYear();
+      const month = baseDate.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const offset = (firstDay.getDay() + 6) % 7;
+      monthLabel.textContent = firstDay.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+      grid.innerHTML = "";
+      const today = new Date();
+      const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const eventDays = new Set();
+      (homeMeetings || [])
+        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
+        .forEach((r) => {
+          const dates = getMeetingOccurrencesInRange(r, monthStart, monthEnd);
+          dates.forEach((d) => {
+            if (d.getMonth() === month && d.getFullYear() === year) eventDays.add(d.getDate());
+          });
+        });
+      for (let i = 0; i < offset; i++) {
+        const cell = document.createElement("div");
+        cell.className = "calendar-day calendar-day--empty";
+        grid.appendChild(cell);
+      }
+      for (let day = 1; day <= daysInMonth; day++) {
+        const cell = document.createElement("div");
+        const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+        const hasEvent = eventDays.has(day);
+        cell.className = "calendar-day";
+        if (isToday) cell.classList.add("calendar-day--today");
+        if (hasEvent) cell.classList.add("calendar-day--event");
+        cell.textContent = String(day);
+        grid.appendChild(cell);
+      }
+    }
+
+    async function loadHomeMeetings() {
+      homeMeetings = [];
+      if (!getToken()) {
+        renderHomeCalendar();
+        return;
+      }
+      try {
+        const data = await api("/api/reuniones/mis");
+        homeMeetings = Array.isArray(data?.reuniones) ? data.reuniones : [];
+      } catch (_) {
+        homeMeetings = [];
+      } finally {
+        const roleHint = $("homeCalendarRoleHint");
+        if (roleHint) {
+          const count = homeMeetings.filter((r) => r?.fechaHora).length;
+          roleHint.textContent = `${getUserRoleLabel(currentUser?.rol)} · ${count} evento(s) con fecha`;
+        }
+        renderHomeCalendar();
+        renderScheduledMeetings();
+      }
+    }
+
+    function renderLobbyHome() {
+      updateLobbyRoleUi();
+      void loadHomeMeetings();
+    }
+
     async function loadIce() {
       try {
         const r = await fetch("/api/rtc/config");
@@ -2124,6 +3574,7 @@
       $("lobbySection").classList.remove("hidden");
       $("roomSection").classList.add("hidden");
       document.body.classList.remove("body--in-room");
+      renderLobbyHome();
     }
     function showAuth() {
       $("authSection").classList.remove("hidden");
@@ -2137,6 +3588,7 @@
       $("roomSection").classList.remove("hidden");
       document.body.classList.add("body--in-room", "app-route-meet");
       document.body.classList.remove("app-route-login", "app-route-lobby");
+      setChatPanelHidden(false);
       requestAnimationFrame(() => {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
@@ -2168,6 +3620,86 @@
         vbtn.textContent = gallery ? "Vista tablero" : "Vista galería";
         vbtn.setAttribute("aria-pressed", gallery ? "true" : "false");
       }
+    }
+
+    function setRoomBoardLayout(layout) {
+      const shell = $("roomShell");
+      roomBoardLayout = layout === "right" ? "right" : "top";
+      if (shell) {
+        shell.classList.toggle("room-shell--videos-right", roomBoardLayout === "right");
+      }
+      const btnTop = $("btnLayoutTop");
+      const btnRight = $("btnLayoutRight");
+      if (btnTop) btnTop.setAttribute("aria-pressed", roomBoardLayout === "top" ? "true" : "false");
+      if (btnRight) btnRight.setAttribute("aria-pressed", roomBoardLayout === "right" ? "true" : "false");
+    }
+
+    function setChatPanelHidden(hidden) {
+      chatPanelHidden = !!hidden;
+      const shell = $("roomShell");
+      if (shell) shell.classList.toggle("room-shell--chat-hidden", chatPanelHidden);
+      const text = chatPanelHidden ? "Mostrar chat" : "Ocultar chat";
+      const pressed = chatPanelHidden ? "true" : "false";
+      const btn = $("btnToggleChat");
+      if (btn) { btn.textContent = text; btn.setAttribute("aria-pressed", pressed); }
+      const btnInline = $("btnToggleChatInline");
+      if (btnInline) { btnInline.textContent = text; btnInline.setAttribute("aria-pressed", pressed); }
+      requestAnimationFrame(() => {
+        resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
+      });
+    }
+
+    function closeBoardSideMenus() {
+      $("boardPaletteMenu")?.classList.remove("board-side-menu--open");
+      $("boardEmojiMenu")?.classList.remove("board-side-menu--open");
+      $("boardMoreMenu")?.classList.remove("board-side-menu--open");
+      boardSideMenuOpen = "";
+    }
+
+    function toggleBoardSideMenu(which) {
+      const map = { palette: "boardPaletteMenu", emoji: "boardEmojiMenu", more: "boardMoreMenu" };
+      const id = map[which];
+      if (!id) return;
+      if (boardSideMenuOpen === which) {
+        closeBoardSideMenus();
+        return;
+      }
+      closeBoardSideMenus();
+      $(id)?.classList.add("board-side-menu--open");
+      boardSideMenuOpen = which;
+    }
+
+    function updateBoardToolbarOverflow() {
+      const bar = $("boardVToolbar");
+      const moreBtn = $("btnToolbarMore");
+      if (!bar || !moreBtn) return;
+      const optional = [...bar.querySelectorAll(".board-tool-optional")];
+      optional.forEach((el) => el.classList.remove("hidden"));
+      moreBtn.classList.add("hidden");
+      // Primero probamos todo visible; si desborda, colapsamos secundarios y mostramos "..."
+      if (bar.scrollHeight > bar.clientHeight + 2) {
+        optional.forEach((el) => el.classList.add("hidden"));
+        moreBtn.classList.remove("hidden");
+      }
+      if (moreBtn.classList.contains("hidden")) {
+        $("boardMoreMenu")?.classList.remove("board-side-menu--open");
+        if (boardSideMenuOpen === "more") boardSideMenuOpen = "";
+      }
+    }
+
+    function positionBoardSideMenu(which) {
+      const triggerIdMap = { palette: "btnPaletteMenu", emoji: "btnEmojiMenu", more: "btnToolbarMore" };
+      const menuIdMap = { palette: "boardPaletteMenu", emoji: "boardEmojiMenu", more: "boardMoreMenu" };
+      const trigger = $(triggerIdMap[which] || "");
+      const menu = $(menuIdMap[which] || "");
+      const wrap = $("boardViewportWrap");
+      if (!trigger || !menu || !wrap) return;
+      const t = trigger.getBoundingClientRect();
+      const w = wrap.getBoundingClientRect();
+      const left = Math.max(6, Math.min(w.width - 190, t.right - w.left + 8));
+      const top = Math.max(6, Math.min(w.height - 220, t.top - w.top));
+      menu.style.left = left + "px";
+      menu.style.top = top + "px";
     }
 
     function applyRouteFromHash() {
@@ -2213,15 +3745,13 @@
           }, 0);
           return;
         }
-        $("roomIdInput").value = r.roomId;
         showLobby();
         document.body.classList.remove("app-route-meet");
         document.body.classList.add("app-route-lobby");
-        log("Room ID cargado desde el enlace. Pulsa «Entrar a la sala» para unirte.");
-        _suppressHashRoute = true;
-        location.hash = "#/lobby";
-        _suppressHashRoute = false;
-        applyRouteFromHash();
+        log("Abriendo reunión desde enlace…");
+        setTimeout(() => {
+          void enterRoom(r.roomId).catch(() => {});
+        }, 0);
       }
     }
 
@@ -2964,7 +4494,7 @@
 
     async function syncLocalTracksToAllSenders() {
       if (!localStream || pcs.size === 0) return;
-      const audio = localStream.getAudioTracks()[0] ?? null;
+      const audio = getOutgoingAudioTrack();
       const video = getOutgoingVideoTrack();
       for (const [, pc] of pcs) {
         for (const sender of pc.getSenders()) {
@@ -3191,11 +4721,20 @@
       const pc = new RTCPeerConnection({ iceServers });
       pc._pendingIce = [];
       const outgoingVideo = getOutgoingVideoTrack();
+      const outgoingAudio = getOutgoingAudioTrack();
       if (localStream) {
         localStream.getTracks().forEach((t) => {
+          if (t.kind === "audio" && outgoingAudio && outgoingAudio !== t) return;
           if (t.kind === "video" && outgoingVideo && outgoingVideo !== t) return;
           pc.addTrack(t, localStream);
         });
+        if (outgoingAudio && (!localStream.getAudioTracks()[0] || outgoingAudio !== localStream.getAudioTracks()[0])) {
+          try {
+            pc.addTrack(outgoingAudio, screenShareStream || localStream);
+          } catch (e) {
+            console.warn("addTrack outgoing audio", e);
+          }
+        }
         if (outgoingVideo && (!localStream.getVideoTracks()[0] || outgoingVideo !== localStream.getVideoTracks()[0])) {
           try {
             pc.addTrack(outgoingVideo, screenShareStream || localStream);
@@ -3623,12 +5162,7 @@
     }
 
     function getDefaultBoardZoom() {
-      const canvas = $("board");
-      if (!canvas) return 1;
-      const fit = Math.min(canvas.width / BOARD_DEFAULT_VIEW_W, canvas.height / BOARD_DEFAULT_VIEW_H);
-      if (!Number.isFinite(fit) || fit <= 0) return 1;
-      const zoom = fit * 1.65;
-      return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom));
+      return 1;
     }
 
     function resetBoardCamera(opts = {}) {
@@ -3727,8 +5261,8 @@
       btn.classList.toggle("hidden", !inRoom || !docente);
       if (docente) {
         btn.textContent = presenterFollowLeadActive
-          ? "Audiencia me sigue — liberar vista"
-          : "Hacer que la audiencia siga mi vista";
+          ? "Liberar seguimiento"
+          : "Seguir vista del presentador";
         btn.setAttribute("aria-pressed", presenterFollowLeadActive ? "true" : "false");
       }
       if (boardFollowRoomActive && followingPresenter && !docente) {
@@ -3800,8 +5334,6 @@
     function syncZoomUi() {
       const raw = Math.round(boardZoom * 100);
       const nearest = Math.max(10, Math.min(300, Math.round(raw / 10) * 10));
-      const btn = $("btnZoomReset");
-      if (btn) btn.textContent = raw + "%";
       const sel = $("boardZoomSelect");
       if (sel && !sel._zoomSyncing) {
         sel._zoomSyncing = true;
@@ -3916,6 +5448,14 @@
       updateBoardLockUi();
     }
 
+    function syncBoardTextSizeUi() {
+      const current = String(boardTextSize || 30);
+      const main = $("boardTextSizeSelect");
+      const more = $("boardTextSizeSelectMore");
+      if (main && main.value !== current) main.value = current;
+      if (more && more.value !== current) more.value = current;
+    }
+
     function applyBoardState(nextState, opts = {}) {
       const { recordHistory = false, clearFuture = false, emit = false } = opts;
       if (recordHistory) {
@@ -3930,6 +5470,25 @@
       drawBoard();
       updateBoardHistoryButtons();
       if (emit) emitBoardUpdate();
+    }
+
+    function insertEmojiOnBoard(emoji) {
+      if (!activeRoomId || !emoji) return;
+      const canvas = $("board");
+      if (!canvas || isBoardViewLocked()) return;
+      const cx = (canvas.width / 2 - boardPanX) / boardZoom;
+      const cy = (canvas.height / 2 - boardPanY) / boardZoom;
+      const next = cloneBoardState(boardState);
+      next.elementos.push({
+        type: "text",
+        text: emoji,
+        x: Math.round(cx),
+        y: Math.round(cy),
+        color: boardColor || "#111111",
+        fontSize: 42,
+      });
+      applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+      closeBoardSideMenus();
     }
 
     function mergeBoardContenido(contenido) {
@@ -4086,6 +5645,25 @@
       box.innerHTML = "";
       const thread = chatThreads.get(activeChatThreadKey);
       if (!thread) return;
+      const getChatAdjuntoFileUrl = async (m) => {
+        if (!m?.adjuntoRelPath || !m?.mensajeId) return "";
+        const cacheKey = String(m.mensajeId);
+        if (chatAdjuntoPreviewCache.has(cacheKey)) {
+          return chatAdjuntoPreviewCache.get(cacheKey);
+        }
+        try {
+          const r = await fetch("/api/mensajes/adjunto/" + encodeURIComponent(m.mensajeId), {
+            headers: { Authorization: "Bearer " + getToken() },
+          });
+          if (!r.ok) return "";
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          chatAdjuntoPreviewCache.set(cacheKey, url);
+          return url;
+        } catch (_) {
+          return "";
+        }
+      };
       thread.messages.forEach((m) => {
         const div = document.createElement("div");
         const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
@@ -4105,6 +5683,48 @@
             downloadChatAdjunto(m.mensajeId, m.adjuntoNombreOriginal || "adjunto")
           );
           div.appendChild(btn);
+          const previewWrap = document.createElement("div");
+          previewWrap.className = "chat-adjunto-preview";
+          const mime = String(m.adjuntoMime || "").toLowerCase();
+          if (mime.startsWith("image/")) {
+            const img = document.createElement("img");
+            img.alt = m.adjuntoNombreOriginal || "adjunto";
+            img.loading = "lazy";
+            previewWrap.appendChild(img);
+            void getChatAdjuntoFileUrl(m).then((url) => {
+              if (url) img.src = url;
+            });
+          } else if (mime.startsWith("video/")) {
+            const vid = document.createElement("video");
+            vid.controls = true;
+            vid.preload = "metadata";
+            vid.playsInline = true;
+            previewWrap.appendChild(vid);
+            void getChatAdjuntoFileUrl(m).then((url) => {
+              if (url) vid.src = url;
+            });
+          } else if (mime.startsWith("audio/")) {
+            const audio = document.createElement("audio");
+            audio.controls = true;
+            audio.preload = "metadata";
+            previewWrap.appendChild(audio);
+            void getChatAdjuntoFileUrl(m).then((url) => {
+              if (url) audio.src = url;
+            });
+          } else if (mime.includes("pdf")) {
+            const emb = document.createElement("embed");
+            emb.type = "application/pdf";
+            previewWrap.appendChild(emb);
+            void getChatAdjuntoFileUrl(m).then((url) => {
+              if (url) emb.src = url + "#page=1&view=FitH";
+            });
+          } else {
+            const fileCap = document.createElement("span");
+            fileCap.className = "chat-adjunto-preview--file";
+            fileCap.textContent = "Vista previa no disponible";
+            previewWrap.appendChild(fileCap);
+          }
+          div.appendChild(previewWrap);
         }
         const cap = document.createElement("span");
         cap.textContent = m.contenido || "";
@@ -4293,11 +5913,17 @@
       });
     }
 
-    async function enterRoom() {
+    async function enterRoom(roomIdInput = "") {
       closeToolbarMenus();
-      const roomId = $("roomIdInput").value.trim();
+      const roomId = String(roomIdInput || "").trim();
       if (!roomId) {
-        log("Indica un Room ID");
+        log("No se encontró un Room ID válido para entrar.");
+        return;
+      }
+      const displayName = await ensureDisplayNameBeforeJoin();
+      if (!displayName) {
+        log("El nombre es obligatorio antes de entrar a una reunión.");
+        setMediaStatus("Completa tu nombre para poder entrar.");
         return;
       }
       setMediaStatus("Preparando cámara y micrófono…");
@@ -4318,13 +5944,12 @@
       }
 
       try {
+        await api("/api/reuniones/room/" + encodeURIComponent(roomId) + "/unirse", { method: "POST", body: "{}" });
         await new Promise((resolve, reject) => {
           socket.emit("room:join", { roomId: normRoomKey(roomId) }, async (resp) => {
             if (!resp?.ok) {
               const errMsg =
-                resp?.error === "No eres participante de esta reunión"
-                  ? "No estás en la lista de la reunión. Pulsa «Unirse (API)» con el Room ID correcto."
-                  : resp?.error || "No se pudo unir a la sala (Socket)";
+                resp?.error || "No se pudo unir a la sala (Socket)";
               log(errMsg);
               setMediaStatus(errMsg);
               reject(new Error(errMsg));
@@ -4341,9 +5966,10 @@
                 : roomDocenteUsuarioId;
             $("activeRoomLabel").textContent = activeRoomId;
             showRoom();
-            setMeetView("gallery");
+            setMeetView("board");
+            setRoomBoardLayout("top");
             _suppressHashRoute = true;
-            location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
+            location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/board";
             _suppressHashRoute = false;
             ensureGeneralThread();
             chatThreads.forEach((t) => {
@@ -4415,6 +6041,14 @@
       activeRoomId = null;
       activeReunionId = null;
       pendingChatAdjunto = null;
+      if (pendingChatPreviewUrl) {
+        URL.revokeObjectURL(pendingChatPreviewUrl);
+        pendingChatPreviewUrl = "";
+      }
+      for (const u of chatAdjuntoPreviewCache.values()) {
+        try { URL.revokeObjectURL(u); } catch (_) {}
+      }
+      chatAdjuntoPreviewCache.clear();
       updateChatAdjuntoPendingUi();
       $("chatDropZone")?.classList.remove("chat-drop-zone--over");
       lastKnownRoomIdForRecording = null;
@@ -4448,7 +6082,9 @@
       $("roomSection").classList.add("hidden");
       document.body.classList.remove("body--in-room", "app-route-meet");
       const shell = $("roomShell");
-      if (shell) shell.classList.remove("room-shell--gallery");
+      if (shell) shell.classList.remove("room-shell--gallery", "room-shell--videos-right");
+      setRoomBoardLayout("top");
+      setChatPanelHidden(false);
       const vbtn = $("btnRoomViewToggle");
       if (vbtn) {
         vbtn.textContent = "Vista galería";
@@ -4470,6 +6106,25 @@
       e.target.value = "general";
     });
 
+    $("btnProfileNameModalSave")?.addEventListener("click", () => {
+      const input = $("profileNameModalInput");
+      const err = $("profileNameModalError");
+      const value = String(input?.value || "").trim();
+      if (!value) {
+        if (err) err.textContent = "El nombre es obligatorio.";
+        input?.focus({ preventScroll: true });
+        return;
+      }
+      if (err) err.textContent = "";
+      closeProfileNameModal(value);
+    });
+    $("profileNameModalInput")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        $("btnProfileNameModalSave")?.click();
+      }
+    });
+
     $("btnLogin").addEventListener("click", async () => {
       try {
         const data = await api("/api/auth/login", {
@@ -4481,7 +6136,7 @@
         });
         setToken(data.token);
         currentUser = data.usuario;
-        $("userLabel").textContent = data.usuario.nombre + " (" + data.usuario.rol + ")";
+        setCurrentDisplayName(data.usuario.nombre || getStoredDisplayName());
         log("Sesión iniciada");
         _suppressHashRoute = true;
         location.hash = "#/lobby";
@@ -4493,11 +6148,16 @@
     });
 
     $("btnRegister").addEventListener("click", async () => {
+      const nombre = $("nombre").value.trim();
+      if (!nombre) {
+        log("El nombre es obligatorio para crear la cuenta.");
+        return;
+      }
       try {
         const data = await api("/api/auth/register", {
           method: "POST",
           body: JSON.stringify({
-            nombre: $("nombre").value.trim() || $("email").value.split("@")[0],
+            nombre,
             email: $("email").value.trim(),
             password: $("password").value,
             rol: $("rolRegistro").value,
@@ -4505,7 +6165,7 @@
         });
         setToken(data.token);
         currentUser = data.usuario;
-        $("userLabel").textContent = data.usuario.nombre + " (" + data.usuario.rol + ")";
+        setCurrentDisplayName(data.usuario.nombre || getStoredDisplayName());
         log("Cuenta creada");
         _suppressHashRoute = true;
         location.hash = "#/lobby";
@@ -4535,46 +6195,111 @@
     });
 
     $("btnCrearReunion").addEventListener("click", async () => {
+      if (!isTeacherRole(currentUser?.rol)) {
+        log("Solo los profesores pueden agendar reuniones.");
+        const r = $("crearResult");
+        if (r) r.textContent = "No autorizado: solo profesores.";
+        return;
+      }
+      openScheduleModal();
+    });
+
+    $("btnScheduleModalCancel")?.addEventListener("click", () => closeScheduleModal());
+    $("scheduleModalBackdrop")?.addEventListener("click", () => closeScheduleModal());
+    $("btnScheduleCopyLink")?.addEventListener("click", async () => {
+      const input = $("scheduleShareLinkInput");
+      const ok = await copyTextToClipboard(input?.value || "");
+      const err = $("scheduleModalError");
+      if (err) err.textContent = ok ? "Link copiado." : "No se pudo copiar el link.";
+    });
+    $("scheduleRecurrenceMode")?.addEventListener("change", () => updateScheduleRecurrenceUi());
+    $("scheduleRecurrenceEndMode")?.addEventListener("change", () => updateScheduleRecurrenceUi());
+    $("scheduleRecurrenceUntil")?.addEventListener("change", () => updateScheduleRecurrenceUi());
+    $("scheduleCustomBase")?.addEventListener("change", () => updateScheduleRecurrenceUi());
+    $("scheduleRecurrenceInterval")?.addEventListener("input", () => updateScheduleRecurrenceUi());
+    $("scheduleStartInput")?.addEventListener("change", () => updateScheduleRecurrenceUi());
+    document.querySelectorAll(".recurrence-day-chip").forEach((el) => {
+      el.addEventListener("click", () => {
+        el.classList.toggle("active");
+        updateScheduleRecurrenceUi();
+      });
+    });
+    $("btnScheduleModalSave")?.addEventListener("click", async () => {
+      const title = $("scheduleTitleInput");
+      const start = $("scheduleStartInput");
+      const duration = $("scheduleDurationInput");
+      const tz = $("scheduleTimezoneInput");
+      const linkInput = $("scheduleShareLinkInput");
+      const err = $("scheduleModalError");
+      const rawTitle = String(title?.value || "").trim();
+      const rawStart = String(start?.value || "").trim();
+      const dur = Number(duration?.value);
+      const zone = String(tz?.value || "").trim() || "UTC";
+      if (!rawTitle) {
+        if (err) err.textContent = "El título es obligatorio.";
+        title?.focus({ preventScroll: true });
+        return;
+      }
+      if (!rawStart) {
+        if (err) err.textContent = "Debes definir fecha y hora de inicio.";
+        start?.focus({ preventScroll: true });
+        return;
+      }
+      if (!Number.isFinite(dur) || dur < 15) {
+        if (err) err.textContent = "La duración mínima es de 15 minutos.";
+        duration?.focus({ preventScroll: true });
+        return;
+      }
+      const startDate = new Date(rawStart);
+      if (Number.isNaN(startDate.getTime())) {
+        if (err) err.textContent = "Fecha/hora inválida.";
+        return;
+      }
+      const endDate = new Date(startDate.getTime() + dur * 60_000);
+      const recurrence = collectRecurrenceFromModal(startDate);
+      const endMode = String($("scheduleRecurrenceEndMode")?.value || "never").toLowerCase();
+      const recUntil = String($("scheduleRecurrenceUntil")?.value || "").trim();
+      if (recurrence && endMode === "until" && !recUntil) {
+        if (err) err.textContent = "Debes seleccionar una fecha para el fin de la secuencia.";
+        $("scheduleRecurrenceUntil")?.focus({ preventScroll: true });
+        return;
+      }
+      if (recurrence && endMode === "until" && recUntil) {
+        const untilDate = new Date(`${recUntil}T23:59:59`);
+        if (Number.isNaN(untilDate.getTime()) || untilDate < startDate) {
+          if (err) err.textContent = "La fecha de fin debe ser igual o posterior al inicio.";
+          $("scheduleRecurrenceUntil")?.focus({ preventScroll: true });
+          return;
+        }
+      }
+      if (err) err.textContent = "";
       try {
-        const data = await api("/api/reuniones", {
-          method: "POST",
-          body: JSON.stringify({ titulo: "Clase " + new Date().toLocaleString() }),
+        const isEditing = !!scheduleEditingReunionId;
+        const endpoint = isEditing
+          ? "/api/reuniones/" + encodeURIComponent(scheduleEditingReunionId)
+          : "/api/reuniones";
+        const data = await api(endpoint, {
+          method: isEditing ? "PATCH" : "POST",
+          body: JSON.stringify({
+            titulo: rawTitle,
+            fechaHora: startDate.toISOString(),
+            fechaHoraFin: endDate.toISOString(),
+            zonaHoraria: zone,
+            recurrencia: recurrence,
+          }),
         });
-        const rid = data.reunion.roomId;
-        $("roomIdInput").value = rid;
-        $("crearResult").textContent = "Creada. room_id: " + rid;
-        log("Reunión creada. Copia el Room ID para los estudiantes.");
+        const rid = data?.reunion?.roomId || "";
+        if (data?.reunion?.reunionId) scheduleEditingReunionId = String(data.reunion.reunionId);
+        if (linkInput) linkInput.value = buildMeetingJoinLink(rid);
+        $("crearResult").textContent = isEditing
+          ? "Reunión actualizada."
+          : `Agendada. room_id: ${rid}`;
+        log(isEditing ? "Reunión actualizada correctamente." : "Reunión agendada correctamente.");
+        if (err) err.textContent = isEditing ? "Cambios guardados." : "Reunión creada. Ya puedes copiar el link.";
+        void loadHomeMeetings();
       } catch (e) {
-        log("Crear reunión: " + e.message);
-      }
-    });
-
-    $("btnUnirseApi").addEventListener("click", async () => {
-      const roomId = $("roomIdInput").value.trim();
-      if (!roomId) return log("Pega un Room ID");
-      try {
-        await api("/api/reuniones/room/" + encodeURIComponent(roomId) + "/unirse", { method: "POST", body: "{}" });
-        log("Unido vía API. Pulsa «Entrar a la sala» para Socket/WebRTC.");
-        $("cupoInfo").textContent = "";
-      } catch (e) {
-        log("Unirse API: " + e.message);
-      }
-    });
-
-    $("btnConsultarCupo").addEventListener("click", async () => {
-      const roomId = $("roomIdInput").value.trim();
-      if (!roomId) return log("Pega un Room ID");
-      try {
-        const data = await api("/api/reuniones/room/" + encodeURIComponent(roomId));
-        const c = data.cupo;
-        $("cupoInfo").textContent =
-          c != null
-            ? `En sala: ${c.participantes}/${c.maxTotal} personas (${c.estudiantes}/${c.maxEstudiantes} plazas de estudiante).`
-            : "";
-        log("Cupo consultado.");
-      } catch (e) {
-        $("cupoInfo").textContent = "";
-        log("Consultar cupo: " + e.message);
+        if (err) err.textContent = e.message || "No se pudo agendar la reunión.";
+        log("Agendar reunión: " + e.message);
       }
     });
 
@@ -4594,8 +6319,8 @@
       setCamEnabled(!t.enabled);
     });
 
-    $("btnEntrarSala").addEventListener("click", () => enterRoom().catch(() => {}));
     $("btnSalirSala").addEventListener("click", async () => {
+      if (!confirm("¿Seguro que deseas abandonar la reunión?")) return;
       try {
         await leaveRoom();
         _suppressHashRoute = true;
@@ -4612,6 +6337,41 @@
       const cur = shell?.classList.contains("room-shell--gallery") ? "gallery" : "board";
       const next = cur === "gallery" ? "board" : "gallery";
       location.hash = "#/meet/" + encodeURIComponent(normRoomKey(activeRoomId)) + "/" + next;
+    });
+    $("btnToggleChat")?.addEventListener("click", () => setChatPanelHidden(!chatPanelHidden));
+    $("btnToggleChatInline")?.addEventListener("click", () => setChatPanelHidden(!chatPanelHidden));
+    $("btnLayoutTop")?.addEventListener("click", () => setRoomBoardLayout("top"));
+    $("btnLayoutRight")?.addEventListener("click", () => setRoomBoardLayout("right"));
+    $("btnPaletteMenu")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("palette");
+      positionBoardSideMenu("palette");
+    });
+    $("btnEmojiMenu")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("emoji");
+      positionBoardSideMenu("emoji");
+    });
+    $("btnToolbarMore")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("more");
+      positionBoardSideMenu("more");
+    });
+    $("btnMorePalette")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("palette");
+      positionBoardSideMenu("palette");
+    });
+    $("btnMoreEmoji")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("emoji");
+      positionBoardSideMenu("emoji");
+    });
+    document.querySelectorAll(".board-emoji-btn").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        insertEmojiOnBoard(el.dataset.emoji || "");
+      });
     });
     $("btnRecordMeetingVideo")?.addEventListener("click", () =>
       void toggleMeetingVideoRecording().catch((err) => console.warn(err))
@@ -4639,11 +6399,13 @@
     document.addEventListener("click", (ev) => {
       const target = ev.target;
       if (!(target instanceof Element)) return;
+      if (!target.closest("#boardVToolbar")) closeBoardSideMenus();
       if (target.closest(".room-tb-split")) return;
       closeToolbarMenus();
     });
     document.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") closeToolbarMenus();
+      if (ev.key === "Escape") closeBoardSideMenus();
     });
     syncShareButtonState();
     renderMediaMenus();
@@ -4660,11 +6422,46 @@
     function updateChatAdjuntoPendingUi() {
       const el = $("chatAdjuntoPending");
       if (!el) return;
+      el.innerHTML = "";
       if (pendingChatAdjunto?.adjuntoRelPath) {
         const name = pendingChatAdjunto.adjuntoNombreOriginal || "archivo";
-        el.textContent = "📎 Pendiente: " + name + " · pulsa Enviar";
+        const cap = document.createElement("span");
+        cap.textContent = "📎 Pendiente: " + name + " · pulsa Enviar";
+        el.appendChild(cap);
+        if (pendingChatPreviewUrl) {
+          const wrap = document.createElement("div");
+          wrap.className = "chat-adjunto-preview";
+          const mime = String(pendingChatAdjunto.adjuntoMime || "").toLowerCase();
+          if (mime.startsWith("image/")) {
+            const img = document.createElement("img");
+            img.alt = name;
+            img.src = pendingChatPreviewUrl;
+            wrap.appendChild(img);
+          } else if (mime.startsWith("video/")) {
+            const vid = document.createElement("video");
+            vid.controls = true;
+            vid.preload = "metadata";
+            vid.src = pendingChatPreviewUrl;
+            wrap.appendChild(vid);
+          } else if (mime.startsWith("audio/")) {
+            const audio = document.createElement("audio");
+            audio.controls = true;
+            audio.preload = "metadata";
+            audio.src = pendingChatPreviewUrl;
+            wrap.appendChild(audio);
+          } else if (mime.includes("pdf")) {
+            const emb = document.createElement("embed");
+            emb.type = "application/pdf";
+            emb.src = pendingChatPreviewUrl + "#page=1&view=FitH";
+            wrap.appendChild(emb);
+          }
+          el.appendChild(wrap);
+        }
       } else {
-        el.textContent = "";
+        if (pendingChatPreviewUrl) {
+          URL.revokeObjectURL(pendingChatPreviewUrl);
+          pendingChatPreviewUrl = "";
+        }
       }
     }
 
@@ -4878,7 +6675,7 @@
       const raw = inputEl.style?.fontSize || getComputedStyle(inputEl).fontSize;
       const n = parseFloat(String(raw).replace(/px\s*$/i, ""));
       if (Number.isFinite(n) && n > 0) return clampTextFontSize(n);
-      return 18;
+      return boardTextSize || 30;
     }
 
     function clampTextFontSize(v) {
@@ -4898,7 +6695,7 @@
 
     function drawBoardTextElement(ctx, el, z) {
       ctx.fillStyle = el.color || "#111";
-      const F = el.fontSize || 18;
+      const F = el.fontSize || 30;
       ctx.font = `${F / z}px sans-serif`;
       ctx.textBaseline = "top";
       const fsu = F / z;
@@ -4918,7 +6715,7 @@
       }
       if (el.type === "text" && el.text != null && String(el.text).length > 0) {
         const z = boardZoom;
-        const fsu = (el.fontSize || 18) / z;
+        const fsu = (el.fontSize || 30) / z;
         const lineHeight = fsu * 1.2;
         const lines = String(el.text).split("\n");
         ctx.save();
@@ -4992,7 +6789,7 @@
       const d1 = Math.hypot(p.x - ox, p.y - oy);
       if (d0 < 2) return { ...origEl };
       const scale = Math.max(0.2, Math.min(8, d1 / d0));
-      const origFs = origEl.fontSize || 18;
+      const origFs = origEl.fontSize || 30;
       const newFs = clampTextFontSize(origFs * scale);
       return {
         ...origEl,
@@ -5214,17 +7011,29 @@
       input.className = "board-text-inline";
       input.placeholder = "Enter = nueva línea · Ctrl+Enter = guardar";
       input.rows = 1;
+      input.style.visibility = "hidden";
+      input.style.setProperty("appearance", "none");
+      input.style.setProperty("-webkit-appearance", "none");
+      input.style.setProperty("resize", "none");
+      input.style.setProperty("border", "none");
+      input.style.setProperty("border-radius", "1px");
+      input.style.setProperty("outline", "1.5px dashed #2563eb");
+      input.style.setProperty("outline-offset", "0");
+      input.style.setProperty("box-shadow", "none");
+      input.style.setProperty("background", "transparent");
       if (editIndex != null && boardState.elementos[editIndex]) {
         const el = boardState.elementos[editIndex];
         input.value = el.text || "";
         boardColor = el.color || boardColor;
         input.style.color = el.color || boardColor || "#111111";
-        const fs = el.fontSize || 18;
+        const fs = el.fontSize || 30;
+        boardTextSize = clampTextFontSize(fs);
         input.style.fontSize = `${fs}px`;
       } else {
         input.style.color = boardColor;
-        input.style.fontSize = "18px";
+        input.style.fontSize = `${boardTextSize || 30}px`;
       }
+      syncBoardTextSizeUi();
       const createdAt = Date.now();
       let committedOrCancelled = false;
 
@@ -5335,6 +7144,7 @@
       document.body.appendChild(input);
       activeTextInput = input;
       syncEditorLayout();
+      input.style.visibility = "visible";
       input.focus({ preventScroll: true });
       if (editIndex != null) {
         const len = input.value.length;
@@ -5651,7 +7461,7 @@
     function isBoardShortcutBlockedTarget(target) {
       if (!target) return false;
       const id = target.id || "";
-      if (id === "chatInput" || id === "email" || id === "password" || id === "nombre" || id === "roomIdInput") return true;
+      if (id === "chatInput" || id === "email" || id === "password" || id === "nombre") return true;
       if (target.closest?.("#authSection")) return true;
       return false;
     }
@@ -5775,15 +7585,40 @@
         boardColor = c;
         if (boardTool === "eraser") boardTool = "pencil";
         updateBoardToolUi();
+        closeBoardSideMenus();
       });
     });
     $("boardColor")?.addEventListener("input", (e) => {
       boardColor = e.target.value || "#111111";
       if (boardTool === "eraser") boardTool = "pencil";
       updateBoardToolUi();
+      closeBoardSideMenus();
     });
     $("boardLineWidth")?.addEventListener("change", (e) => {
       boardLineWidth = Number(e.target.value) || 4;
+      const mirror = $("boardLineWidthMore");
+      if (mirror) mirror.value = String(boardLineWidth);
+    });
+    $("boardLineWidthMore")?.addEventListener("change", (e) => {
+      boardLineWidth = Number(e.target.value) || 4;
+      const mirror = $("boardLineWidth");
+      if (mirror) mirror.value = String(boardLineWidth);
+    });
+    $("boardTextSizeSelect")?.addEventListener("change", (e) => {
+      boardTextSize = clampTextFontSize(Number(e.target.value) || 30);
+      syncBoardTextSizeUi();
+      if (activeTextInput) {
+        activeTextInput.style.fontSize = `${boardTextSize}px`;
+        activeTextInput.dispatchEvent(new Event("input"));
+      }
+    });
+    $("boardTextSizeSelectMore")?.addEventListener("change", (e) => {
+      boardTextSize = clampTextFontSize(Number(e.target.value) || 30);
+      syncBoardTextSizeUi();
+      if (activeTextInput) {
+        activeTextInput.style.fontSize = `${boardTextSize}px`;
+        activeTextInput.dispatchEvent(new Event("input"));
+      }
     });
     $("btnBoardUndo")?.addEventListener("click", performBoardUndo);
     $("btnBoardRedo")?.addEventListener("click", performBoardRedo);
@@ -5801,11 +7636,13 @@
       new ResizeObserver(() => {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
         updateSelectionLockFloatPosition();
+        updateBoardToolbarOverflow();
       }).observe(boardViewportEl);
     }
     window.addEventListener("resize", () => {
       resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       updateSelectionLockFloatPosition();
+      updateBoardToolbarOverflow();
     });
     $("btnBoardClear")?.addEventListener("click", () => {
       if (!activeRoomId) return;
@@ -5983,7 +7820,10 @@
 
     (async function init() {
       await loadIce();
+      setRoomBoardLayout("top");
+      syncBoardTextSizeUi();
       updateBoardToolUi();
+      updateBoardToolbarOverflow();
       updateBoardHistoryButtons();
       ensureGeneralThread();
       renderChatThreadTabs();
@@ -5992,7 +7832,7 @@
         try {
           const me = await api("/api/usuarios/me");
           currentUser = me.usuario;
-          $("userLabel").textContent = me.usuario.nombre + " (" + me.usuario.rol + ")";
+          setCurrentDisplayName(me.usuario.nombre || getStoredDisplayName());
           log("Sesión restaurada");
         } catch {
           currentUser = null;

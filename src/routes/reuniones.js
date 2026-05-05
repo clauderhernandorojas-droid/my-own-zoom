@@ -17,6 +17,44 @@ const router = express.Router();
 
 router.use(authRequired, loadUsuario);
 
+function normalizeRecurrence(raw) {
+  if (!raw) return null;
+  let rec = raw;
+  if (typeof raw === 'string') {
+    try {
+      rec = JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+  if (!rec || typeof rec !== 'object') return null;
+  const mode = String(rec.mode || 'none').trim().toLowerCase();
+  if (mode === 'none') return null;
+  const until = rec.until ? String(rec.until).trim() : null;
+  if (until) {
+    const u = new Date(`${until}T23:59:59`);
+    if (Number.isNaN(u.getTime())) return null;
+  }
+  if (mode === 'daily' || mode === 'weekly' || mode === 'monthly') {
+    return { mode, interval: 1, until: until || null };
+  }
+  if (mode === 'custom') {
+    const base = String(rec.base || 'weekly').trim().toLowerCase();
+    const interval = Math.max(1, Number(rec.interval) || 1);
+    const weekDays = Array.isArray(rec.weekDays)
+      ? rec.weekDays.map((n) => Number(n)).filter((n) => n >= 1 && n <= 7)
+      : [];
+    return {
+      mode: 'custom',
+      base: ['daily', 'weekly', 'monthly'].includes(base) ? base : 'weekly',
+      interval,
+      weekDays,
+      until: until || null,
+    };
+  }
+  return null;
+}
+
 const uploadChatAdjunto = multer({
   storage: multer.diskStorage({
     destination(req, file, cb) {
@@ -55,16 +93,30 @@ router.post('/', async (req, res, next) => {
     if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
       return res.status(403).json({ error: 'Solo docentes pueden crear reuniones' });
     }
-    const { titulo, fechaHora, fechaHoraFin, zonaHoraria } = req.body;
+    const { titulo, fechaHora, fechaHoraFin, zonaHoraria, recurrencia } = req.body;
     if (!titulo) return res.status(400).json({ error: 'titulo es obligatorio' });
+    const startDate = fechaHora ? new Date(fechaHora) : null;
+    const endDate = fechaHoraFin ? new Date(fechaHoraFin) : null;
+    if (startDate && Number.isNaN(startDate.getTime())) {
+      return res.status(400).json({ error: 'fechaHora inválida' });
+    }
+    if (endDate && Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'fechaHoraFin inválida' });
+    }
+    if (startDate && endDate && endDate <= startDate) {
+      return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
+    }
+    const hasFutureSchedule = startDate && startDate.getTime() > Date.now() + 30_000;
+    const recurrenceNorm = normalizeRecurrence(recurrencia);
 
     const reunion = await Reunion.create({
       titulo,
-      fechaHora: fechaHora || null,
-      fechaHoraFin: fechaHoraFin || null,
+      fechaHora: startDate || null,
+      fechaHoraFin: endDate || null,
       zonaHoraria: zonaHoraria || null,
+      recurrencia: recurrenceNorm ? JSON.stringify(recurrenceNorm) : null,
       docenteUsuarioId: req.usuario.usuarioId,
-      estado: 'activa',
+      estado: hasFutureSchedule ? 'programada' : 'activa',
     });
 
     await Participa.create({
@@ -93,6 +145,70 @@ router.get('/mis', async (req, res, next) => {
     });
     const reuniones = participaciones.map((p) => p.Reunion);
     res.json({ reuniones });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch('/:reunionId', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+
+    const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
+    const isAdmin = req.usuario.rol === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Solo el docente creador puede editar esta reunión' });
+    }
+
+    const { titulo, fechaHora, fechaHoraFin, zonaHoraria, recurrencia } = req.body || {};
+    if (!titulo || !String(titulo).trim()) {
+      return res.status(400).json({ error: 'titulo es obligatorio' });
+    }
+    const startDate = fechaHora ? new Date(fechaHora) : null;
+    const endDate = fechaHoraFin ? new Date(fechaHoraFin) : null;
+    if (startDate && Number.isNaN(startDate.getTime())) {
+      return res.status(400).json({ error: 'fechaHora inválida' });
+    }
+    if (endDate && Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'fechaHoraFin inválida' });
+    }
+    if (startDate && endDate && endDate <= startDate) {
+      return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
+    }
+    const hasFutureSchedule = startDate && startDate.getTime() > Date.now() + 30_000;
+    const recurrenceNorm = normalizeRecurrence(recurrencia);
+
+    reunion.titulo = String(titulo).trim();
+    reunion.fechaHora = startDate || null;
+    reunion.fechaHoraFin = endDate || null;
+    reunion.zonaHoraria = zonaHoraria || null;
+    reunion.recurrencia = recurrenceNorm ? JSON.stringify(recurrenceNorm) : null;
+    reunion.estado = hasFutureSchedule ? 'programada' : 'activa';
+    await reunion.save();
+
+    return res.json({ reunion });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/:reunionId', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+
+    const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
+    const isAdmin = req.usuario.rol === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Solo el docente creador puede eliminar esta reunión' });
+    }
+
+    reunion.estado = 'finalizada';
+    reunion.fechaHoraFin = reunion.fechaHoraFin || new Date();
+    await reunion.save();
+
+    return res.json({ ok: true, reunionId: reunion.reunionId });
   } catch (e) {
     next(e);
   }

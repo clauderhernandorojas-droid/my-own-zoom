@@ -31,6 +31,10 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Compartir pantalla y tablero**: se añadió selección desde menú (`Pantalla` / `Tablero`). Al compartir pantalla, se usa `getDisplayMedia`, se reemplaza la pista de vídeo enviada por WebRTC y al terminar se restaura la cámara automáticamente.
 - **Grabación de la reunión (docente)**: solo el **dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles; el servidor rechaza `recording:state` para otros. Un único botón **grabar vídeo** con `MediaRecorder` sobre canvas compuesto (1280×720 @ ~24 fps) + mezcla Web Audio. Se retiró la casilla “incluir tablero”; la composición prioriza **pantalla compartida** cuando está activa y usa cámaras como franja contextual (arriba o a la derecha según layout). **IndexedDB** y `recording:state` / `recording:notify`.
 - **Tablero**: cuadrícula punteada sutil y vista sin borde final visible (experiencia “infinita” práctica). El minimapa pasó a marco dinámico basado en contenido + viewport en lugar de límites fijos.
+- **Home/Lobby rediseñado**: estilo unificado negro/blanco/azul, acciones rápidas, calendario y lista de próximas reuniones. Se removió el flujo manual de `Room ID` y la entrada se hace por acciones directas por reunión (`Entrar`, `Editar`, `Cupo`, `Eliminar`, `Copiar link`).
+- **Agendamiento en modal**: creación y edición con título, inicio, duración, zona horaria, link compartible y copia al portapapeles. Modal con scroll interno + acciones sticky para mantener botones visibles en pantallas pequeñas.
+- **Recurrencia en UI**: `No repetir`, `Diario`, `Semanal`, `Mensual`, `Personalizado` (base diaria/semanal/mensual, intervalo y selección de días con chips). Fin de secuencia con modo `Nunca` o `Hasta fecha`, resumen legible de la regla y validación visual/funcional cuando la fecha fin queda antes del inicio.
+- **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
 ### Cupo de sala
@@ -44,20 +48,22 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | Tema | Dónde / qué hace |
 |------|------------------|
 | Solo **docente** o **admin** crea reuniones | `POST /api/reuniones/` en `src/routes/reuniones.js` |
-| Reunión nueva en estado **activa** y docente auto-inscrito como participante; **Tablero** vacío creado en la misma transacción de flujo | mismo archivo |
+| Reunión nueva: estado **programada** si la fecha es futura (si no, **activa**), docente auto-inscrito y **Tablero** vacío creado | `src/routes/reuniones.js` |
+| Edición y baja lógica de reuniones por dueño/admin | `PATCH /api/reuniones/:reunionId`, `DELETE /api/reuniones/:reunionId` |
 | **Cupo** 5 no-docentes + docente | `puedeUnirseParticipar`, mensaje de error fijo en español |
 | Chat **privado**: estudiante solo hacia docente; docente puede escribir a estudiante; reglas en Socket y REST | `src/socket/index.js`, `src/routes/mensajes.js` |
 | **Adjuntos de chat**: subida HTTP; mensaje con metadatos vía Socket; comprobación de que el fichero exista en disco antes de persistir | `src/routes/reuniones.js`, `src/socket/index.js`, `src/services/chatAdjuntos.js`, `GET .../mensajes/adjunto/...` |
 | **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / SQL `lower(room_id)` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
 | **Grabación** (vídeo + audio mezclado): solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
-| Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) existen en modelo; comentarios «Etapa 2» | `src/models/reunion.js` |
+| Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
+| Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) en modelo | `src/models/reunion.js` |
 
 ---
 
 ## 3. Próximas etapas visibles en el esquema / producto
 
-- **Recurrencia y series**: columnas `recurrencia`, `serie_id` y ventanas `fecha_hora_fin` / `zona_horaria` preparadas; falta lógica de negocio y UI (calendario, instancias de serie).
+- **Recurrencia avanzada de serie**: actualmente se guarda/lee regla y se proyectan ocurrencias en cliente para calendario/lista; falta expansión persistida de instancias, excepciones por ocurrencia y edición granular de serie.
 - **Migraciones explícitas**: pasar de `sync()` a **sequelize-cli** (o similar) para entornos compartidos y despliegues.
 - **Mejoras opcionales**: endurecer reglas de cupo si entraran roles mixtos; export PDF también desde servidor; TURN en producción; tests automatizados.
 
@@ -105,4 +111,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — barra estilo Zoom, compartir pantalla/tablero, composición de grabación con prioridad de share, tablero sin borde fijo y minimapa dinámico.*
+*Última actualización de este documento: mayo 2026 — home/lobby rediseñado, agendamiento con edición/baja, acciones por reunión, link compartible, recurrencia en modal (incl. personalizado y fin de secuencia), validaciones UX y modal con scroll interno.*
