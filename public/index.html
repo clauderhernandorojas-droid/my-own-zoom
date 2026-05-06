@@ -20,7 +20,7 @@
       --z-video-bg: #0d0d0d;
       --z-chat-bg: #ffffff;
       --z-chat-text: #1a1a1a;
-      --room-chat-width: 320px;
+      --room-chat-width: 280px;
     }
     body {
       margin: 0;
@@ -53,14 +53,15 @@
     #log { font-size: 0.85rem; color: #444; white-space: pre-wrap; min-height: 1.5rem; }
     .room-events-log {
       display: none;
-      font-size: 0.72rem;
+      font-size: 0.56rem;
       color: var(--z-text-dim);
-      white-space: pre-wrap;
-      max-height: 2.4rem;
+      white-space: nowrap;
+      max-width: min(12rem, 28vw);
       overflow: hidden;
+      text-overflow: ellipsis;
       margin: 0;
-      padding: 0 0.5rem;
-      line-height: 1.2;
+      padding: 0;
+      line-height: 1.15;
     }
     .room-shell {
       display: flex;
@@ -70,40 +71,53 @@
       background: var(--z-bg);
       color: var(--z-text);
     }
-    .room-topbar {
+    .room-video-strip__brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
       flex: 0 0 auto;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0.75rem;
-      background: var(--z-bar);
-      border-bottom: 1px solid var(--z-border);
-      min-height: 40px;
+      max-width: min(38vw, 260px);
+      justify-content: center;
     }
-    .room-topbar__title {
-      font-size: 0.85rem;
+    .room-video-strip__title {
+      font-size: 0.62rem;
       font-weight: 600;
       color: var(--z-text);
-      justify-self: start;
+      line-height: 1.15;
     }
-    .room-topbar__room {
-      justify-self: center;
-      font-size: 0.72rem;
-      color: var(--z-text-dim);
-      font-family: ui-monospace, monospace;
-      max-width: min(42vw, 320px);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .room-video-strip__copy-link-btn {
+      align-self: flex-start;
+      margin-top: 4px;
+      padding: 0.22rem 0.55rem;
+      font-size: 0.62rem;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid var(--z-border);
+      background: #1f1f1f;
+      color: #e2e8f0;
+      cursor: pointer;
+      line-height: 1.2;
     }
-    .room-topbar__actions {
-      justify-self: end;
+    .room-video-strip__copy-link-btn:hover {
+      background: #2a2a2a;
+      color: #fff;
+    }
+    .room-video-strip__stage {
+      flex: 1 1 auto;
       display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      max-width: 100%;
+      flex-direction: column;
+      min-height: 0;
+      min-width: 0;
+      position: relative;
+    }
+    .room-video-strip__row {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      flex: 1 1 auto;
+      min-height: 0;
+      min-width: 0;
     }
     .room-btn-ghost {
       display: inline-flex;
@@ -142,10 +156,11 @@
       flex-direction: column;
       background: var(--z-video-bg);
       border-bottom: 1px solid var(--z-border);
-      min-height: 96px;
-      max-height: 28vh;
+      min-height: 64px;
+      max-height: 17vh;
       overflow: hidden;
       position: relative;
+      box-sizing: border-box;
     }
     .room-video-layout-switch {
       position: absolute;
@@ -165,10 +180,10 @@
       gap: 6px;
     }
     .room-layout-btn {
-      width: 30px;
-      height: 30px;
+      width: 26px;
+      height: 26px;
       border: 1px solid rgba(203, 213, 225, 0.4);
-      border-radius: 7px;
+      border-radius: 6px;
       background: rgba(15, 23, 42, 0.8);
       color: #e2e8f0;
       display: inline-flex;
@@ -178,8 +193,8 @@
       padding: 0;
     }
     .room-layout-btn svg {
-      width: 18px;
-      height: 18px;
+      width: 15px;
+      height: 15px;
       stroke: currentColor;
       fill: none;
       stroke-width: 1.8;
@@ -190,15 +205,15 @@
       color: #fff;
     }
     .room-chat-toggle-inline {
-      min-height: 28px;
+      min-height: 26px;
       border: none;
-      border-radius: 8px;
+      border-radius: 6px;
       background: #2563eb;
       color: #fff;
-      font-size: 0.72rem;
+      font-size: 0.65rem;
       font-weight: 600;
       cursor: pointer;
-      padding: 0.2rem 0.5rem;
+      padding: 0.16rem 0.42rem;
     }
     .room-chat-toggle-inline:hover {
       background: #1d4ed8;
@@ -206,13 +221,29 @@
     .room-shell.room-shell--videos-right .room-primary {
       flex-direction: row;
     }
+    .room-shell.room-shell--videos-right .room-center-wrap {
+      order: 1;
+      min-width: 0;
+    }
+    .room-shell.room-shell--videos-right .room-pane-splitter--video-board {
+      order: 2;
+    }
     .room-shell.room-shell--videos-right .room-video-strip {
-      width: min(22vw, 240px);
+      order: 3;
+      width: min(18vw, 200px);
+      max-width: min(42vw, 320px);
       max-height: none;
       min-height: 0;
       border-bottom: none;
       border-left: 1px solid var(--z-border);
-      order: 2;
+      box-sizing: border-box;
+    }
+    .room-shell.room-shell--videos-right .room-video-strip__row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .room-shell.room-shell--videos-right .room-video-strip__brand {
+      max-width: 100%;
     }
     .room-shell.room-shell--videos-right #videos {
       flex-direction: column;
@@ -239,14 +270,14 @@
       display: flex;
       flex-direction: row;
       flex-wrap: nowrap;
-      gap: 8px;
-      padding: 8px;
+      gap: 6px;
+      padding: 6px;
       margin: 0;
       align-items: stretch;
       justify-content: center;
       overflow-x: auto;
       overflow-y: hidden;
-      min-height: 80px;
+      min-height: 52px;
       flex: 1;
       scrollbar-width: thin;
     }
@@ -264,8 +295,8 @@
     .remote-peer > video {
       width: 100%;
       flex: 1 1 auto;
-      min-height: 64px;
-      max-height: 20vh;
+      min-height: 44px;
+      max-height: 13vh;
       background: #111;
       border-radius: 4px;
       object-fit: contain;
@@ -344,8 +375,8 @@
       background: #252525;
     }
     .room-board-head {
-      padding: 0.35rem 0.65rem 0;
-      font-size: 0.75rem;
+      padding: 0.22rem 0.5rem 0;
+      font-size: 0.68rem;
       color: var(--z-text-dim);
     }
     .room-pane-splitter {
@@ -358,6 +389,28 @@
     }
     .room-pane-splitter:hover {
       background: #5a5a5a;
+    }
+    .room-pane-splitter--video-board {
+      flex: 0 0 6px;
+      cursor: row-resize;
+      background: var(--z-border);
+      align-self: stretch;
+      min-height: 6px;
+      z-index: 6;
+    }
+    .room-pane-splitter--video-board:hover {
+      background: #5a5a5a;
+    }
+    .room-shell.room-shell--videos-right .room-pane-splitter--video-board {
+      cursor: col-resize;
+      flex: 0 0 6px;
+      width: 6px;
+      min-width: 6px;
+      min-height: 0;
+      align-self: stretch;
+    }
+    .room-shell.room-shell--gallery .room-pane-splitter--video-board {
+      display: none !important;
     }
     .room-shell.room-shell--chat-hidden .room-pane-splitter,
     .room-shell.room-shell--chat-hidden .room-chat-panel {
@@ -376,17 +429,29 @@
       border-left: 1px solid var(--z-border);
       box-sizing: border-box;
     }
+    .room-chat-panel .chat-topbar label span {
+      font-size: 0.7rem !important;
+      color: #64748b;
+    }
+    .room-chat-panel #chatThreadPicker {
+      font-size: 0.74rem !important;
+      padding: 0.22rem 0.35rem !important;
+      min-width: min(160px, 100%) !important;
+    }
+    .room-chat-panel .chat-drop-zone .row button {
+      font-size: 0.7rem;
+      padding: 0.22rem 0.45rem;
+      min-height: 28px;
+      border-radius: 5px;
+    }
     .room-chat-panel .chat-drop-zone {
       flex: 1 1 auto;
       display: flex;
       flex-direction: column;
       min-height: 0;
       margin: 0;
-      padding: 0.5rem 0.65rem;
+      padding: 0.38rem 0.5rem;
       border-radius: 0;
-    }
-    .room-chat-panel .chat-topbar label span {
-      color: #64748b;
     }
     .room-chat-panel #chatBox {
       flex: 1 1 auto;
@@ -402,8 +467,12 @@
       border: 1px solid #cbd5e1;
       border-radius: 6px;
       color: #111;
+      font-size: 0.8rem;
+      padding: 0.28rem 0.45rem;
     }
     .room-chat-panel .chat-tab {
+      font-size: 0.72rem;
+      padding: 0.12rem 0.45rem;
       border-color: #cbd5e1;
       background: #f1f5f9;
       color: #334155;
@@ -419,8 +488,8 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      gap: 0.35rem 0.75rem;
-      padding: 0.55rem 0.75rem calc(0.55rem + env(safe-area-inset-bottom));
+      gap: 0.24rem 0.45rem;
+      padding: 0.3rem 0.45rem calc(0.3rem + env(safe-area-inset-bottom));
       background: #131313;
       border-top: 1px solid #2a2a2a;
     }
@@ -430,15 +499,15 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 0.15rem;
-      min-width: 56px;
-      padding: 0.45rem 0.5rem 0.35rem;
+      gap: 0.1rem;
+      min-width: 46px;
+      padding: 0.3rem 0.38rem 0.25rem;
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
       background: transparent;
       color: #e8e8e8;
       cursor: pointer;
-      font-size: 0.65rem;
+      font-size: 0.58rem;
       line-height: 1.1;
     }
     .room-tb-btn:hover {
@@ -452,8 +521,8 @@
       opacity: 0.72;
     }
     .room-tb-btn__svg {
-      width: 26px;
-      height: 26px;
+      width: 20px;
+      height: 20px;
       fill: none;
       stroke: currentColor;
       stroke-width: 1.75;
@@ -464,18 +533,19 @@
       background: var(--z-danger);
       color: #fff;
       font-weight: 600;
-      min-width: 72px;
-      padding: 0.5rem 0.85rem;
+      min-width: 56px;
+      padding: 0.38rem 0.65rem;
+      font-size: 0.62rem;
     }
     .room-tb-btn--danger:hover {
       filter: brightness(1.08);
     }
     .room-tb-btn--accent-outline {
       border: 2px solid var(--z-accent-green);
-      border-radius: 10px;
+      border-radius: 8px;
       color: #cfcfcf;
-      min-width: 52px;
-      padding: 0.4rem;
+      min-width: 44px;
+      padding: 0.3rem;
     }
     .room-tb-btn--accent-outline:disabled {
       opacity: 0.45;
@@ -484,7 +554,7 @@
       color: #ff4444;
     }
     .room-tb-label {
-      max-width: 72px;
+      max-width: 64px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -504,8 +574,8 @@
       background: rgba(255, 255, 255, 0.1);
     }
     .room-tb-chevron {
-      width: 24px;
-      min-width: 24px;
+      width: 19px;
+      min-width: 19px;
       border: none;
       border-left: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 0 10px 10px 0;
@@ -515,7 +585,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.65rem;
+      font-size: 0.55rem;
       line-height: 1;
       padding: 0;
     }
@@ -610,15 +680,6 @@
     }
     .peer-conn-status { font-size: 0.72rem; color: #555; margin: 0.15rem 0 0.25rem; font-variant-numeric: tabular-nums; }
     .peer-retry-btn { font-size: 0.72rem; margin-top: 0.2rem; }
-    #mediaStatus {
-      font-size: 0.78rem;
-      color: var(--z-text-dim);
-      margin: 0;
-      padding: 0.35rem 0.75rem;
-      background: #141414;
-      border-bottom: 1px solid var(--z-border);
-      min-height: 1.25rem;
-    }
     .chat-topbar { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
     .chat-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.35rem 0 0.5rem; }
     .chat-tab {
@@ -748,6 +809,106 @@
       gap: 0.35rem;
       align-items: center;
     }
+    .chat-compose {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    .chat-compose__row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+      width: 100%;
+      min-width: 0;
+    }
+    .chat-compose__row #chatInput {
+      flex: 1 1 120px;
+      min-width: 0;
+    }
+    .chat-compose__row #btnChatAdjunto,
+    .chat-compose__row #btnEnviarChat {
+      flex: 0 0 auto;
+    }
+    .chat-adjunto-pending-slot {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .chat-adjunto-pending-slot .chat-adjunto-preview {
+      max-width: 100%;
+    }
+    .chat-msg {
+      margin: 0.35rem 0;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid #eef2f7;
+      font-size: 0.82rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .chat-msg__hdr {
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-bottom: 0.15rem;
+    }
+    .chat-msg__body {
+      position: relative;
+      padding-right: 22px;
+    }
+    .chat-msg__body--adjunto .chat-adjunto-preview {
+      max-width: 100%;
+    }
+    .chat-msg__del {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: rgba(239, 68, 68, 0.12);
+      color: #b91c1c;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .chat-msg__del:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+    #chatCtxMenu {
+      position: fixed;
+      z-index: 400;
+      min-width: 168px;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+      padding: 4px 0;
+      display: none;
+    }
+    #chatCtxMenu.chat-ctx--open {
+      display: block;
+    }
+    #chatCtxMenu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.35rem 0.75rem;
+      border: none;
+      background: transparent;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    #chatCtxMenu button:hover {
+      background: #f1f5f9;
+    }
     .chat-drop-zone {
       border-radius: 8px;
       padding: 0.25rem 0.35rem 0.45rem;
@@ -775,12 +936,12 @@
     }
     .board-nav-stack {
       position: absolute;
-      right: 8px;
-      bottom: 8px;
+      right: 6px;
+      bottom: 6px;
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 6px;
+      gap: 4px;
       z-index: 50;
       pointer-events: none;
     }
@@ -789,11 +950,13 @@
     }
     #boardMinimap {
       display: block;
+      width: 128px;
+      height: auto;
       border: 1px solid #64748b;
-      border-radius: 6px;
+      border-radius: 5px;
       background: #f1f5f9;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.12);
     }
     #boardMinimap.hidden-map {
       display: none;
@@ -802,33 +965,35 @@
       display: flex;
       flex-wrap: nowrap;
       align-items: center;
-      gap: 4px;
-      padding: 4px 6px;
-      border-radius: 8px;
+      gap: 2px;
+      padding: 2px 4px;
+      border-radius: 5px;
       background: rgba(255, 255, 255, 0.95);
       border: 1px solid #cbd5e1;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-      font-size: 0.82rem;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.1);
+      font-size: 0.62rem;
     }
     .board-zoom-toolbar button {
-      min-width: 32px;
-      padding: 4px 7px;
+      min-width: 22px;
+      padding: 2px 4px;
       cursor: pointer;
-      border-radius: 4px;
+      border-radius: 3px;
       border: 1px solid #cbd5e1;
       background: #f8fafc;
+      font-size: 0.62rem;
+      line-height: 1.2;
     }
     .board-zoom-toolbar button:hover {
       background: #e2e8f0;
     }
     .board-zoom-toolbar select {
-      max-width: 86px;
-      padding: 4px 6px;
-      font-size: 0.9rem;
+      max-width: 64px;
+      padding: 1px 3px;
+      font-size: 0.62rem;
     }
     #btnZoomReset {
       font-variant-numeric: tabular-nums;
-      min-width: 52px;
+      min-width: 38px;
     }
     .board-text-inline {
       position: absolute;
@@ -843,7 +1008,7 @@
       border-radius: 1px;
       box-shadow: none;
       background: transparent;
-      font-size: 30px;
+      font-size: 16px;
       line-height: 1.2;
       font-family: sans-serif;
       outline: 1.5px dashed #2563eb;
@@ -860,9 +1025,9 @@
     .board-selection-lock-btn {
       position: absolute;
       z-index: 46;
-      font-size: 0.72rem;
-      padding: 4px 8px;
-      min-width: 76px;
+      font-size: 0.62rem;
+      padding: 2px 6px;
+      min-width: 58px;
       border-radius: 6px;
       border: 1px solid #cbd5e1;
       background: rgba(255, 255, 255, 0.97);
@@ -877,7 +1042,7 @@
       .room-body {
         flex-direction: column;
       }
-      .room-pane-splitter {
+      #roomMainChatSplitter {
         display: none;
       }
       .room-chat-panel {
@@ -888,7 +1053,7 @@
         border-top: 1px solid var(--z-border);
       }
       .room-video-strip {
-        max-height: 36vh;
+        max-height: 26vh;
       }
       .board-ol--vbar {
         flex-direction: row !important;
@@ -898,7 +1063,7 @@
         left: 8px;
         right: 8px;
         top: 48px;
-        bottom: auto;
+        bottom: auto !important;
         max-height: 120px;
         overflow-x: auto;
         overflow-y: hidden;
@@ -1034,8 +1199,10 @@
       background: #1f2937;
     }
     .home-shell {
-      width: min(1100px, 100%);
+      width: 100%;
+      max-width: min(1520px, 96vw);
       margin: 2rem auto 0;
+      box-sizing: border-box;
     }
     .home-header {
       display: flex;
@@ -1067,6 +1234,12 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.8rem;
+    }
+    @media (min-width: 1200px) {
+      .home-grid {
+        grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+        gap: 1.05rem;
+      }
     }
     .home-card {
       padding: 0.9rem 1rem;
@@ -1200,12 +1373,16 @@
       background: #0b1220;
       padding: 0.5rem 0.55rem;
       display: flex;
-      align-items: center;
+      flex-wrap: wrap;
+      align-items: flex-start;
       justify-content: space-between;
-      gap: 0.6rem;
+      gap: 0.5rem 0.65rem;
+      overflow: hidden;
     }
     .scheduled-item__main {
+      flex: 1 1 200px;
       min-width: 0;
+      max-width: 100%;
     }
     .scheduled-item__title {
       font-weight: 600;
@@ -1234,10 +1411,13 @@
       gap: 0.35rem;
       flex-wrap: wrap;
       justify-content: flex-end;
+      align-items: center;
+      flex: 1 1 240px;
+      min-width: 0;
     }
     .scheduled-item__actions .btn-primary,
     .scheduled-item__actions .btn-ghost {
-      min-width: 102px;
+      min-width: 4.75rem;
       justify-content: center;
       text-align: center;
     }
@@ -1281,15 +1461,15 @@
       min-height: 0;
     }
     .board-follow-status {
-      font-size: 0.76rem;
+      font-size: 0.65rem;
       color: #f1f5f9;
       margin: 0;
       line-height: 1.35;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
       background: rgba(0, 0, 0, 0.45);
-      padding: 0.35rem 0.65rem;
-      border-radius: 8px;
-      max-width: min(360px, 55vw);
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+      max-width: min(320px, 55vw);
     }
     .board-canvas-col--fill {
       flex: 1 1 auto;
@@ -1331,79 +1511,80 @@
       pointer-events: auto;
     }
     .board-ol--tl {
-      top: 10px;
-      left: 10px;
+      top: 6px;
+      left: 6px;
     }
     .board-ol--tc {
-      top: 10px;
+      top: 6px;
       left: 50%;
       transform: translateX(-50%);
       text-align: center;
       max-width: min(420px, 56vw);
     }
     .board-ol--tr {
-      top: 10px;
-      right: 10px;
+      top: 6px;
+      right: 6px;
       max-width: min(46%, 340px);
       display: flex;
       justify-content: flex-end;
       z-index: 50;
     }
     .board-ol-btn {
-      font-size: 0.88rem;
-      padding: 0.48rem 0.9rem;
-      border-radius: 8px;
+      font-size: 0.6rem;
+      padding: 0.2rem 0.42rem;
+      border-radius: 5px;
       border: 1px solid rgba(255, 255, 255, 0.2);
       background: rgba(23, 23, 23, 0.88);
       color: #f4f4f4;
       cursor: pointer;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
     }
     .board-ol-btn:hover {
       background: rgba(45, 45, 45, 0.95);
     }
     .board-ol-btn--wide {
-      font-size: 0.9rem;
-      padding: 0.52rem 1rem;
+      font-size: 0.62rem;
+      padding: 0.24rem 0.5rem;
       line-height: 1.25;
       text-align: center;
     }
     .board-ol--vbar {
-      left: 8px;
-      top: 52px;
+      left: 6px;
+      top: 48px;
       bottom: auto;
-      width: 56px;
+      max-height: calc(100% - 96px);
+      width: 32px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 7px;
-      padding: 10px 6px;
+      gap: 3px;
+      padding: 5px 3px;
       background: rgba(2, 6, 23, 0.92);
       border: 1px solid #334155;
-      border-radius: 16px;
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
-      overflow: visible;
+      border-radius: 7px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+      overflow-x: hidden;
+      overflow-y: visible;
       z-index: 43;
-      max-height: calc(100% - 132px);
     }
     .board-ol--vbar .tool-btn {
-      width: 54px;
-      min-width: 54px;
-      height: 52px;
+      width: 26px;
+      min-width: 26px;
+      height: 24px;
       padding: 0;
-      font-size: 1.8rem;
+      font-size: 0.75rem;
       border: none;
       background: transparent;
       color: #f8fafc;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border-radius: 12px;
+      border-radius: 5px;
       cursor: pointer;
     }
     .board-tool-icon {
-      width: 28px;
-      height: 28px;
+      width: 14px;
+      height: 14px;
       stroke: currentColor;
       fill: none;
       stroke-width: 1.8;
@@ -1412,7 +1593,7 @@
       pointer-events: none;
     }
     .board-tool-emoji {
-      font-size: 2rem;
+      font-size: 0.88rem;
       line-height: 1;
       pointer-events: none;
       user-select: none;
@@ -1429,29 +1610,33 @@
       display: none;
     }
     .board-ol--vbar .tool-sep {
-      width: 34px;
+      width: 17px;
       height: 1px;
-      margin: 3px 0;
+      margin: 2px 0;
       background: #475569;
     }
     .board-ol--vbar .color-swatch {
-      width: 22px;
-      height: 22px;
+      width: 17px;
+      height: 17px;
     }
     .board-side-menu {
-      position: absolute;
-      left: calc(100% + 8px);
+      position: fixed;
+      left: 0;
       top: 0;
       min-width: 160px;
-      max-width: 220px;
+      max-width: min(220px, 92vw);
+      max-height: min(70vh, 520px);
+      overflow-x: hidden;
+      overflow-y: auto;
       background: rgba(17, 24, 39, 0.96);
       border: 1px solid #374151;
       border-radius: 10px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
       padding: 8px;
       display: none;
-      z-index: 60;
+      z-index: 200;
       pointer-events: auto;
+      scrollbar-width: thin;
     }
     .board-side-menu--open {
       display: block;
@@ -1469,17 +1654,17 @@
       gap: 6px;
     }
     .board-color-grid .color-swatch {
-      width: 24px;
-      height: 24px;
+      width: 20px;
+      height: 20px;
       margin: 0 auto;
     }
     .board-emoji-btn {
       border: 1px solid #475569;
-      border-radius: 8px;
+      border-radius: 6px;
       background: #0f172a;
       color: #f8fafc;
-      font-size: 1rem;
-      height: 30px;
+      font-size: 0.82rem;
+      height: 24px;
       cursor: pointer;
     }
     .board-emoji-btn:hover {
@@ -1500,8 +1685,31 @@
     .board-more-item:hover {
       background: #1e293b;
     }
+    .board-menu-choice {
+      width: 100%;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.45rem;
+      text-align: left;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .board-side-menu__title + .board-menu-choice {
+      margin-top: 0;
+    }
+    .board-menu-choice:hover {
+      background: #1e293b;
+    }
+    .board-menu-choice--active {
+      border-color: #60a5fa;
+      background: #1e3a8a;
+      color: #f8fafc;
+    }
     .board-vtoolbar-label {
-      font-size: 0.66rem !important;
+      font-size: 0.48rem !important;
       color: #cbd5e1 !important;
       margin: 0 !important;
       text-align: center;
@@ -1509,48 +1717,48 @@
     }
     .board-vtoolbar-label select {
       width: 100%;
-      font-size: 0.74rem;
-      margin-top: 2px;
-      padding: 3px;
+      font-size: 0.54rem;
+      margin-top: 1px;
+      padding: 1px;
       background: #0f172a;
       color: #e2e8f0;
       border: 1px solid #475569;
     }
     .board-tool-glyph {
-      font-size: 2.2rem;
+      font-size: 0.95rem;
       line-height: 1;
-      font-weight: 800;
+      font-weight: 700;
       letter-spacing: -0.02em;
       color: #ffffff;
       pointer-events: none;
       user-select: none;
     }
     .board-tool-icon--cursor {
-      width: 36px;
-      height: 36px;
+      width: 15px;
+      height: 15px;
       fill: #facc15;
       stroke: #854d0e;
       stroke-width: 1.2;
     }
     .board-bottom-bar {
       position: absolute;
-      left: 64px;
-      bottom: 12px;
+      left: 44px;
+      bottom: 8px;
       z-index: 42;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 6px;
-      padding: 6px 8px;
-      border-radius: 8px;
+      gap: 4px;
+      padding: 4px 6px;
+      border-radius: 6px;
       background: rgba(30, 30, 30, 0.9);
       border: 1px solid var(--z-border);
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
     }
     .board-bottom-bar button {
-      font-size: 0.82rem;
-      padding: 0.38rem 0.62rem;
-      border-radius: 6px;
+      font-size: 0.65rem;
+      padding: 0.22rem 0.45rem;
+      border-radius: 4px;
       border: 1px solid var(--z-border);
       background: #363636;
       color: var(--z-text);
@@ -1642,7 +1850,7 @@
             <button type="button" id="btnLocalRecordings" class="btn-ghost">Ver grabaciones guardadas en este navegador</button>
             <span class="home-muted">Copia de seguridad local si el navegador bloquea la descarga al salir.</span>
           </div>
-          <div id="localRecordingsPanel" class="hidden" style="margin: 0.5rem 0; font-size: 0.9rem; max-width: 560px"></div>
+          <div id="localRecordingsPanel" class="hidden" style="margin: 0.5rem 0; font-size: 0.9rem; max-width: min(960px, 100%)"></div>
         </section>
       </div>
       <p style="margin-top: 0.75rem">Usuario: <strong id="userLabel"></strong></p>
@@ -1746,17 +1954,10 @@
 
   <section id="roomSection" class="hidden">
     <div class="room-shell" id="roomShell">
-      <header class="room-topbar">
-        <span class="room-topbar__title">My Own Zoom</span>
-        <span class="room-topbar__room" id="activeRoomLabel" title="Room ID"></span>
-        <div class="room-topbar__actions">
-          <p id="roomEventsLog" class="room-events-log" aria-live="polite"></p>
-          <button type="button" class="room-btn-ghost hidden" id="btnToggleChat" aria-pressed="false">Ocultar chat</button>
-          <button type="button" class="room-btn-ghost hidden" id="btnRoomViewToggle" aria-pressed="false">
-            Vista galería
-          </button>
-        </div>
-      </header>
+      <div class="hidden" aria-hidden="true">
+        <button type="button" id="btnToggleChat">Ocultar chat</button>
+        <button type="button" id="btnRoomViewToggle">Vista galería</button>
+      </div>
       <div class="room-devices hidden" aria-hidden="true">
         <label>
           Micrófono
@@ -1767,10 +1968,22 @@
           <select id="videoInputSelect"></select>
         </label>
       </div>
-      <p id="mediaStatus" aria-live="polite"></p>
       <div class="room-body">
         <div class="room-primary">
           <div class="room-video-strip" id="roomVideoStrip">
+            <div class="room-video-strip__row">
+              <div class="room-video-strip__brand">
+                <span class="room-video-strip__title">My Own Zoom</span>
+                <button
+                  type="button"
+                  id="btnCopyRoomLink"
+                  class="room-video-strip__copy-link-btn"
+                  title="Copiar enlace de la reunión"
+                >
+                  Copiar enlace
+                </button>
+              </div>
+              <div class="room-video-strip__stage">
             <div class="room-video-layout-switch" id="roomVideoLayoutSwitch" aria-label="Layout de videollamada">
               <div class="room-video-layout-switch__row">
                 <button type="button" id="btnLayoutTop" class="room-layout-btn" aria-pressed="true" title="Vídeos arriba · tablero abajo">
@@ -1796,7 +2009,16 @@
               </div>
               <div id="remotesContainer"></div>
             </div>
+              </div>
+            </div>
           </div>
+          <div
+            class="room-pane-splitter room-pane-splitter--video-board"
+            id="roomVideoBoardSplitter"
+            role="separator"
+            aria-orientation="horizontal"
+            title="Arrastra para ajustar la franja de vídeo y el tablero"
+          ></div>
           <div class="room-center-wrap room-board-toolbar-wrap" id="roomCenterWrap">
             <div class="board-stage" id="boardStage">
               <div class="board-canvas-col board-canvas-col--fill">
@@ -1844,42 +2066,39 @@
                     </button>
                     <button type="button" id="btnToolbarMore" class="tool-btn hidden" title="Más opciones">...</button>
                     <div class="tool-sep"></div>
-                    <label class="board-vtoolbar-label board-tool-optional">Grosor
-                      <select id="boardLineWidth">
-                        <option value="2">Fino</option>
-                        <option value="4" selected>Medio</option>
-                        <option value="7">Grueso</option>
-                      </select>
-                    </label>
-                    <label class="board-vtoolbar-label">Texto
-                      <select id="boardTextSizeSelect">
-                        <option value="24">24px</option>
-                        <option value="30" selected>30px</option>
-                        <option value="36">36px</option>
-                        <option value="42">42px</option>
-                        <option value="48">48px</option>
-                      </select>
-                    </label>
+                    <select id="boardLineWidth" class="hidden" aria-hidden="true" tabindex="-1">
+                      <option value="2">Fino</option>
+                      <option value="4" selected>Medio</option>
+                      <option value="7">Grueso</option>
+                    </select>
+                    <select id="boardTextSizeSelect" class="hidden" aria-hidden="true" tabindex="-1">
+                      <option value="16" selected>16px</option>
+                      <option value="24">24px</option>
+                      <option value="30">30px</option>
+                      <option value="36">36px</option>
+                      <option value="42">42px</option>
+                      <option value="48">48px</option>
+                    </select>
+                    <select id="boardLineWidthMore" class="hidden" aria-hidden="true" tabindex="-1">
+                      <option value="2">Fino</option>
+                      <option value="4" selected>Medio</option>
+                      <option value="7">Grueso</option>
+                    </select>
+                    <select id="boardTextSizeSelectMore" class="hidden" aria-hidden="true" tabindex="-1">
+                      <option value="16" selected>16px</option>
+                      <option value="24">24px</option>
+                      <option value="30">30px</option>
+                      <option value="36">36px</option>
+                      <option value="42">42px</option>
+                      <option value="48">48px</option>
+                    </select>
+                  </div>
                     <div id="boardMoreMenu" class="board-side-menu" role="menu" aria-label="Más opciones de tablero">
                       <p class="board-side-menu__title">Más opciones</p>
                       <button type="button" class="board-more-item" id="btnMorePalette">Colores</button>
                       <button type="button" class="board-more-item" id="btnMoreEmoji">Emojis</button>
-                      <label class="board-vtoolbar-label" style="margin-top:8px;display:block">Grosor
-                        <select id="boardLineWidthMore">
-                          <option value="2">Fino</option>
-                          <option value="4" selected>Medio</option>
-                          <option value="7">Grueso</option>
-                        </select>
-                      </label>
-                      <label class="board-vtoolbar-label" style="margin-top:8px;display:block">Texto
-                        <select id="boardTextSizeSelectMore">
-                          <option value="24">24px</option>
-                          <option value="30" selected>30px</option>
-                          <option value="36">36px</option>
-                          <option value="42">42px</option>
-                          <option value="48">48px</option>
-                        </select>
-                      </label>
+                      <button type="button" class="board-more-item" id="btnMoreLineWidth">Grosor del lápiz</button>
+                      <button type="button" class="board-more-item" id="btnMoreTextSize">Tamaño de texto</button>
                     </div>
                     <div id="boardPaletteMenu" class="board-side-menu" role="menu" aria-label="Colores de tablero">
                       <p class="board-side-menu__title">Color</p>
@@ -1923,7 +2142,21 @@
                         <button type="button" class="board-emoji-btn" data-emoji="🔁">🔁</button>
                       </div>
                     </div>
-                  </div>
+                    <div id="boardLineWidthMenu" class="board-side-menu" role="menu" aria-label="Grosor del lápiz">
+                      <p class="board-side-menu__title">Grosor</p>
+                      <button type="button" class="board-menu-choice board-line-width-choice" data-line-width="2">Fino</button>
+                      <button type="button" class="board-menu-choice board-line-width-choice" data-line-width="4">Medio</button>
+                      <button type="button" class="board-menu-choice board-line-width-choice" data-line-width="7">Grueso</button>
+                    </div>
+                    <div id="boardTextSizeMenu" class="board-side-menu" role="menu" aria-label="Tamaño de texto">
+                      <p class="board-side-menu__title">Tamaño</p>
+                      <button type="button" class="board-menu-choice board-text-size-choice" data-text-size="16">16px</button>
+                      <button type="button" class="board-menu-choice board-text-size-choice" data-text-size="24">24px</button>
+                      <button type="button" class="board-menu-choice board-text-size-choice" data-text-size="30">30px</button>
+                      <button type="button" class="board-menu-choice board-text-size-choice" data-text-size="36">36px</button>
+                      <button type="button" class="board-menu-choice board-text-size-choice" data-text-size="42">42px</button>
+                      <button type="button" class="board-menu-choice board-text-size-choice" data-text-size="48">48px</button>
+                    </div>
                   <button
                     type="button"
                     id="btnBoardToggleLockFloat"
@@ -1941,7 +2174,7 @@
                     <button type="button" id="btnBoardClear">Limpiar</button>
                   </div>
                   <div class="board-nav-stack" id="boardNavStack">
-                    <canvas id="boardMinimap" width="160" height="90" title="Clic para centrar la vista"></canvas>
+                    <canvas id="boardMinimap" width="128" height="72" title="Clic para centrar la vista"></canvas>
                     <div class="board-zoom-toolbar">
                       <button type="button" id="btnZoomOut" title="Alejar">−</button>
                       <button type="button" id="btnZoomReset" title="Restablecer zoom y centrar vista">100%</button>
@@ -1960,7 +2193,7 @@
           <div id="chatDropZone" class="chat-drop-zone" title="Arrastra archivos aquí para adjuntarlos">
             <div class="chat-topbar">
               <label style="margin:0">
-                <span style="font-size:0.82rem">Abrir conversación:</span>
+                <span>Abrir conversación:</span>
                 <select id="chatThreadPicker" style="min-width:200px;max-width:100%">
                   <option value="general">General</option>
                 </select>
@@ -1968,16 +2201,19 @@
             </div>
             <div id="chatThreadTabs" class="chat-tabs"></div>
             <div id="chatBox"></div>
-            <div class="row" style="flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-top: 0.5rem">
-              <input type="file" id="chatAdjuntoInput" style="display: none" />
-              <button type="button" id="btnChatAdjunto" title="Imagen, audio, PDF, Office, zip… (máx. 20 MB)">
-                Adjunto
-              </button>
-              <span id="chatAdjuntoPending"></span>
-              <input id="chatInput" placeholder="Escribe un mensaje…" style="flex:1;min-width:120px" />
-              <button type="button" id="btnEnviarChat">Enviar</button>
+            <div class="chat-compose">
+              <div id="chatAdjuntoPending" class="chat-adjunto-pending-slot"></div>
+              <div class="chat-compose__row">
+                <input type="file" id="chatAdjuntoInput" style="display: none" />
+                <button type="button" id="btnChatAdjunto" title="Imagen, audio, PDF, Office, zip… (máx. 20 MB)">
+                  Adjunto
+                </button>
+                <input id="chatInput" placeholder="Escribe un mensaje…" />
+                <button type="button" id="btnEnviarChat">Enviar</button>
+              </div>
             </div>
           </div>
+            <div id="chatCtxMenu" role="menu" aria-hidden="true"></div>
         </aside>
       </div>
       <footer class="room-bottom-toolbar" id="roomMediaControls">
@@ -2202,13 +2438,14 @@
       const text = typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
       const el = document.getElementById("log");
       if (el) el.textContent = text;
-      const rel = document.getElementById("roomEventsLog");
-      if (rel) rel.textContent = text;
     }
 
     function setMediaStatus(text) {
       const el = $("mediaStatus");
-      if (el) el.textContent = text || "";
+      if (!el) return;
+      const t = text != null ? String(text) : "";
+      el.textContent = t;
+      el.title = t.length > 72 ? t : "";
     }
 
     function humanizeGetUserMediaError(err) {
@@ -2256,7 +2493,7 @@
     let boardTool = "pencil";
     let boardColor = "#111111";
     let boardLineWidth = 4;
-    let boardTextSize = 30;
+    let boardTextSize = 16;
     let activeTextInput = null;
     /** Índice en `boardState.elementos` del texto que se está editando (no dibujarlo en canvas para evitar doble capa / desfase). */
     let editingTextElementIndex = -1;
@@ -2347,6 +2584,8 @@
     let scheduleModalScrollTop = 0;
     let boardSideMenuOpen = "";
     const chatAdjuntoPreviewCache = new Map();
+    /** @type {{ mensajeId: string, mensaje: object } | null} */
+    let chatCtxMenuTarget = null;
 
     const IDB_NAME = "my-own-zoom";
     const IDB_VERSION = 1;
@@ -2399,6 +2638,21 @@
       return new Promise((resolve, reject) => {
         const tx = db.transaction(IDB_RECORDINGS, "readwrite");
         tx.objectStore(IDB_RECORDINGS).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    /** Borra varias grabaciones en una sola transacción IndexedDB. */
+    async function idbDeleteRecordings(ids) {
+      const raw = Array.isArray(ids) ? ids : [];
+      const list = raw.map((id) => Number(id)).filter((n) => Number.isFinite(n));
+      if (!list.length) return;
+      const db = await openIdb();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_RECORDINGS, "readwrite");
+        const store = tx.objectStore(IDB_RECORDINGS);
+        for (const id of list) store.delete(id);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
@@ -2889,42 +3143,129 @@
         panel.appendChild(document.createTextNode("No hay grabaciones guardadas en este navegador."));
         return;
       }
-      rows
-        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-        .forEach((row) => {
-          const wrap = document.createElement("div");
-          wrap.style.marginBottom = "0.45rem";
-          wrap.style.display = "flex";
-          wrap.style.flexWrap = "wrap";
-          wrap.style.gap = "0.35rem";
-          wrap.style.alignItems = "center";
-          const dt = new Date(row.createdAt || Date.now()).toLocaleString();
-          const span = document.createElement("span");
-          span.textContent = `${dt} · sala ${row.roomLabel || "?"} · ${Math.round((row.blob?.size || 0) / 1024)} KB`;
-          const btnDl = document.createElement("button");
-          btnDl.type = "button";
-          btnDl.textContent = "Descargar";
-          btnDl.addEventListener("click", () => {
-            if (!row.blob) return;
-            triggerDownloadBlob(row.blob, row.mime, row.roomLabel);
-          });
-          const btnDel = document.createElement("button");
-          btnDel.type = "button";
-          btnDel.textContent = "Eliminar";
-          btnDel.addEventListener("click", async () => {
-            if (!confirm("¿Eliminar esta copia local?")) return;
-            try {
-              await idbDeleteRecording(row.id);
-              await renderLocalRecordingsPanel();
-            } catch (e) {
-              log("No se pudo eliminar: " + (e?.message || e));
-            }
-          });
-          wrap.appendChild(span);
-          wrap.appendChild(btnDl);
-          wrap.appendChild(btnDel);
-          panel.appendChild(wrap);
+      const sorted = rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      const toolbar = document.createElement("div");
+      toolbar.style.display = "flex";
+      toolbar.style.flexWrap = "wrap";
+      toolbar.style.alignItems = "center";
+      toolbar.style.gap = "0.5rem";
+      toolbar.style.marginBottom = "0.6rem";
+
+      const selAllLabel = document.createElement("label");
+      selAllLabel.style.display = "inline-flex";
+      selAllLabel.style.alignItems = "center";
+      selAllLabel.style.gap = "0.35rem";
+      selAllLabel.style.cursor = "pointer";
+      const selAllCb = document.createElement("input");
+      selAllCb.type = "checkbox";
+      selAllCb.title = "Seleccionar o desmarcar todas";
+      selAllLabel.appendChild(selAllCb);
+      selAllLabel.appendChild(document.createTextNode("Seleccionar todas"));
+
+      const bulkDel = document.createElement("button");
+      bulkDel.type = "button";
+      bulkDel.className = "btn-ghost";
+      bulkDel.textContent = "Eliminar seleccionadas";
+
+      toolbar.appendChild(selAllLabel);
+      toolbar.appendChild(bulkDel);
+      panel.appendChild(toolbar);
+
+      function getRowCheckboxes() {
+        return panel.querySelectorAll(".local-rec-row input.local-rec-cb");
+      }
+
+      function syncSelectAllState() {
+        const boxes = Array.from(getRowCheckboxes());
+        const n = boxes.length;
+        const c = boxes.filter((b) => b.checked).length;
+        selAllCb.checked = n > 0 && c === n;
+        selAllCb.indeterminate = c > 0 && c < n;
+      }
+
+      selAllCb.addEventListener("change", () => {
+        const on = selAllCb.checked;
+        getRowCheckboxes().forEach((b) => {
+          b.checked = on;
         });
+        selAllCb.indeterminate = false;
+      });
+
+      bulkDel.addEventListener("click", async () => {
+        const ids = [];
+        getRowCheckboxes().forEach((b) => {
+          if (b.checked && b.dataset.id != null && b.dataset.id !== "") {
+            const n = Number(b.dataset.id);
+            if (Number.isFinite(n)) ids.push(n);
+          }
+        });
+        if (!ids.length) {
+          log("Marca al menos una grabación para eliminar.");
+          return;
+        }
+        const msg =
+          ids.length === 1
+            ? "¿Eliminar esta grabación del navegador?"
+            : `¿Eliminar las ${ids.length} grabaciones seleccionadas del navegador?`;
+        if (!confirm(msg)) return;
+        try {
+          await idbDeleteRecordings(ids);
+          await renderLocalRecordingsPanel();
+          log(ids.length === 1 ? "Grabación eliminada." : ids.length + " grabaciones eliminadas.");
+        } catch (e) {
+          log("No se pudo eliminar: " + (e?.message || e));
+        }
+      });
+
+      sorted.forEach((row) => {
+        const wrap = document.createElement("div");
+        wrap.className = "local-rec-row";
+        wrap.style.marginBottom = "0.45rem";
+        wrap.style.display = "flex";
+        wrap.style.flexWrap = "wrap";
+        wrap.style.gap = "0.35rem";
+        wrap.style.alignItems = "center";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "local-rec-cb";
+        cb.dataset.id = String(row.id ?? "");
+        cb.title = "Seleccionar para eliminar varias a la vez";
+        cb.addEventListener("change", () => syncSelectAllState());
+
+        const dt = new Date(row.createdAt || Date.now()).toLocaleString();
+        const span = document.createElement("span");
+        span.textContent = `${dt} · sala ${row.roomLabel || "?"} · ${Math.round((row.blob?.size || 0) / 1024)} KB`;
+        const btnDl = document.createElement("button");
+        btnDl.type = "button";
+        btnDl.className = "btn-ghost";
+        btnDl.textContent = "Descargar";
+        btnDl.addEventListener("click", () => {
+          if (!row.blob) return;
+          triggerDownloadBlob(row.blob, row.mime, row.roomLabel);
+        });
+        const btnDel = document.createElement("button");
+        btnDel.type = "button";
+        btnDel.className = "btn-ghost";
+        btnDel.textContent = "Eliminar";
+        btnDel.addEventListener("click", async () => {
+          if (!confirm("¿Eliminar esta copia local?")) return;
+          try {
+            await idbDeleteRecording(row.id);
+            await renderLocalRecordingsPanel();
+          } catch (e) {
+            log("No se pudo eliminar: " + (e?.message || e));
+          }
+        });
+        wrap.appendChild(cb);
+        wrap.appendChild(span);
+        wrap.appendChild(btnDl);
+        wrap.appendChild(btnDel);
+        panel.appendChild(wrap);
+      });
+
+      syncSelectAllState();
     }
 
     function emitRecordingState(active) {
@@ -3263,6 +3604,13 @@
       return `${location.origin}${location.pathname}#/meet/${encodeURIComponent(rid)}/board`;
     }
 
+    /** PK interna de BD (no confundir con `roomId`). Sequelize puede exponer `reunionId` o `reunion_id` según serialización. */
+    function getReunionPk(reunion) {
+      if (!reunion || typeof reunion !== "object") return "";
+      const pk = reunion.reunionId ?? reunion.reunion_id;
+      return pk != null && String(pk).trim() !== "" ? String(pk).trim() : "";
+    }
+
     function getScheduleModalCard() {
       return document.querySelector("#scheduleModal .profile-modal__card");
     }
@@ -3284,7 +3632,7 @@
       const recInterval = $("scheduleRecurrenceInterval");
       if (!modal || !title || !start || !duration || !tz || !err || !linkInput || !recMode || !recEndMode || !recUntil || !recCustomBase || !recInterval) return;
       err.textContent = "";
-      scheduleEditingReunionId = meeting?.reunionId ? String(meeting.reunionId) : null;
+      scheduleEditingReunionId = meeting ? getReunionPk(meeting) || null : null;
       if (!meeting) scheduleModalScrollTop = 0;
       if (modalTitle) modalTitle.textContent = meeting ? "Editar reunión" : "Agendar reunión";
       if (saveBtn) saveBtn.textContent = meeting ? "Guardar cambios" : "Guardar agenda";
@@ -3299,7 +3647,7 @@
             : 60;
         duration.value = String(durMinutes);
         tz.value = meeting.zonaHoraria || "";
-        linkInput.value = buildMeetingJoinLink(meeting.roomId);
+        linkInput.value = buildMeetingJoinLink(meeting.roomId ?? meeting.room_id);
         const rec = parseMeetingRecurrence(meeting.recurrencia);
         recMode.value = rec?.mode || "none";
         recEndMode.value = rec?.until ? "until" : "never";
@@ -3591,6 +3939,7 @@
       document.body.classList.remove("app-route-login", "app-route-lobby");
       setChatPanelHidden(false);
       requestAnimationFrame(() => {
+        applyRoomVideoStripSizing();
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
     }
@@ -3621,6 +3970,71 @@
         vbtn.textContent = gallery ? "Vista tablero" : "Vista galería";
         vbtn.setAttribute("aria-pressed", gallery ? "true" : "false");
       }
+      if (!gallery) applyRoomVideoStripSizing();
+    }
+
+    function clampRoomVideoStripHeight(h, primaryEl) {
+      const min = 52;
+      const avail = primaryEl?.clientHeight ?? 640;
+      const max = Math.max(min + 48, Math.floor(avail * 0.44));
+      return Math.min(max, Math.max(min, Math.round(h)));
+    }
+
+    function clampRoomVideoStripWidth(w, primaryEl) {
+      const min = 116;
+      const avail = primaryEl?.clientWidth ?? 960;
+      const max = Math.max(min + 40, Math.floor(avail * 0.48));
+      return Math.min(max, Math.max(min, Math.round(w)));
+    }
+
+    /** Aplica tamaño guardado de la franja de vídeo (alto en vista superior, ancho en vídeos a la derecha). */
+    function applyRoomVideoStripSizing() {
+      const shell = $("roomShell");
+      const strip = $("roomVideoStrip");
+      const primary = strip?.parentElement;
+      const spl = $("roomVideoBoardSplitter");
+      if (!strip || !primary) return;
+      if (!shell || shell.classList.contains("room-shell--gallery")) {
+        strip.style.height = "";
+        strip.style.maxHeight = "";
+        strip.style.width = "";
+        strip.style.minWidth = "";
+        return;
+      }
+      try {
+        if (roomBoardLayout === "right") {
+          strip.style.height = "";
+          strip.style.maxHeight = "";
+          const sw = localStorage.getItem("moj_room_video_strip_width_px");
+          if (sw && !Number.isNaN(Number(sw))) {
+            const n = clampRoomVideoStripWidth(Number(sw), primary);
+            strip.style.width = n + "px";
+          } else {
+            strip.style.width = "";
+          }
+        } else {
+          strip.style.width = "";
+          strip.style.minWidth = "";
+          const sh = localStorage.getItem("moj_room_video_strip_height_px");
+          if (sh && !Number.isNaN(Number(sh))) {
+            const n = clampRoomVideoStripHeight(Number(sh), primary);
+            strip.style.height = n + "px";
+            strip.style.maxHeight = "none";
+          } else {
+            strip.style.height = "";
+            strip.style.maxHeight = "";
+          }
+        }
+      } catch (_) {}
+      if (spl) {
+        spl.setAttribute("aria-orientation", roomBoardLayout === "right" ? "vertical" : "horizontal");
+      }
+      requestAnimationFrame(() => {
+        try {
+          resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
+          if (typeof drawBoard === "function") drawBoard();
+        } catch (_) {}
+      });
     }
 
     function setRoomBoardLayout(layout) {
@@ -3633,6 +4047,7 @@
       const btnRight = $("btnLayoutRight");
       if (btnTop) btnTop.setAttribute("aria-pressed", roomBoardLayout === "top" ? "true" : "false");
       if (btnRight) btnRight.setAttribute("aria-pressed", roomBoardLayout === "right" ? "true" : "false");
+      applyRoomVideoStripSizing();
     }
 
     function setChatPanelHidden(hidden) {
@@ -3654,11 +4069,19 @@
       $("boardPaletteMenu")?.classList.remove("board-side-menu--open");
       $("boardEmojiMenu")?.classList.remove("board-side-menu--open");
       $("boardMoreMenu")?.classList.remove("board-side-menu--open");
+      $("boardLineWidthMenu")?.classList.remove("board-side-menu--open");
+      $("boardTextSizeMenu")?.classList.remove("board-side-menu--open");
       boardSideMenuOpen = "";
     }
 
     function toggleBoardSideMenu(which) {
-      const map = { palette: "boardPaletteMenu", emoji: "boardEmojiMenu", more: "boardMoreMenu" };
+      const map = {
+        palette: "boardPaletteMenu",
+        emoji: "boardEmojiMenu",
+        more: "boardMoreMenu",
+        lineWidth: "boardLineWidthMenu",
+        textSize: "boardTextSizeMenu",
+      };
       const id = map[which];
       if (!id) return;
       if (boardSideMenuOpen === which) {
@@ -3689,18 +4112,45 @@
     }
 
     function positionBoardSideMenu(which) {
-      const triggerIdMap = { palette: "btnPaletteMenu", emoji: "btnEmojiMenu", more: "btnToolbarMore" };
-      const menuIdMap = { palette: "boardPaletteMenu", emoji: "boardEmojiMenu", more: "boardMoreMenu" };
+      const triggerIdMap = {
+        palette: "btnPaletteMenu",
+        emoji: "btnEmojiMenu",
+        more: "btnToolbarMore",
+        lineWidth: "btnToolPencil",
+        textSize: "btnToolText",
+      };
+      const menuIdMap = {
+        palette: "boardPaletteMenu",
+        emoji: "boardEmojiMenu",
+        more: "boardMoreMenu",
+        lineWidth: "boardLineWidthMenu",
+        textSize: "boardTextSizeMenu",
+      };
       const trigger = $(triggerIdMap[which] || "");
       const menu = $(menuIdMap[which] || "");
-      const wrap = $("boardViewportWrap");
-      if (!trigger || !menu || !wrap) return;
-      const t = trigger.getBoundingClientRect();
-      const w = wrap.getBoundingClientRect();
-      const left = Math.max(6, Math.min(w.width - 190, t.right - w.left + 8));
-      const top = Math.max(6, Math.min(w.height - 220, t.top - w.top));
-      menu.style.left = left + "px";
-      menu.style.top = top + "px";
+      if (!trigger || !menu) return;
+      requestAnimationFrame(() => {
+        const t = trigger.getBoundingClientRect();
+        const pad = 8;
+        let left = t.right + pad;
+        let top = t.top;
+        menu.style.position = "fixed";
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const mw = menu.offsetWidth || 180;
+        const mh = menu.offsetHeight || 120;
+        if (left + mw > vw - pad) {
+          left = Math.max(pad, t.left - mw - pad);
+        }
+        if (left < pad) left = pad;
+        if (top + mh > vh - pad) {
+          top = Math.max(pad, vh - mh - pad);
+        }
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+        menu.style.zIndex = "200";
+      });
     }
 
     function applyRouteFromHash() {
@@ -5447,14 +5897,32 @@
         colorInput.value = boardColor;
       }
       updateBoardLockUi();
+      syncBoardLineWidthUi();
+      syncBoardTextSizeUi();
+    }
+
+    function syncBoardLineWidthUi() {
+      const w = String(boardLineWidth);
+      const main = $("boardLineWidth");
+      const more = $("boardLineWidthMore");
+      if (main && main.value !== w) main.value = w;
+      if (more && more.value !== w) more.value = w;
+      document.querySelectorAll(".board-line-width-choice").forEach((btn) => {
+        const v = btn.getAttribute("data-line-width") || "";
+        btn.classList.toggle("board-menu-choice--active", v === w);
+      });
     }
 
     function syncBoardTextSizeUi() {
-      const current = String(boardTextSize || 30);
+      const current = String(boardTextSize || 16);
       const main = $("boardTextSizeSelect");
       const more = $("boardTextSizeSelectMore");
       if (main && main.value !== current) main.value = current;
       if (more && more.value !== current) more.value = current;
+      document.querySelectorAll(".board-text-size-choice").forEach((btn) => {
+        const v = btn.getAttribute("data-text-size") || "";
+        btn.classList.toggle("board-menu-choice--active", v === current);
+      });
     }
 
     function applyBoardState(nextState, opts = {}) {
@@ -5640,10 +6108,107 @@
       });
     }
 
+    function removeChatMessageEverywhere(mensajeId) {
+      const id = String(mensajeId || "").trim();
+      if (!id) return;
+      const url = chatAdjuntoPreviewCache.get(id);
+      if (url) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) {}
+      }
+      chatAdjuntoPreviewCache.delete(id);
+      chatThreads.forEach((t) => {
+        t.messages = t.messages.filter((mm) => String(mm.mensajeId) !== id);
+      });
+      renderChatMessages();
+    }
+
+    function closeChatCtxMenu() {
+      const menu = $("chatCtxMenu");
+      if (menu) {
+        menu.classList.remove("chat-ctx--open");
+        menu.innerHTML = "";
+        menu.setAttribute("aria-hidden", "true");
+      }
+      chatCtxMenuTarget = null;
+    }
+
+    function openChatCtxMenu(clientX, clientY, m) {
+      closeChatCtxMenu();
+      const menu = $("chatCtxMenu");
+      if (!menu || !m) return;
+      const midRaw = m.mensajeId;
+      const mid = midRaw != null ? String(midRaw) : "";
+      const isLocal = mid.startsWith("local-");
+      const selfId = currentUser?.usuarioId;
+      const authorId = m.autor?.usuarioId;
+      const isAdmin = String(currentUser?.rol || "").toLowerCase() === "admin";
+      const canDelete =
+        !!mid &&
+        !isLocal &&
+        (isAdmin ||
+          (selfId &&
+            authorId &&
+            String(authorId).toLowerCase() === String(selfId).toLowerCase()));
+
+      const addItem = (label, fn) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          fn();
+          closeChatCtxMenu();
+        });
+        menu.appendChild(b);
+      };
+
+      addItem("Copiar texto", () => {
+        void copyTextToClipboard(m.contenido || "");
+      });
+      if (m.adjuntoNombreOriginal) {
+        addItem("Copiar nombre de archivo", () => {
+          void copyTextToClipboard(String(m.adjuntoNombreOriginal));
+        });
+      }
+      if (mid && !isLocal && m.adjuntoRelPath) {
+        addItem("Copiar enlace de descarga", () => {
+          const path =
+            location.origin + "/api/mensajes/adjunto/" + encodeURIComponent(mid);
+          void copyTextToClipboard(path);
+        });
+      }
+      if (canDelete) {
+        addItem("Eliminar mensaje", async () => {
+          if (!confirm("¿Eliminar este mensaje" + (m.adjuntoRelPath ? " y su archivo" : "") + "?")) return;
+          try {
+            await api("/api/mensajes/" + encodeURIComponent(mid), { method: "DELETE" });
+            removeChatMessageEverywhere(mid);
+          } catch (err) {
+            log(err?.message || "No se pudo eliminar");
+          }
+        });
+      }
+
+      chatCtxMenuTarget = { mensajeId: mid, mensaje: m };
+      menu.classList.add("chat-ctx--open");
+      menu.setAttribute("aria-hidden", "false");
+      const mw = 200;
+      const mh = 180;
+      let x = clientX;
+      let y = clientY;
+      if (x + mw > window.innerWidth - 6) x = window.innerWidth - mw - 6;
+      if (y + mh > window.innerHeight - 6) y = window.innerHeight - mh - 6;
+      menu.style.left = Math.max(6, x) + "px";
+      menu.style.top = Math.max(6, y) + "px";
+    }
+
     function renderChatMessages() {
       const box = $("chatBox");
       if (!box) return;
       box.innerHTML = "";
+      closeChatCtxMenu();
       const thread = chatThreads.get(activeChatThreadKey);
       if (!thread) return;
       const getChatAdjuntoFileUrl = async (m) => {
@@ -5666,14 +6231,60 @@
         }
       };
       thread.messages.forEach((m) => {
-        const div = document.createElement("div");
+        const row = document.createElement("div");
         const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
         const tipo = m.tipo === "privado" ? " (privado)" : "";
-        div.className = m.tipo === "privado" ? "msg-privado" : "";
+        row.className = "chat-msg" + (m.tipo === "privado" ? " msg-privado" : "");
+        const mid = m.mensajeId != null ? String(m.mensajeId) : "";
+        if (mid) row.dataset.mensajeId = mid;
         const tstr = new Date(m.marcaTiempo || Date.now()).toLocaleTimeString();
-        div.appendChild(
-          document.createTextNode(`[${tstr}] ${autor}${tipo}: `)
-        );
+
+        const hdr = document.createElement("div");
+        hdr.className = "chat-msg__hdr";
+        hdr.textContent = `[${tstr}] ${autor}${tipo}`;
+        row.appendChild(hdr);
+
+        const body = document.createElement("div");
+        body.className =
+          "chat-msg__body" + (m.adjuntoRelPath && m.mensajeId ? " chat-msg__body--adjunto" : "");
+
+        const selfId = currentUser?.usuarioId;
+        const authorId = m.autor?.usuarioId;
+        const isAdmin = String(currentUser?.rol || "").toLowerCase() === "admin";
+        const canDelete =
+          !!mid &&
+          !mid.startsWith("local-") &&
+          (isAdmin ||
+            (selfId &&
+              authorId &&
+              String(authorId).toLowerCase() === String(selfId).toLowerCase()));
+
+        if (canDelete) {
+          const del = document.createElement("button");
+          del.type = "button";
+          del.className = "chat-msg__del";
+          del.title = "Eliminar mensaje";
+          del.setAttribute("aria-label", "Eliminar mensaje");
+          del.textContent = "×";
+          del.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!confirm("¿Eliminar este mensaje" + (m.adjuntoRelPath ? " y su archivo" : "") + "?")) return;
+            try {
+              await api("/api/mensajes/" + encodeURIComponent(mid), { method: "DELETE" });
+              removeChatMessageEverywhere(mid);
+            } catch (err) {
+              log(err?.message || "No se pudo eliminar");
+            }
+          });
+          body.appendChild(del);
+        }
+
+        body.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          openChatCtxMenu(e.clientX, e.clientY, m);
+        });
+
         if (m.adjuntoRelPath && m.mensajeId) {
           const btn = document.createElement("button");
           btn.type = "button";
@@ -5683,7 +6294,7 @@
           btn.addEventListener("click", () =>
             downloadChatAdjunto(m.mensajeId, m.adjuntoNombreOriginal || "adjunto")
           );
-          div.appendChild(btn);
+          body.appendChild(btn);
           const previewWrap = document.createElement("div");
           previewWrap.className = "chat-adjunto-preview";
           const mime = String(m.adjuntoMime || "").toLowerCase();
@@ -5725,12 +6336,16 @@
             fileCap.textContent = "Vista previa no disponible";
             previewWrap.appendChild(fileCap);
           }
-          div.appendChild(previewWrap);
+          body.appendChild(previewWrap);
         }
-        const cap = document.createElement("span");
+        const cap = document.createElement("div");
+        cap.style.marginTop = "0.2rem";
+        cap.style.whiteSpace = "pre-wrap";
         cap.textContent = m.contenido || "";
-        div.appendChild(cap);
-        box.appendChild(div);
+        body.appendChild(cap);
+
+        row.appendChild(body);
+        box.appendChild(row);
       });
       box.scrollTop = box.scrollHeight;
     }
@@ -5810,6 +6425,9 @@
           reject(new Error(msg));
         });
         socket.on("chat:message", appendChatLine);
+        socket.on("chat:messageDeleted", ({ mensajeId }) => {
+          if (mensajeId) removeChatMessageEverywhere(String(mensajeId));
+        });
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:follow:state", ({ active, roomId: rid }) => {
@@ -5929,10 +6547,9 @@
       }
       setMediaStatus("Preparando cámara y micrófono…");
       log("Entrando en la sala…");
-      let joinMediaLevel = "av";
       try {
         await loadIce();
-        ({ level: joinMediaLevel } = await ensureLocalStream({ allowSilentJoin: true }));
+        await ensureLocalStream({ allowSilentJoin: true });
         await connectSocketIfNeeded();
       } catch (e) {
         const msg = e?.name === "NotAllowedError" || e?.message?.includes("Permiso")
@@ -5965,7 +6582,10 @@
               resp.docenteUsuarioId != null
                 ? String(resp.docenteUsuarioId)
                 : roomDocenteUsuarioId;
-            $("activeRoomLabel").textContent = activeRoomId;
+            {
+              const arl = $("activeRoomLabel");
+              if (arl) arl.textContent = activeRoomId;
+            }
             showRoom();
             setMeetView("board");
             setRoomBoardLayout("top");
@@ -5983,15 +6603,6 @@
             });
             await loadParticipantsForRoom(activeRoomId);
             setActiveChatThread("general");
-            let statusJoin =
-              "En reunión. " +
-              (resp.peers?.length ? resp.peers.length + " participante(s) ya en la sala." : "Eres el primero en la sala.");
-            if (joinMediaLevel === "audio") {
-              statusJoin += " Solo micrófono (sin cámara o cámara ocupada).";
-            } else if (joinMediaLevel === "none") {
-              statusJoin += " Sin mic ni cámara: tablero y chat disponibles.";
-            }
-            setMediaStatus(statusJoin);
             log("En sala. Peers: " + JSON.stringify(resp.peers));
             const peers = resp.peers || [];
             for (const p of peers) {
@@ -6290,18 +6901,27 @@
             recurrencia: recurrence,
           }),
         });
-        const rid = data?.reunion?.roomId || "";
-        if (data?.reunion?.reunionId) scheduleEditingReunionId = String(data.reunion.reunionId);
-        if (linkInput) linkInput.value = buildMeetingJoinLink(rid);
+        const reunionRow = data?.reunion;
+        const rid = reunionRow?.roomId ?? reunionRow?.room_id ?? "";
+        const pk = getReunionPk(reunionRow);
+        if (pk) scheduleEditingReunionId = pk;
+        const shareUrl = buildMeetingJoinLink(rid);
+        if (linkInput) linkInput.value = shareUrl;
         $("crearResult").textContent = isEditing
-          ? "Reunión actualizada."
-          : `Agendada. room_id: ${rid}`;
+          ? `Reunión actualizada. Enlace: ${shareUrl}`
+          : `Reunión agendada. Enlace: ${shareUrl}`;
         log(isEditing ? "Reunión actualizada correctamente." : "Reunión agendada correctamente.");
-        if (err) err.textContent = isEditing ? "Cambios guardados." : "Reunión creada. Ya puedes copiar el link.";
+        if (err) err.textContent = "";
         void loadHomeMeetings();
+        closeScheduleModal();
       } catch (e) {
-        if (err) err.textContent = e.message || "No se pudo agendar la reunión.";
-        log("Agendar reunión: " + e.message);
+        const msg =
+          e?.message ||
+          e?.data?.error ||
+          (typeof e?.status === "number" ? `Error ${e.status}` : "") ||
+          "No se pudo agendar la reunión.";
+        if (err) err.textContent = msg;
+        log("Agendar reunión: " + msg);
       }
     });
 
@@ -6333,6 +6953,16 @@
         console.warn(err);
       }
     });
+    $("btnCopyRoomLink")?.addEventListener("click", async () => {
+      const url = buildMeetingJoinLink(activeRoomId);
+      if (!url) {
+        log("No hay sala activa.");
+        return;
+      }
+      const ok = await copyTextToClipboard(url);
+      if (!ok) log("No se pudo copiar el enlace.");
+    });
+
     $("btnRoomViewToggle")?.addEventListener("click", () => {
       if (!activeRoomId) return;
       const shell = $("roomShell");
@@ -6369,6 +6999,16 @@
       toggleBoardSideMenu("emoji");
       positionBoardSideMenu("emoji");
     });
+    $("btnMoreLineWidth")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("lineWidth");
+      positionBoardSideMenu("lineWidth");
+    });
+    $("btnMoreTextSize")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleBoardSideMenu("textSize");
+      positionBoardSideMenu("textSize");
+    });
     document.querySelectorAll(".board-emoji-btn").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -6401,13 +7041,15 @@
     document.addEventListener("click", (ev) => {
       const target = ev.target;
       if (!(target instanceof Element)) return;
-      if (!target.closest("#boardVToolbar")) closeBoardSideMenus();
+      if (!target.closest("#chatCtxMenu")) closeChatCtxMenu();
+      if (!target.closest("#boardVToolbar") && !target.closest(".board-side-menu")) closeBoardSideMenus();
       if (target.closest(".room-tb-split")) return;
       closeToolbarMenus();
     });
     document.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") closeToolbarMenus();
       if (ev.key === "Escape") closeBoardSideMenus();
+      if (ev.key === "Escape") closeChatCtxMenu();
     });
     syncShareButtonState();
     renderMediaMenus();
@@ -6421,16 +7063,86 @@
       }
     });
 
+    function clearPendingChatAdjunto() {
+      pendingChatAdjunto = null;
+      if (pendingChatPreviewUrl) {
+        try {
+          URL.revokeObjectURL(pendingChatPreviewUrl);
+        } catch (_) {}
+        pendingChatPreviewUrl = "";
+      }
+      updateChatAdjuntoPendingUi();
+    }
+
+    function openPendingAdjuntoCtx(clientX, clientY) {
+      closeChatCtxMenu();
+      const menu = $("chatCtxMenu");
+      if (!menu || !pendingChatAdjunto?.adjuntoRelPath) return;
+      const addItem = (label, fn) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          fn();
+          closeChatCtxMenu();
+        });
+        menu.appendChild(b);
+      };
+      addItem("Copiar nombre de archivo", () => {
+        void copyTextToClipboard(pendingChatAdjunto.adjuntoNombreOriginal || "");
+      });
+      addItem("Quitar adjunto", () => clearPendingChatAdjunto());
+      menu.classList.add("chat-ctx--open");
+      menu.setAttribute("aria-hidden", "false");
+      const mw = 200;
+      const mh = 120;
+      let x = clientX;
+      let y = clientY;
+      if (x + mw > window.innerWidth - 6) x = window.innerWidth - mw - 6;
+      if (y + mh > window.innerHeight - 6) y = window.innerHeight - mh - 6;
+      menu.style.left = Math.max(6, x) + "px";
+      menu.style.top = Math.max(6, y) + "px";
+    }
+
     function updateChatAdjuntoPendingUi() {
       const el = $("chatAdjuntoPending");
       if (!el) return;
       el.innerHTML = "";
       if (pendingChatAdjunto?.adjuntoRelPath) {
         const name = pendingChatAdjunto.adjuntoNombreOriginal || "archivo";
+        const head = document.createElement("div");
+        head.style.display = "flex";
+        head.style.alignItems = "flex-start";
+        head.style.justifyContent = "space-between";
+        head.style.gap = "8px";
+        head.style.width = "100%";
+        head.style.boxSizing = "border-box";
         const cap = document.createElement("span");
+        cap.style.fontSize = "0.82rem";
+        cap.style.wordBreak = "break-word";
         cap.textContent = "📎 Pendiente: " + name + " · pulsa Enviar";
-        el.appendChild(cap);
+        const xbtn = document.createElement("button");
+        xbtn.type = "button";
+        xbtn.className = "chat-msg__del";
+        xbtn.title = "Quitar adjunto";
+        xbtn.setAttribute("aria-label", "Quitar adjunto");
+        xbtn.textContent = "×";
+        xbtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          clearPendingChatAdjunto();
+        });
+        head.appendChild(cap);
+        head.appendChild(xbtn);
+        el.appendChild(head);
         if (pendingChatPreviewUrl) {
+          const shell = document.createElement("div");
+          shell.style.marginTop = "6px";
+          shell.style.position = "relative";
+          shell.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            openPendingAdjuntoCtx(e.clientX, e.clientY);
+          });
           const wrap = document.createElement("div");
           wrap.className = "chat-adjunto-preview";
           const mime = String(pendingChatAdjunto.adjuntoMime || "").toLowerCase();
@@ -6457,7 +7169,8 @@
             emb.src = pendingChatPreviewUrl + "#page=1&view=FitH";
             wrap.appendChild(emb);
           }
-          el.appendChild(wrap);
+          shell.appendChild(wrap);
+          el.appendChild(shell);
         }
       } else {
         if (pendingChatPreviewUrl) {
@@ -6677,7 +7390,7 @@
       const raw = inputEl.style?.fontSize || getComputedStyle(inputEl).fontSize;
       const n = parseFloat(String(raw).replace(/px\s*$/i, ""));
       if (Number.isFinite(n) && n > 0) return clampTextFontSize(n);
-      return boardTextSize || 30;
+      return boardTextSize || 16;
     }
 
     function clampTextFontSize(v) {
@@ -6697,7 +7410,7 @@
 
     function drawBoardTextElement(ctx, el, z) {
       ctx.fillStyle = el.color || "#111";
-      const F = el.fontSize || 30;
+      const F = el.fontSize || 16;
       ctx.font = `${F / z}px sans-serif`;
       ctx.textBaseline = "top";
       const fsu = F / z;
@@ -6717,7 +7430,7 @@
       }
       if (el.type === "text" && el.text != null && String(el.text).length > 0) {
         const z = boardZoom;
-        const fsu = (el.fontSize || 30) / z;
+        const fsu = (el.fontSize || 16) / z;
         const lineHeight = fsu * 1.2;
         const lines = String(el.text).split("\n");
         ctx.save();
@@ -6791,7 +7504,7 @@
       const d1 = Math.hypot(p.x - ox, p.y - oy);
       if (d0 < 2) return { ...origEl };
       const scale = Math.max(0.2, Math.min(8, d1 / d0));
-      const origFs = origEl.fontSize || 30;
+      const origFs = origEl.fontSize || 16;
       const newFs = clampTextFontSize(origFs * scale);
       return {
         ...origEl,
@@ -7028,12 +7741,12 @@
         input.value = el.text || "";
         boardColor = el.color || boardColor;
         input.style.color = el.color || boardColor || "#111111";
-        const fs = el.fontSize || 30;
+        const fs = el.fontSize || 16;
         boardTextSize = clampTextFontSize(fs);
         input.style.fontSize = `${fs}px`;
       } else {
         input.style.color = boardColor;
-        input.style.fontSize = `${boardTextSize || 30}px`;
+        input.style.fontSize = `${boardTextSize || 16}px`;
       }
       syncBoardTextSizeUi();
       const createdAt = Date.now();
@@ -7568,17 +8281,49 @@
       boardTool = "hand";
       updateBoardToolUi();
     });
-    $("btnToolPencil")?.addEventListener("click", () => {
+    $("btnToolPencil")?.addEventListener("click", (e) => {
+      e.stopPropagation();
       boardTool = "pencil";
       updateBoardToolUi();
+      toggleBoardSideMenu("lineWidth");
+      positionBoardSideMenu("lineWidth");
     });
     $("btnToolEraser")?.addEventListener("click", () => {
       boardTool = "eraser";
       updateBoardToolUi();
     });
-    $("btnToolText")?.addEventListener("click", () => {
+    document.querySelectorAll(".board-line-width-choice").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const raw = btn.getAttribute("data-line-width");
+        const v = Number(raw);
+        if (!Number.isFinite(v)) return;
+        boardLineWidth = v;
+        syncBoardLineWidthUi();
+        closeBoardSideMenus();
+      });
+    });
+    document.querySelectorAll(".board-text-size-choice").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const raw = btn.getAttribute("data-text-size");
+        const v = Number(raw);
+        if (!Number.isFinite(v)) return;
+        boardTextSize = clampTextFontSize(v);
+        syncBoardTextSizeUi();
+        if (activeTextInput) {
+          activeTextInput.style.fontSize = `${boardTextSize}px`;
+          activeTextInput.dispatchEvent(new Event("input"));
+        }
+        closeBoardSideMenus();
+      });
+    });
+    $("btnToolText")?.addEventListener("click", (e) => {
+      e.stopPropagation();
       boardTool = "text";
       updateBoardToolUi();
+      toggleBoardSideMenu("textSize");
+      positionBoardSideMenu("textSize");
     });
     document.querySelectorAll(".color-swatch").forEach((el) => {
       el.addEventListener("click", () => {
@@ -7600,14 +8345,16 @@
       boardLineWidth = Number(e.target.value) || 4;
       const mirror = $("boardLineWidthMore");
       if (mirror) mirror.value = String(boardLineWidth);
+      syncBoardLineWidthUi();
     });
     $("boardLineWidthMore")?.addEventListener("change", (e) => {
       boardLineWidth = Number(e.target.value) || 4;
       const mirror = $("boardLineWidth");
       if (mirror) mirror.value = String(boardLineWidth);
+      syncBoardLineWidthUi();
     });
     $("boardTextSizeSelect")?.addEventListener("change", (e) => {
-      boardTextSize = clampTextFontSize(Number(e.target.value) || 30);
+      boardTextSize = clampTextFontSize(Number(e.target.value) || 16);
       syncBoardTextSizeUi();
       if (activeTextInput) {
         activeTextInput.style.fontSize = `${boardTextSize}px`;
@@ -7615,7 +8362,7 @@
       }
     });
     $("boardTextSizeSelectMore")?.addEventListener("change", (e) => {
-      boardTextSize = clampTextFontSize(Number(e.target.value) || 30);
+      boardTextSize = clampTextFontSize(Number(e.target.value) || 16);
       syncBoardTextSizeUi();
       if (activeTextInput) {
         activeTextInput.style.fontSize = `${boardTextSize}px`;
@@ -7783,9 +8530,9 @@
           const startX = e.clientX;
           const startW =
             parseInt(
-              getComputedStyle(document.documentElement).getPropertyValue("--room-chat-width") || "320",
+              getComputedStyle(document.documentElement).getPropertyValue("--room-chat-width") || "280",
               10
-            ) || 320;
+            ) || 280;
           e.preventDefault();
           const onMove = (e2) => {
             const dx = startX - e2.clientX;
@@ -7809,6 +8556,53 @@
           document.addEventListener("mouseup", onUp);
         });
       }
+      const vspl = $("roomVideoBoardSplitter");
+      if (vspl) {
+        vspl.addEventListener("mousedown", (e) => {
+          const shell = $("roomShell");
+          const strip = $("roomVideoStrip");
+          const primary = strip?.parentElement;
+          if (!shell || !strip || !primary || shell.classList.contains("room-shell--gallery")) return;
+          e.preventDefault();
+          const right = roomBoardLayout === "right";
+          const start = right ? e.clientX : e.clientY;
+          const startSize = right ? strip.offsetWidth : strip.offsetHeight;
+          const onMove = (e2) => {
+            if (right) {
+              const nw = clampRoomVideoStripWidth(startSize + (e2.clientX - start), primary);
+              strip.style.width = nw + "px";
+              strip.style.height = "";
+              strip.style.maxHeight = "";
+            } else {
+              const nh = clampRoomVideoStripHeight(startSize + (e2.clientY - start), primary);
+              strip.style.height = nh + "px";
+              strip.style.maxHeight = "none";
+            }
+            try {
+              resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
+              if (typeof drawBoard === "function") drawBoard();
+            } catch (_) {}
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            try {
+              if (right) {
+                localStorage.setItem("moj_room_video_strip_width_px", String(strip.offsetWidth));
+              } else {
+                localStorage.setItem("moj_room_video_strip_height_px", String(strip.offsetHeight));
+              }
+            } catch (_) {}
+            try {
+              syncZoomUi();
+              if (typeof drawBoard === "function") drawBoard();
+            } catch (_) {}
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        });
+      }
+      applyRoomVideoStripSizing();
     })();
 
     window.addEventListener("hashchange", async () => {
@@ -7823,7 +8617,6 @@
     (async function init() {
       await loadIce();
       setRoomBoardLayout("top");
-      syncBoardTextSizeUi();
       updateBoardToolUi();
       updateBoardToolbarOverflow();
       updateBoardHistoryButtons();

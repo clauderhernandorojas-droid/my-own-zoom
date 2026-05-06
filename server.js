@@ -69,6 +69,7 @@ const io = new Server(server, {
 });
 
 attachSocketIO(io);
+app.set('io', io);
 
 async function ensureMensajeAdjuntoColumns() {
   const qi = sequelize.getQueryInterface();

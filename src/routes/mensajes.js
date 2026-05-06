@@ -40,6 +40,72 @@ async function assertParticipa(reunionId, usuarioId) {
   return Participa.findOne({ where: { reunionId, usuarioId } });
 }
 
+router.delete('/:mensajeId', async (req, res, next) => {
+  try {
+    const { mensajeId } = req.params;
+    const m = await Mensaje.findByPk(mensajeId);
+    if (!m) {
+      return res.status(404).json({ error: 'Mensaje no encontrado' });
+    }
+
+    const participa = await assertParticipa(m.reunionId, req.usuario.usuarioId);
+    if (!participa && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+    const isAuthor =
+      String(m.usuarioId || '').toLowerCase() === String(req.usuario.usuarioId || '').toLowerCase();
+    if (!isAuthor && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'Solo el autor puede borrar el mensaje' });
+    }
+
+    if (m.adjuntoRelPath) {
+      const abs = adjuntoAbsoluteOrNull(m.reunionId, m.adjuntoRelPath);
+      if (abs && fs.existsSync(abs)) {
+        try {
+          fs.unlinkSync(abs);
+        } catch (err) {
+          console.warn('unlink adjunto chat', err);
+        }
+      }
+    }
+
+    const deletedId = m.mensajeId;
+    const reunionId = m.reunionId;
+    const tipoMsg = m.tipo;
+    const destinatario = m.destinatarioUsuarioId;
+    const authorUserId = m.usuarioId;
+    await m.destroy();
+
+    const io = req.app.get('io');
+    if (io) {
+      const reunion = await Reunion.findByPk(reunionId);
+      if (reunion?.roomId) {
+        const roomKey = String(reunion.roomId).trim().toLowerCase();
+        const payload = { mensajeId: deletedId };
+        if (tipoMsg === 'general') {
+          io.to(roomKey).emit('chat:messageDeleted', payload);
+        } else {
+          const sockets = await io.fetchSockets();
+          const targets = sockets.filter((s) => {
+            const uid = s.data?.userId;
+            if (!uid || !authorUserId || !destinatario) return false;
+            const u = String(uid).trim().toLowerCase();
+            return (
+              u === String(authorUserId).trim().toLowerCase() ||
+              u === String(destinatario).trim().toLowerCase()
+            );
+          });
+          targets.forEach((s) => s.emit('chat:messageDeleted', payload));
+        }
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/reunion/:reunionId', async (req, res, next) => {
   try {
     const { reunionId } = req.params;
