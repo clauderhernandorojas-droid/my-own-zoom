@@ -597,6 +597,24 @@
       opacity: 0.4;
       cursor: not-allowed;
     }
+    .room-reaction-menu {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      min-width: 170px;
+    }
+    .room-reaction-btn {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #fff;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0.18rem 0.45rem;
+      cursor: pointer;
+    }
+    .room-reaction-btn:hover {
+      background: #f1f5f9;
+    }
     .room-popover {
       position: absolute;
       left: 0;
@@ -818,6 +836,31 @@
       min-width: 0;
       box-sizing: border-box;
     }
+    .chat-quick-reactions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      align-items: center;
+      padding: 0.15rem 0 0.1rem;
+      border-top: 1px solid #e2e8f0;
+    }
+    .chat-quick-reactions__label {
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-right: 0.15rem;
+    }
+    .chat-quick-reaction-btn {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #fff;
+      font-size: 0.9rem;
+      line-height: 1;
+      padding: 0.12rem 0.4rem;
+      cursor: pointer;
+    }
+    .chat-quick-reaction-btn:hover {
+      background: #f1f5f9;
+    }
     .chat-compose__row {
       display: flex;
       flex-wrap: wrap;
@@ -827,12 +870,34 @@
       min-width: 0;
     }
     .chat-compose__row #chatInput {
-      flex: 1 1 120px;
+      flex: 1 1 100%;
       min-width: 0;
+      font-size: 0.74rem;
+      padding: 0.28rem 0.42rem;
+      line-height: 1.2;
+      min-height: 52px;
+      order: 1;
+      resize: vertical;
+      overflow: auto;
+      text-align: left;
+      vertical-align: top;
+      box-sizing: border-box;
     }
     .chat-compose__row #btnChatAdjunto,
     .chat-compose__row #btnEnviarChat {
       flex: 0 0 auto;
+      font-size: 0.72rem;
+      padding: 0.12rem 0.45rem;
+      min-height: 0;
+      border-radius: 999px;
+      line-height: 1.15;
+      order: 2;
+    }
+    .chat-compose__row #btnChatAdjunto {
+      margin-left: auto;
+    }
+    .chat-compose__row #btnEnviarChat {
+      order: 3;
     }
     .chat-adjunto-pending-slot {
       width: 100%;
@@ -881,6 +946,61 @@
     }
     .chat-msg__del:hover {
       background: rgba(239, 68, 68, 0.25);
+    }
+    .chat-msg__reactions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .chat-react-chip {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: #0f172a;
+      font-size: 0.72rem;
+      line-height: 1.1;
+      padding: 0.12rem 0.4rem;
+      cursor: pointer;
+    }
+    .chat-react-chip--mine {
+      border-color: #2563eb;
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .chat-msg__react-row {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .chat-msg__react-add {
+      border: 1px dashed #94a3b8;
+      border-radius: 999px;
+      background: #fff;
+      color: #334155;
+      font-size: 0.72rem;
+      line-height: 1.1;
+      padding: 0.12rem 0.45rem;
+      cursor: pointer;
+    }
+    .chat-msg__react-picker {
+      display: none;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .chat-msg__react-picker.open {
+      display: inline-flex;
+    }
+    .chat-msg__react-emoji {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #fff;
+      font-size: 0.82rem;
+      line-height: 1;
+      padding: 0.1rem 0.34rem;
+      cursor: pointer;
     }
     #chatCtxMenu {
       position: fixed;
@@ -1040,38 +1160,38 @@
     }
     @media (max-width: 720px) {
       .room-body {
-        flex-direction: column;
+        flex-direction: row;
       }
       #roomMainChatSplitter {
-        display: none;
+        display: block;
       }
       .room-chat-panel {
-        flex: 1 1 36%;
-        width: 100% !important;
-        max-width: none;
-        border-left: none;
-        border-top: 1px solid var(--z-border);
+        flex: 0 0 var(--room-chat-width);
+        width: var(--room-chat-width) !important;
+        max-width: min(560px, 50vw);
+        border-left: 1px solid var(--z-border);
+        border-top: none;
       }
       .room-video-strip {
-        max-height: 26vh;
+        max-height: 17vh;
       }
       .board-ol--vbar {
-        flex-direction: row !important;
-        flex-wrap: wrap;
-        width: calc(100% - 16px) !important;
-        max-width: none;
-        left: 8px;
-        right: 8px;
+        flex-direction: column !important;
+        flex-wrap: nowrap;
+        width: 32px !important;
+        max-width: 32px;
+        left: 6px;
+        right: auto;
         top: 48px;
         bottom: auto !important;
-        max-height: 120px;
-        overflow-x: auto;
-        overflow-y: hidden;
-        justify-content: center;
+        max-height: calc(100% - 96px);
+        overflow-x: hidden;
+        overflow-y: visible;
+        justify-content: flex-start;
       }
       .board-bottom-bar {
-        left: 12px !important;
-        bottom: 48px !important;
+        left: 16px !important;
+        bottom: 16px !important;
       }
     }
     body.app-route-login > h1,
@@ -2203,12 +2323,13 @@
             <div id="chatBox"></div>
             <div class="chat-compose">
               <div id="chatAdjuntoPending" class="chat-adjunto-pending-slot"></div>
+              <div id="chatQuickReactionBar" class="chat-quick-reactions"></div>
               <div class="chat-compose__row">
                 <input type="file" id="chatAdjuntoInput" style="display: none" />
+                <textarea id="chatInput" placeholder="Escribe un mensaje…"></textarea>
                 <button type="button" id="btnChatAdjunto" title="Imagen, audio, PDF, Office, zip… (máx. 20 MB)">
                   Adjunto
                 </button>
-                <input id="chatInput" placeholder="Escribe un mensaje…" />
                 <button type="button" id="btnEnviarChat">Enviar</button>
               </div>
             </div>
@@ -2289,6 +2410,18 @@
               <option value="right">Tablero izquierda · cámaras derecha (pequeñas)</option>
             </select>
           </div>
+        </div>
+        <div class="room-tb-split" id="reactionSplit">
+          <button type="button" id="btnRoomReaction" class="room-tb-btn" title="Enviar reacción a la sala">
+            <svg class="room-tb-btn__svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+              <path d="M8 10h.01M16 10h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <path d="M8 14c1.2 1.2 2.4 1.8 4 1.8s2.8-.6 4-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <span class="room-tb-label">Reaccionar</span>
+          </button>
+          <button type="button" id="btnRoomReactionMenu" class="room-tb-chevron" aria-label="Opciones de reacción" aria-haspopup="menu" aria-expanded="false">▲</button>
+          <div id="roomReactionMenu" class="room-popover" role="menu" aria-label="Reacciones de la sala"></div>
         </div>
         <button type="button" id="btnSalirSala" class="room-tb-btn room-tb-btn--danger" title="Colgar y salir de la reunión">
           Salir
@@ -2590,6 +2723,8 @@
     const IDB_NAME = "my-own-zoom";
     const IDB_VERSION = 1;
     const IDB_RECORDINGS = "recordings";
+    const CHAT_REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
+    const CHAT_EXTRA_EMOJIS = ["🔥", "👏", "🤝", "🙏", "💡", "✅", "❓", "😎", "🤔", "💯"];
 
     const $ = (id) => document.getElementById(id);
 
@@ -2786,9 +2921,12 @@
     }
 
     function closeToolbarMenus() {
-      ["mic", "cam", "share", "record"].forEach((key) => {
-        const menu = $(`${key}Menu`);
-        const btn = $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
+      ["mic", "cam", "share", "record", "reaction"].forEach((key) => {
+        const menu = key === "reaction" ? $("roomReactionMenu") : $(`${key}Menu`);
+        const btn =
+          key === "reaction"
+            ? $("btnRoomReactionMenu")
+            : $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
         const split = $(`${key}Split`);
         if (menu) menu.classList.remove("room-popover--open");
         if (btn) btn.setAttribute("aria-expanded", "false");
@@ -2798,8 +2936,11 @@
     }
 
     function toggleToolbarMenu(key) {
-      const menu = $(`${key}Menu`);
-      const btn = $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
+      const menu = key === "reaction" ? $("roomReactionMenu") : $(`${key}Menu`);
+      const btn =
+        key === "reaction"
+          ? $("btnRoomReactionMenu")
+          : $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
       const split = $(`${key}Split`);
       if (!menu || !btn || !split) return;
       const shouldOpen = openToolbarMenuId !== key;
@@ -3302,6 +3443,96 @@
       renderChatThreadTabs();
       renderChatMessages();
       log(text);
+    }
+
+    function renderChatQuickReactionBar() {
+      const bar = $("chatQuickReactionBar");
+      if (!bar) return;
+      bar.innerHTML = "";
+      const handleQuickReaction = (emoji) => {
+        if (!activeRoomId) return;
+        const input = $("chatInput");
+        const current = String(input?.value || "");
+        if (!current.trim() && !pendingChatAdjunto) {
+          sendChatMessageFromComposer(emoji);
+          return;
+        }
+        if (!input) return;
+        const start = Number.isFinite(input.selectionStart) ? input.selectionStart : current.length;
+        const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : current.length;
+        const next = current.slice(0, start) + emoji + current.slice(end);
+        input.value = next;
+        const pos = start + emoji.length;
+        try {
+          input.setSelectionRange(pos, pos);
+        } catch (_) {}
+        input.focus();
+      };
+      CHAT_REACTION_EMOJIS.forEach((emoji) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "chat-quick-reaction-btn";
+        b.textContent = emoji;
+        b.title = `Agregar ${emoji}`;
+        b.addEventListener("click", () => handleQuickReaction(emoji));
+        bar.appendChild(b);
+      });
+      const moreBtn = document.createElement("button");
+      moreBtn.type = "button";
+      moreBtn.className = "chat-quick-reaction-btn";
+      moreBtn.textContent = "...";
+      moreBtn.title = "Más emojis";
+      moreBtn.addEventListener("click", () => {
+        const picker = document.createElement("div");
+        picker.className = "chat-msg__react-picker open";
+        CHAT_EXTRA_EMOJIS.forEach((emoji) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "chat-msg__react-emoji";
+          b.textContent = emoji;
+          b.addEventListener("click", () => {
+            handleQuickReaction(emoji);
+            picker.remove();
+          });
+          picker.appendChild(b);
+        });
+        if (bar.querySelector(".chat-msg__react-picker")) {
+          bar.querySelector(".chat-msg__react-picker")?.remove();
+          return;
+        }
+        bar.appendChild(picker);
+      });
+      bar.appendChild(moreBtn);
+    }
+
+    function renderRoomReactionMenu() {
+      const menu = $("roomReactionMenu");
+      if (!menu) return;
+      menu.innerHTML = "";
+      const wrap = document.createElement("div");
+      wrap.className = "room-reaction-menu";
+      CHAT_REACTION_EMOJIS.forEach((emoji) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "room-reaction-btn";
+        b.textContent = emoji;
+        b.title = `Enviar reacción ${emoji} a la sala`;
+        b.addEventListener("click", () => {
+          emitRoomReaction(emoji);
+          closeToolbarMenus();
+        });
+        wrap.appendChild(b);
+      });
+      menu.appendChild(wrap);
+    }
+
+    function emitRoomReaction(emoji) {
+      if (!socket || !activeRoomId || !emoji) return;
+      socket.emit("room:reaction", { roomId: normRoomKey(activeRoomId), emoji }, (resp) => {
+        if (resp && resp.ok === false) {
+          log("Reacción sala: " + (resp.error || "error"));
+        }
+      });
     }
 
     function sameActiveRoom(a, b) {
@@ -6124,6 +6355,61 @@
       renderChatMessages();
     }
 
+    function buildReactionSummaryFromRows(rows = []) {
+      const grouped = new Map();
+      rows.forEach((row) => {
+        const emoji = String(row?.emoji || "");
+        if (!emoji) return;
+        if (!grouped.has(emoji)) grouped.set(emoji, []);
+        grouped.get(emoji).push({
+          usuarioId: row?.reactor?.usuarioId || row?.usuarioId || null,
+          nombre: row?.reactor?.nombre || "",
+        });
+      });
+      return [...grouped.entries()].map(([emoji, users]) => ({
+        emoji,
+        count: users.length,
+        users,
+      }));
+    }
+
+    function getMessageReactionSummary(m) {
+      if (!m || typeof m !== "object") return [];
+      if (Array.isArray(m.reaccionesResumen)) return m.reaccionesResumen;
+      if (Array.isArray(m.reacciones)) return buildReactionSummaryFromRows(m.reacciones);
+      return [];
+    }
+
+    function applyMessageReactionsUpdate(mensajeId, reactions) {
+      const id = String(mensajeId || "").trim();
+      if (!id) return;
+      chatThreads.forEach((t) => {
+        t.messages.forEach((m) => {
+          if (String(m?.mensajeId || "") === id) {
+            m.reaccionesResumen = Array.isArray(reactions) ? reactions : [];
+          }
+        });
+      });
+      renderChatMessages();
+    }
+
+    function emitChatReactionToggle(mensajeId, emoji) {
+      if (!socket || !activeRoomId || !mensajeId || !emoji) return;
+      socket.emit(
+        "chat:reaction:toggle",
+        { roomId: normRoomKey(activeRoomId), mensajeId, emoji },
+        (r) => {
+          if (!r || r.ok === false) {
+            appendRecordingNotice("Reacción: " + (r?.error || "No se pudo actualizar"));
+            return;
+          }
+          if (Array.isArray(r.reactions)) {
+            applyMessageReactionsUpdate(String(mensajeId), r.reactions);
+          }
+        }
+      );
+    }
+
     function closeChatCtxMenu() {
       const menu = $("chatCtxMenu");
       if (menu) {
@@ -6344,6 +6630,59 @@
         cap.textContent = m.contenido || "";
         body.appendChild(cap);
 
+        const midForReaction = m.mensajeId != null ? String(m.mensajeId) : "";
+        const summary = getMessageReactionSummary(m);
+        if (summary.length) {
+          const chips = document.createElement("div");
+          chips.className = "chat-msg__reactions";
+          summary.forEach((item) => {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "chat-react-chip";
+            const myUid = String(currentUser?.usuarioId || "").trim().toLowerCase();
+            const mine = (item.users || []).some(
+              (u) => String(u?.usuarioId || "").trim().toLowerCase() === myUid
+            );
+            if (mine) chip.classList.add("chat-react-chip--mine");
+            chip.title = (item.users || []).map((u) => u?.nombre || "Usuario").join(", ");
+            chip.textContent = `${item.emoji} ${item.count}`;
+            chip.addEventListener("click", () => {
+              emitChatReactionToggle(midForReaction, item.emoji);
+            });
+            chips.appendChild(chip);
+          });
+          body.appendChild(chips);
+        }
+
+        if (midForReaction && !midForReaction.startsWith("local-")) {
+          const reactRow = document.createElement("div");
+          reactRow.className = "chat-msg__react-row";
+          const addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "chat-msg__react-add";
+          addBtn.textContent = "Reaccionar";
+          const picker = document.createElement("div");
+          picker.className = "chat-msg__react-picker";
+          CHAT_REACTION_EMOJIS.forEach((emoji) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "chat-msg__react-emoji";
+            b.textContent = emoji;
+            b.addEventListener("click", () => {
+              emitChatReactionToggle(midForReaction, emoji);
+              picker.classList.remove("open");
+            });
+            picker.appendChild(b);
+          });
+          addBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            picker.classList.toggle("open");
+          });
+          reactRow.appendChild(addBtn);
+          reactRow.appendChild(picker);
+          body.appendChild(reactRow);
+        }
+
         row.appendChild(body);
         box.appendChild(row);
       });
@@ -6427,6 +6766,9 @@
         socket.on("chat:message", appendChatLine);
         socket.on("chat:messageDeleted", ({ mensajeId }) => {
           if (mensajeId) removeChatMessageEverywhere(String(mensajeId));
+        });
+        socket.on("chat:messageReaction", ({ mensajeId, reactions }) => {
+          if (mensajeId) applyMessageReactionsUpdate(String(mensajeId), reactions);
         });
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
@@ -6528,6 +6870,16 @@
           appendRecordingNotice(
             active ? `${name} inició una grabación en esta sala.` : `${name} detuvo la grabación en esta sala.`
           );
+        });
+        socket.on("room:reaction", ({ userId, emoji }) => {
+          if (!userId || !emoji) return;
+          const sid = String(currentUser?.usuarioId || "").trim().toLowerCase();
+          const oid = String(userId || "").trim().toLowerCase();
+          const u = [...participantsById.values()].find(
+            (x) => String(x?.usuarioId || "").trim().toLowerCase() === oid
+          );
+          const name = oid === sid ? "Tú" : u?.nombre || oid.slice(0, 8);
+          appendRecordingNotice(`${name} reaccionó ${emoji}`);
         });
       });
     }
@@ -7031,6 +7383,14 @@
       toggleToolbarMenu("share");
     });
     $("btnRecordMenu")?.addEventListener("click", () => toggleToolbarMenu("record"));
+    $("btnRoomReactionMenu")?.addEventListener("click", () => {
+      renderRoomReactionMenu();
+      toggleToolbarMenu("reaction");
+    });
+    $("btnRoomReaction")?.addEventListener("click", () => {
+      renderRoomReactionMenu();
+      toggleToolbarMenu("reaction");
+    });
     $("btnShareMain")?.addEventListener("click", () => {
       if (screenShareTrack?.readyState === "live") {
         void stopScreenShare({ restoreStatus: true });
@@ -7053,6 +7413,7 @@
     });
     syncShareButtonState();
     renderMediaMenus();
+    renderChatQuickReactionBar();
     refreshMediaDeviceSelectors().catch(() => {});
     $("btnLocalRecordings")?.addEventListener("click", async () => {
       const panel = $("localRecordingsPanel");
@@ -7235,8 +7596,9 @@
       });
     })();
 
-    $("btnEnviarChat").addEventListener("click", () => {
-      const contenido = $("chatInput").value.trim();
+    function sendChatMessageFromComposer(forcedContent = null) {
+      const raw = forcedContent != null ? String(forcedContent) : String($("chatInput").value || "");
+      const contenido = raw.trim();
       if ((!contenido && !pendingChatAdjunto) || !activeRoomId || !socket) return;
       const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
       const payload = {
@@ -7256,6 +7618,14 @@
       pendingChatAdjunto = null;
       updateChatAdjuntoPendingUi();
       setMediaStatus("");
+    }
+    $("btnEnviarChat").addEventListener("click", () => {
+      sendChatMessageFromComposer();
+    });
+    $("chatInput")?.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || e.shiftKey) return;
+      e.preventDefault();
+      sendChatMessageFromComposer();
     });
 
     const canvas = $("board");
@@ -7375,7 +7745,7 @@
     function getCurrentStrokeStyle() {
       if (boardTool === "eraser") {
         return {
-          color: "#ffffff",
+          color: "#ef4444",
           lineWidth: Math.max(8, boardLineWidth + 2),
         };
       }
@@ -7599,6 +7969,71 @@
         if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
       }
       return null;
+    }
+
+    function distancePointToSegment(px, py, ax, ay, bx, by) {
+      const abx = bx - ax;
+      const aby = by - ay;
+      const apx = px - ax;
+      const apy = py - ay;
+      const ab2 = abx * abx + aby * aby;
+      if (ab2 <= 1e-8) return Math.hypot(px - ax, py - ay);
+      const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / ab2));
+      const cx = ax + abx * t;
+      const cy = ay + aby * t;
+      return Math.hypot(px - cx, py - cy);
+    }
+
+    function hitTestStrokeAtPoint(el, p, extraRadius = 6) {
+      if (!el || el.type !== "stroke" || !Array.isArray(el.points) || el.points.length === 0) return false;
+      const pts = el.points;
+      const radius = Math.max(6, Number(el.lineWidth || 2) * 0.5 + extraRadius);
+      if (pts.length === 1) {
+        return Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= radius;
+      }
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1];
+        const b = pts[i];
+        if (!isFiniteWorldPoint(a) || !isFiniteWorldPoint(b)) continue;
+        if (distancePointToSegment(p.x, p.y, a.x, a.y, b.x, b.y) <= radius) return true;
+      }
+      return false;
+    }
+
+    function hitTestAnyElementAtPoint(p) {
+      const context = $("board")?.getContext("2d");
+      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
+        const el = boardState.elementos[i];
+        if (!el) continue;
+        if (el.type === "stroke") {
+          if (hitTestStrokeAtPoint(el, p)) return i;
+          continue;
+        }
+        if (el.type === "text" || el.type === "image") {
+          const b = context ? getElementBounds(el, context) : null;
+          if (!b) continue;
+          const pad = 6;
+          if (pointInRect(p, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 })) {
+            return i;
+          }
+        }
+      }
+      return -1;
+    }
+
+    function eraseWholeElementsByStroke(points) {
+      if (!Array.isArray(points) || points.length === 0) return false;
+      const toRemove = new Set();
+      points.forEach((p) => {
+        if (!isFiniteWorldPoint(p)) return;
+        const idx = hitTestAnyElementAtPoint(p);
+        if (idx >= 0) toRemove.add(idx);
+      });
+      if (!toRemove.size) return false;
+      const next = cloneBoardState(boardState);
+      next.elementos = next.elementos.filter((_el, idx) => !toRemove.has(idx));
+      applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+      return true;
     }
 
     function computeBoardContentBounds() {
@@ -8096,6 +8531,12 @@
       if (pts.length === 0) {
         currentStroke = null;
         drawBoard();
+        return;
+      }
+      if (boardTool === "eraser") {
+        const erased = eraseWholeElementsByStroke(pts);
+        currentStroke = null;
+        if (!erased) drawBoard();
         return;
       }
       if (pts.length === 1) pts.push({ x: pts[0].x, y: pts[0].y });

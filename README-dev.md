@@ -40,6 +40,13 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
 - **Franja de vídeo en sala**: una fila con marca **My Own Zoom** + botón **Copiar enlace** (sin UUID visible bajo el título); vídeos a la derecha. `#btnToggleChat` y `#btnRoomViewToggle` existen ocultos solo para sincronizar JS con el panel azul de layout/chat.
 - **Tablero**: menús laterales (colores, emojis, grosor, tamaño de texto, más) fuera de la barra vertical; posición **`fixed`** para evitar recortes y scroll fantasma; barra vertical acotada en altura (`max-height`) sin estirar vacío.
+- **Reacciones**:
+  - **Mensajes de chat** con persistencia por BD (`mensaje_reacciones`) y sync por Socket (`chat:reaction:toggle` / `chat:messageReaction`) en general y privados.
+  - **Barra rápida de emojis** encima del input de chat (incluye botón `...` para más emojis); si el input está vacío, el emoji se envía como mensaje.
+  - **Reacción de sala** desde toolbar inferior (botón junto a Grabar) con menú emergente (`room:reaction`), visible como aviso en chat general.
+- **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
+- **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
+- **Borrador del tablero**: al tocar un trazo/elemento, elimina el elemento completo (hit-test por segmento para strokes) en lugar de “pintar blanco”.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
 ### Cupo de sala
@@ -58,6 +65,8 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | **Cupo** 5 no-docentes + docente | `puedeUnirseParticipar`, mensaje de error fijo en español |
 | Chat **privado**: estudiante solo hacia docente; docente puede escribir a estudiante; reglas en Socket y REST | `src/socket/index.js`, `src/routes/mensajes.js` |
 | **Adjuntos de chat**: subida HTTP; mensaje con metadatos vía Socket; comprobación de que el fichero exista en disco antes de persistir | `src/routes/reuniones.js`, `src/socket/index.js`, `src/services/chatAdjuntos.js`, `GET .../mensajes/adjunto/...` |
+| **Reacciones de mensaje** (toggle por usuario/emoji, persistencia y broadcast) | `src/socket/index.js`, `src/models/mensajeReaccion.js`, `src/routes/mensajes.js`, `public/index.html` |
+| **Reacción de sala** desde toolbar inferior | `room:reaction` en `src/socket/index.js`, menú `roomReactionMenu` en `public/index.html` |
 | **Borrado de mensaje + adjunto en disco** | `DELETE /api/mensajes/:mensajeId`, emisión `chat:messageDeleted` usando `req.app.get('io')` |
 | **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / SQL `lower(room_id)` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
@@ -69,7 +78,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 
 ## 3. Próximas etapas visibles en el esquema / producto
 
-- **Chat**: pulir UX según feedback (flujo copiar/cortar, toasts, consistencia del borrado en todos los clientes).
+- **Chat**: pulir UX según feedback (flujo copiar/cortar, toasts, consistencia del borrado y reacciones en todos los clientes).
 - **Recurrencia avanzada de serie**: actualmente se guarda/lee regla y se proyectan ocurrencias en cliente para calendario/lista; falta expansión persistida de instancias, excepciones por ocurrencia y edición granular de serie.
 - **Migraciones explícitas**: pasar de `sync()` a **sequelize-cli** (o similar) para entornos compartidos y despliegues.
 - **Mejoras opcionales**: endurecer reglas de cupo si entraran roles mixtos; export PDF también desde servidor; TURN en producción; tests automatizados.
@@ -118,4 +127,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — además de lo anterior: sala (franja vídeo + Copiar enlace sin texto de estado bajo el título), tablero con menús laterales en `fixed`, chat con compositor apilado, borrado de mensajes/adjuntos (`DELETE` + `chat:messageDeleted`), menú contextual y `log()` sin duplicar en strip de eventos.*
+*Última actualización de este documento: mayo 2026 — además de lo anterior: reacciones persistentes por mensaje (general/privado), reacción de sala en toolbar junto a Grabar, barra rápida de emojis en chat (`...` para más), fix responsive para mantener chat a la derecha en ventanas pequeñas, y borrador por trazo/elemento completo.*

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const { Sequelize } = require('sequelize');
-const { Participa, Reunion, Mensaje, Tablero } = require('../models');
+const { Participa, Reunion, Mensaje, MensajeReaccion, Tablero } = require('../models');
 const { adjuntoAbsoluteOrNull, MAX_BYTES } = require('../services/chatAdjuntos');
 
 const boardSaveTimers = new Map();
@@ -9,6 +9,7 @@ const boardSaveTimers = new Map();
 const boardFollowActive = new Map();
 /** roomId → última vista del docente { boardPanX, boardPanY, boardZoom } */
 const boardFollowLastView = new Map();
+const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🎉', '👏'];
 
 /** Clave única para salas Socket.IO y Maps (UUID suele variar en mayúsculas). */
 function normRoomId(id) {
@@ -42,6 +43,24 @@ async function obtenerReunionPorRoom(roomId) {
 function sameUsuarioId(a, b) {
   if (a == null || b == null) return false;
   return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+
+function buildReactionSummary(rows = []) {
+  const grouped = new Map();
+  rows.forEach((r) => {
+    const emoji = String(r?.emoji || '');
+    if (!emoji) return;
+    if (!grouped.has(emoji)) grouped.set(emoji, []);
+    grouped.get(emoji).push({
+      usuarioId: r?.reactor?.usuarioId || r?.usuarioId || null,
+      nombre: r?.reactor?.nombre || '',
+    });
+  });
+  return [...grouped.entries()].map(([emoji, users]) => ({
+    emoji,
+    count: users.length,
+    users,
+  }));
 }
 
 function scheduleBoardPersist(reunionId, contenido) {
@@ -340,6 +359,107 @@ function attachSocketIO(io) {
       } catch (e) {
         console.error(e);
         cb?.({ ok: false, error: 'Error' });
+      }
+    });
+
+    socket.on('room:reaction', async ({ roomId, emoji }, cb) => {
+      try {
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        const emojiNorm = String(emoji || '').trim();
+        if (!roomKey || !emojiNorm) {
+          cb?.({ ok: false, error: 'roomId y emoji requeridos' });
+          return;
+        }
+        if (!CHAT_REACTION_EMOJIS.includes(emojiNorm)) {
+          cb?.({ ok: false, error: 'Emoji no permitido' });
+          return;
+        }
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) {
+          cb?.({ ok: false, error: 'No participas en esta reunión' });
+          return;
+        }
+        io.to(roomKey).emit('room:reaction', {
+          roomId: roomKey,
+          userId,
+          emoji: emojiNorm,
+          at: new Date().toISOString(),
+        });
+        cb?.({ ok: true });
+      } catch (e) {
+        console.error('room:reaction error', e);
+        cb?.({ ok: false, error: 'Error enviando reacción' });
+      }
+    });
+
+    socket.on('chat:reaction:toggle', async (payload, cb) => {
+      try {
+        const { roomId, mensajeId, emoji } = payload || {};
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        const emojiNorm = String(emoji || '').trim();
+        if (!roomKey || !mensajeId || !emojiNorm) {
+          cb?.({ ok: false, error: 'roomId, mensajeId y emoji requeridos' });
+          return;
+        }
+        if (!CHAT_REACTION_EMOJIS.includes(emojiNorm)) {
+          cb?.({ ok: false, error: 'Emoji no permitido' });
+          return;
+        }
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) {
+          cb?.({ ok: false, error: 'No participas en esta reunión' });
+          return;
+        }
+
+        const mensaje = await Mensaje.findByPk(mensajeId);
+        if (!mensaje || !sameUsuarioId(mensaje.reunionId, reunion.reunionId)) {
+          cb?.({ ok: false, error: 'Mensaje no encontrado en esta sala' });
+          return;
+        }
+        if (
+          mensaje.tipo === 'privado' &&
+          !sameUsuarioId(mensaje.usuarioId, userId) &&
+          !sameUsuarioId(mensaje.destinatarioUsuarioId, userId)
+        ) {
+          cb?.({ ok: false, error: 'No puedes reaccionar a este mensaje privado' });
+          return;
+        }
+
+        const existing = await MensajeReaccion.findOne({
+          where: { mensajeId: mensaje.mensajeId, usuarioId: userId, emoji: emojiNorm },
+        });
+        if (existing) {
+          await existing.destroy();
+        } else {
+          await MensajeReaccion.create({
+            mensajeId: mensaje.mensajeId,
+            usuarioId: userId,
+            emoji: emojiNorm,
+          });
+        }
+
+        const rows = await MensajeReaccion.findAll({
+          where: { mensajeId: mensaje.mensajeId },
+          order: [['createdAt', 'ASC']],
+          include: [{ association: 'reactor', attributes: ['usuarioId', 'nombre'], required: false }],
+        });
+        const summary = buildReactionSummary(rows);
+        const out = { mensajeId: mensaje.mensajeId, reactions: summary };
+        if (mensaje.tipo === 'general') {
+          io.to(roomKey).emit('chat:messageReaction', out);
+        } else {
+          const sockets = await io.fetchSockets();
+          const targets = sockets.filter(
+            (s) =>
+              sameUsuarioId(s.data.userId, mensaje.usuarioId) ||
+              sameUsuarioId(s.data.userId, mensaje.destinatarioUsuarioId)
+          );
+          targets.forEach((s) => s.emit('chat:messageReaction', out));
+        }
+        cb?.({ ok: true, reactions: summary });
+      } catch (e) {
+        console.error('chat:reaction:toggle error', e);
+        cb?.({ ok: false, error: 'Error al reaccionar al mensaje' });
       }
     });
 
