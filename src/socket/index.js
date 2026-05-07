@@ -1,7 +1,7 @@
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const { Sequelize } = require('sequelize');
-const { Participa, Reunion, Mensaje, MensajeReaccion, Tablero } = require('../models');
+const { Participa, Reunion, Mensaje, MensajeReaccion, Tablero, Usuario } = require('../models');
 const { adjuntoAbsoluteOrNull, MAX_BYTES } = require('../services/chatAdjuntos');
 
 const boardSaveTimers = new Map();
@@ -15,6 +15,8 @@ const boardPresentationSharer = new Map();
 const meetScreenShareSharer = new Map();
 /** roomId → usuarioId invitado autorizado temporalmente para compartir pantalla */
 const meetScreenShareGrant = new Map();
+/** roomId → Set<usuarioId> autorizado temporalmente para entrar desde sala de espera */
+const roomEntryGrant = new Map();
 const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🎉', '👏'];
 
 /** Clave única para salas Socket.IO y Maps (UUID suele variar en mayúsculas). */
@@ -61,6 +63,48 @@ function socketCanStartScreenShare(socket, reunion, canonicalRoomId) {
   if (socketCanShareMeetingContent(socket, reunion)) return true;
   const granted = meetScreenShareGrant.get(canonicalRoomId);
   return granted && sameUsuarioId(granted, socket.data.userId);
+}
+
+function grantRoomEntry(canonicalRoomId, targetUserId) {
+  const key = normRoomId(canonicalRoomId);
+  if (!key || !targetUserId) return;
+  let set = roomEntryGrant.get(key);
+  if (!set) {
+    set = new Set();
+    roomEntryGrant.set(key, set);
+  }
+  set.add(String(targetUserId));
+}
+
+function consumeRoomEntryGrant(canonicalRoomId, targetUserId) {
+  const key = normRoomId(canonicalRoomId);
+  const uid = targetUserId != null ? String(targetUserId) : '';
+  if (!key || !uid) return false;
+  const set = roomEntryGrant.get(key);
+  if (!set || !set.size) return false;
+  let matched = null;
+  for (const id of set) {
+    if (sameUsuarioId(id, uid)) {
+      matched = id;
+      break;
+    }
+  }
+  if (!matched) return false;
+  set.delete(matched);
+  if (!set.size) roomEntryGrant.delete(key);
+  return true;
+}
+
+function revokeRoomEntryGrant(canonicalRoomId, targetUserId) {
+  const key = normRoomId(canonicalRoomId);
+  const uid = targetUserId != null ? String(targetUserId) : '';
+  if (!key || !uid) return;
+  const set = roomEntryGrant.get(key);
+  if (!set || !set.size) return;
+  for (const id of [...set]) {
+    if (sameUsuarioId(id, uid)) set.delete(id);
+  }
+  if (!set.size) roomEntryGrant.delete(key);
 }
 
 function buildReactionSummary(rows = []) {
@@ -134,6 +178,13 @@ function attachSocketIO(io) {
           return;
         }
         const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
+        if (!socketCanShareMeetingContent(socket, reunion)) {
+          const granted = consumeRoomEntryGrant(canonicalRoomId, userId);
+          if (!granted) {
+            cb?.({ ok: false, error: 'Debes esperar la aprobación del presentador para entrar.' });
+            return;
+          }
+        }
         socket.join(canonicalRoomId);
         socket.data.roomId = canonicalRoomId;
         socket.data.reunionId = reunion.reunionId;
@@ -659,6 +710,92 @@ function attachSocketIO(io) {
       } catch (e) {
         console.error('meet:screenShare:response error', e);
         cb?.({ ok: false, error: 'Error respondiendo solicitud' });
+      }
+    });
+
+    socket.on('room:entry:request', async ({ roomId }, cb) => {
+      try {
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        if (!roomKey) {
+          cb?.({ ok: false, error: 'roomId requerido' });
+          return;
+        }
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) {
+          cb?.({ ok: false, error: 'No participas en esta reunión' });
+          return;
+        }
+        const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
+        if (socketCanShareMeetingContent(socket, reunion)) {
+          cb?.({ ok: true, alreadyAllowed: true });
+          return;
+        }
+        const alreadyGranted = (() => {
+          const set = roomEntryGrant.get(canonicalRoomId);
+          if (!set || !set.size) return false;
+          for (const id of set) if (sameUsuarioId(id, userId)) return true;
+          return false;
+        })();
+        if (alreadyGranted) {
+          cb?.({ ok: true, alreadyAllowed: true });
+          return;
+        }
+        const requester = await Usuario.findByPk(userId, { attributes: ['usuarioId', 'nombre', 'email'] });
+        const requesterName = requester?.nombre || requester?.email || String(userId).slice(0, 8);
+        const roomSockets = await io.in(canonicalRoomId).fetchSockets();
+        const presenterSockets = roomSockets.filter((s) => socketCanShareMeetingContent(s, reunion));
+        if (!presenterSockets.length) {
+          cb?.({ ok: false, error: 'No hay presentador conectado para aprobar tu entrada.' });
+          return;
+        }
+        presenterSockets.forEach((s) =>
+          s.emit('room:entry:request', {
+            roomId: canonicalRoomId,
+            requesterUserId: userId,
+            requesterName,
+          })
+        );
+        cb?.({ ok: true });
+      } catch (e) {
+        console.error('room:entry:request error', e);
+        cb?.({ ok: false, error: 'Error enviando solicitud de entrada' });
+      }
+    });
+
+    socket.on('room:entry:response', async ({ roomId, targetUserId, approved }, cb) => {
+      try {
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        const targetId = targetUserId != null ? String(targetUserId) : '';
+        if (!roomKey || !targetId) {
+          cb?.({ ok: false, error: 'roomId y targetUserId requeridos' });
+          return;
+        }
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) {
+          cb?.({ ok: false, error: 'No participas en esta reunión' });
+          return;
+        }
+        if (!socketCanShareMeetingContent(socket, reunion)) {
+          cb?.({ ok: false, error: 'Solo el presentador puede responder solicitudes' });
+          return;
+        }
+        const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
+        if (approved) grantRoomEntry(canonicalRoomId, targetId);
+        else revokeRoomEntryGrant(canonicalRoomId, targetId);
+        const roomSockets = await io.fetchSockets();
+        roomSockets
+          .filter((s) => sameUsuarioId(s.data.userId, targetId))
+          .forEach((s) =>
+            s.emit('room:entry:decision', {
+              roomId: canonicalRoomId,
+              approved: !!approved,
+              byUserId: userId,
+            })
+          );
+        cb?.({ ok: true });
+      } catch (e) {
+        console.error('room:entry:response error', e);
+        cb?.({ ok: false, error: 'Error respondiendo solicitud de entrada' });
       }
     });
 

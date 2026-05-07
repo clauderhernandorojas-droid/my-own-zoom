@@ -38,12 +38,37 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
   - Servidor: eventos Socket `meet:screenShare:request`, `meet:screenShare:response`, `meet:screenShare:grant`; solo presentador/admin puede conceder permiso.
   - El permiso para invitado es **temporal** y enfocado a compartir **pantalla** (no tablero).
   - Si la solicitud llega con la pestaña del presentador en segundo plano, se encola y se muestra al recuperar foco.
+- **Render / despliegue frontend-backend separados (nuevo)**:
+  - El cliente ahora resuelve un origen de API dinámico (`toApiUrl(...)`) en `public/index.html`.
+  - Prioridad de origen:
+    1) `window.__MOJ_API_ORIGIN` (si se define),
+    2) `localStorage["moj_api_origin"]`,
+    3) fallback automático a `https://lc-zoom.onrender.com` cuando el host actual es otro `*.onrender.com`,
+    4) si no aplica, usa same-origin (local o despliegue monolítico).
+  - Socket.IO cliente: se carga desde CDN (`https://cdn.socket.io/4.8.1/socket.io.min.js`) y la conexión usa `io(API_ORIGIN, ...)` cuando hay origen explícito; en caso contrario usa `io(...)` same-origin.
+  - Esto evita que login/API/socket queden apuntando al host equivocado cuando el frontend está en un servicio distinto al backend.
 - **Grabación de la reunión (docente)**: solo el **dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles; el servidor rechaza `recording:state` para otros. Un único botón **grabar vídeo** con `MediaRecorder` sobre canvas compuesto (1280×720 @ ~24 fps) + mezcla Web Audio. Se retiró la casilla “incluir tablero”; la composición prioriza **pantalla compartida** cuando está activa y usa cámaras como franja contextual (arriba o a la derecha según layout). **IndexedDB** y `recording:state` / `recording:notify`.
 - **Tablero**: cuadrícula punteada sutil y vista sin borde final visible (experiencia “infinita” práctica). El minimapa pasó a marco dinámico basado en contenido + viewport en lugar de límites fijos.
 - **Home/Lobby rediseñado**: estilo unificado negro/blanco/azul, acciones rápidas, calendario y lista de próximas reuniones. Se removió el flujo manual de `Room ID` y la entrada se hace por acciones directas por reunión (`Entrar`, `Editar`, `Cupo`, `Eliminar`, `Copiar link`).
 - **Agendamiento en modal**: creación y edición con título, inicio, duración, zona horaria, link compartible y copia al portapapeles. Modal con scroll interno + acciones sticky para mantener botones visibles en pantallas pequeñas.
 - **Recurrencia en UI**: `No repetir`, `Diario`, `Semanal`, `Mensual`, `Personalizado` (base diaria/semanal/mensual, intervalo y selección de días con chips). Fin de secuencia con modo `Nunca` o `Hasta fecha`, resumen legible de la regla y validación visual/funcional cuando la fecha fin queda antes del inicio.
 - **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
+- **Auth (login/registro) — UX actualizada**:
+  - Login y registro se separaron: `Crear cuenta` abre modal dedicado.
+  - El registro **no** inicia sesión automática (flujo explícito): tras crear cuenta, vuelve al login.
+  - Mensaje de login mantenido genérico: `Credenciales inválidas`.
+- **Seguridad de roles en registro**:
+  - El registro público crea siempre `estudiante` (backend ignora rol del cliente).
+  - Se elimina selector de rol en el registro público para evitar confusión/escalamiento.
+- **Promoción de roles (admin)**:
+  - Nuevo endpoint `PATCH /api/usuarios/:usuarioId/rol` (solo admin) para cambiar entre `estudiante` / `docente` / `admin`.
+  - Incluye auditoría básica en logs servidor (`[AUDIT] usuario:rol:update` con actor, objetivo, cambio, IP, user-agent).
+- **Sala de espera con aprobación del presentador (nuevo)**:
+  - El invitado en `#/meet/:roomId/wait` ya no entra directo; envía solicitud de entrada.
+  - El presentador recibe modal centrado con nombre del solicitante y botones `Aceptar` / `Rechazar`.
+  - Al rechazar, se pide confirmación explícita.
+  - El servidor valida entrada real: `room:join` rechaza a no-presentadores sin grant previo.
+  - Eventos Socket añadidos: `room:entry:request`, `room:entry:response`, `room:entry:decision`.
 - **Franja de vídeo en sala**: una fila con marca **My Own Zoom** + botón **Copiar enlace** (sin UUID visible bajo el título); vídeos a la derecha. `#btnToggleChat` y `#btnRoomViewToggle` existen ocultos solo para sincronizar JS con el panel azul de layout/chat.
 - **Tablero**: menús laterales (colores, emojis, grosor, tamaño de texto, más) fuera de la barra vertical; posición **`fixed`** para evitar recortes y scroll fantasma; barra vertical acotada en altura (`max-height`) sin estirar vacío.
 - **Reacciones**:
@@ -78,6 +103,10 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
 | **Grabación** (vídeo + audio mezclado): solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
 | **Compartir pantalla por solicitud**: invitado solicita, presentador aprueba/rechaza en modal; grant temporal por sala y validación en socket para iniciar share | `public/index.html` (modal + cola + handlers), `src/socket/index.js` (`meet:screenShare:request/response/grant`, `meetScreenShareGrant`) |
+| **API/Socket cross-origin en Render**: helper `toApiUrl`, fallback de origen, y conexión Socket.IO al backend público cuando frontend/backend están separados | `public/index.html` (`API_ORIGIN`, `inferApiOrigin`, `toApiUrl`, `connectSocketIfNeeded`) |
+| **Registro público sin escalamiento de rol**: alta siempre como `estudiante`, sin confiar en `rol` del cliente | `src/routes/auth.js`, `public/index.html` |
+| **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` en `src/routes/usuarios.js` |
+| **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) en modelo | `src/models/reunion.js` |
 

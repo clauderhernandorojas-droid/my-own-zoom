@@ -15,20 +15,19 @@ function signToken(usuario) {
 
 router.post('/register', async (req, res, next) => {
   try {
-    const { nombre, email, password, rol } = req.body;
+    const { nombre, email, password } = req.body;
     if (!nombre || !email || !password) {
       return res.status(400).json({ error: 'nombre, email y password son obligatorios' });
     }
-    const rolValido = ['docente', 'estudiante', 'admin'].includes(rol) ? rol : 'estudiante';
     const exists = await Usuario.findOne({ where: { email: email.toLowerCase() } });
-    if (exists) return res.status(409).json({ error: 'Email ya registrado' });
+    if (exists) return res.status(409).json({ error: 'No se pudo crear la cuenta' });
 
     const contrasenaHasheada = await bcrypt.hash(password, 10);
     const usuario = await Usuario.create({
       nombre,
       email: email.toLowerCase(),
       contrasenaHasheada,
-      rol: rolValido,
+      rol: 'estudiante',
     });
     const token = signToken(usuario);
     return res.status(201).json({ usuario: usuario.toJSON(), token });

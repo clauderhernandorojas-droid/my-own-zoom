@@ -2037,22 +2037,42 @@
           <label>Email <input id="email" type="email" autocomplete="username" /></label>
           <label>Contraseña <input id="password" type="password" autocomplete="current-password" /></label>
         </div>
-        <div class="auth-grid auth-grid--compact">
-          <label>Rol (registro)
-            <select id="rolRegistro">
-              <option value="estudiante">Estudiante</option>
-              <option value="docente">Profesor</option>
-            </select>
-          </label>
-          <label>Nombre * <input id="nombre" placeholder="Tu nombre" /></label>
-        </div>
         <div class="auth-actions">
           <button type="button" id="btnLogin" class="btn-primary">Iniciar sesión</button>
-          <button type="button" id="btnRegister" class="btn-ghost">Crear cuenta</button>
+          <button type="button" id="btnOpenRegister" class="btn-ghost">Crear cuenta</button>
         </div>
+        <p class="home-muted" style="margin-top:0.6rem">
+          ¿No tienes cuenta? Pulsa <strong>Crear cuenta</strong> y regresa al login al finalizar.
+        </p>
       </div>
     </div>
   </section>
+
+  <div id="registerModal" class="profile-modal hidden" role="dialog" aria-modal="true" aria-labelledby="registerModalTitle">
+    <div class="profile-modal__backdrop" id="registerModalBackdrop"></div>
+    <div class="profile-modal__card">
+      <h3 id="registerModalTitle">Crear cuenta</h3>
+      <p>Completa tus datos. Al guardar, volverás a la pantalla de login.</p>
+      <div class="auth-grid auth-grid--compact">
+        <label>Nombre *
+          <input id="registerNombre" placeholder="Tu nombre" maxlength="80" />
+        </label>
+      </div>
+      <div class="auth-grid">
+        <label>Email
+          <input id="registerEmail" type="email" autocomplete="username" />
+        </label>
+        <label>Contraseña
+          <input id="registerPassword" type="password" autocomplete="new-password" />
+        </label>
+      </div>
+      <p id="registerModalError" class="home-muted" style="color:#fecaca;min-height:1.1em;margin-top:0.45rem"></p>
+      <div class="profile-modal__actions">
+        <button type="button" id="btnRegisterCancel" class="btn-muted">Cancelar</button>
+        <button type="button" id="btnRegisterCreate" class="btn-primary">Crear cuenta</button>
+      </div>
+    </div>
+  </div>
 
   <section id="lobbySection" class="hidden">
     <div class="home-shell">
@@ -2123,6 +2143,7 @@
           <button type="button" id="btnMeetWaitingJoin" class="btn-primary">Entrar a la reunión</button>
           <button type="button" id="btnMeetWaitingBack" class="btn-ghost">Volver al inicio</button>
         </div>
+        <p id="meetWaitingStatus" class="home-muted" style="margin-top:0.65rem;min-height:1.1em"></p>
       </section>
     </div>
   </section>
@@ -2239,6 +2260,27 @@
       <div class="share-req-modal__actions">
         <button type="button" id="btnShareRequestReject" class="btn-muted">Rechazar</button>
         <button type="button" id="btnShareRequestApprove">Aceptar</button>
+      </div>
+    </div>
+  </div>
+  <div
+    id="roomEntryRequestModal"
+    class="profile-modal hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="roomEntryRequestModalTitle"
+  >
+    <div class="profile-modal__backdrop"></div>
+    <div class="profile-modal__card share-req-modal__card">
+      <div class="share-req-modal__badge">Solicitud de entrada</div>
+      <h3 id="roomEntryRequestModalTitle">Aprobación de sala de espera</h3>
+      <p id="roomEntryRequestModalName" class="share-req-modal__name"></p>
+      <p class="share-req-modal__hint">
+        Este participante solicita entrar a la reunión. Si rechazas, no podrá entrar hasta una nueva aprobación.
+      </p>
+      <div class="share-req-modal__actions">
+        <button type="button" id="btnRoomEntryReject" class="btn-muted">Rechazar</button>
+        <button type="button" id="btnRoomEntryApprove">Aceptar</button>
       </div>
     </div>
   </div>
@@ -2827,6 +2869,8 @@
     /** Tras subir archivo al servidor, se envía con el siguiente «Enviar». */
     let pendingChatAdjunto = null;
     let pendingChatPreviewUrl = "";
+    /** Sala de espera: solicitud de ingreso pendiente para el usuario actual. */
+    let waitingRoomJoinRequestPending = false;
     let boardState = { elementos: [] };
     const boardHistory = [];
     const boardFuture = [];
@@ -2932,6 +2976,10 @@
     const pendingShareRequestsQueue = [];
     /** Solicitud de compartir actualmente mostrada en modal. */
     let activeShareRequest = null;
+    /** Cola de solicitudes de ingreso a sala pendientes para el presentador. */
+    const pendingRoomEntryRequestsQueue = [];
+    /** Solicitud de ingreso actualmente mostrada en modal al presentador. */
+    let activeRoomEntryRequest = null;
     /** `board:presentation` recibido antes de asignar `activeRoomId` (orden al unirse). */
     let pendingBoardPresentation = null;
     let remoteScreenLayoutRaf = 0;
@@ -3500,6 +3548,11 @@
       $("shareRequestModal")?.classList.add("hidden");
     }
 
+    function updateMeetWaitingStatus(message = "") {
+      const el = $("meetWaitingStatus");
+      if (el) el.textContent = String(message || "");
+    }
+
     function maybeShowNextShareRequestModal() {
       if (!canManageSharingInMeeting()) return;
       if (activeShareRequest) return;
@@ -3534,6 +3587,114 @@
           ? `Autorizaste a ${displayName} para compartir pantalla.`
           : `Rechazaste la solicitud de compartir pantalla de ${displayName}.`
       );
+    }
+
+    function openRoomEntryRequestModal(req) {
+      const modal = $("roomEntryRequestModal");
+      const nameEl = $("roomEntryRequestModalName");
+      if (!modal || !nameEl || !req) return;
+      const displayName =
+        String(req.requesterName || "").trim() || getParticipantDisplayNameByUserId(req.requesterUserId);
+      nameEl.textContent = `${displayName} quiere entrar a la reunión`;
+      modal.classList.remove("hidden");
+    }
+
+    function closeRoomEntryRequestModal() {
+      $("roomEntryRequestModal")?.classList.add("hidden");
+    }
+
+    function maybeShowNextRoomEntryRequestModal() {
+      if (!canManageSharingInMeeting()) return;
+      if (!activeRoomId) return;
+      if (activeRoomEntryRequest) return;
+      if (!pendingRoomEntryRequestsQueue.length) return;
+      if (document.hidden) return;
+      activeRoomEntryRequest = pendingRoomEntryRequestsQueue.shift();
+      openRoomEntryRequestModal(activeRoomEntryRequest);
+    }
+
+    function respondToActiveRoomEntryRequest(approved) {
+      if (!activeRoomEntryRequest || !activeRoomId || !socket?.connected) return;
+      if (!approved) {
+        const ok = window.confirm(
+          "Si rechazas, esta persona no podrá entrar hasta que vuelva a solicitar y la autorices.\n\n¿Confirmas rechazo?"
+        );
+        if (!ok) return;
+      }
+      const req = activeRoomEntryRequest;
+      activeRoomEntryRequest = null;
+      closeRoomEntryRequestModal();
+      socket.emit(
+        "room:entry:response",
+        {
+          roomId: normRoomKey(activeRoomId),
+          targetUserId: String(req.requesterUserId || ""),
+          approved: !!approved,
+        },
+        (resp) => {
+          if (!resp?.ok) {
+            setMediaStatus(resp?.error || "No se pudo responder la solicitud de entrada.");
+          }
+          maybeShowNextRoomEntryRequestModal();
+        }
+      );
+      const displayName =
+        String(req.requesterName || "").trim() || getParticipantDisplayNameByUserId(req.requesterUserId);
+      appendRecordingNotice(
+        approved
+          ? `Autorizaste la entrada de ${displayName}.`
+          : `Rechazaste la entrada de ${displayName}.`
+      );
+    }
+
+    async function requestRoomEntryApproval(roomId) {
+      const rid = String(roomId || "").trim();
+      if (!rid) return false;
+      if (!socket?.connected) {
+        updateMeetWaitingStatus("Sin conexión en tiempo real. Reintenta en unos segundos.");
+        return false;
+      }
+      if (waitingRoomJoinRequestPending) {
+        updateMeetWaitingStatus("Tu solicitud ya fue enviada. Espera respuesta del presentador.");
+        return false;
+      }
+      waitingRoomJoinRequestPending = true;
+      const btn = $("btnMeetWaitingJoin");
+      if (btn) btn.disabled = true;
+      updateMeetWaitingStatus("Enviando solicitud de entrada…");
+      return await new Promise((resolve) => {
+        let finished = false;
+        const done = (ok) => {
+          if (finished) return;
+          finished = true;
+          resolve(!!ok);
+        };
+        const timeoutId = setTimeout(() => {
+          waitingRoomJoinRequestPending = false;
+          if (btn) btn.disabled = false;
+          updateMeetWaitingStatus("No se pudo enviar la solicitud. Reintenta.");
+          done(false);
+        }, 6000);
+        socket.emit("room:entry:request", { roomId: normRoomKey(rid) }, (resp) => {
+          clearTimeout(timeoutId);
+          if (!resp?.ok) {
+            waitingRoomJoinRequestPending = false;
+            if (btn) btn.disabled = false;
+            updateMeetWaitingStatus(resp?.error || "No se pudo solicitar entrada.");
+            done(false);
+            return;
+          }
+          if (resp.alreadyAllowed) {
+            waitingRoomJoinRequestPending = false;
+            if (btn) btn.disabled = false;
+            updateMeetWaitingStatus("");
+            done(true);
+            return;
+          }
+          updateMeetWaitingStatus("Solicitud enviada. Espera aprobación del presentador.");
+          done(true);
+        });
+      });
     }
 
     function applyMeetScreenShareFromServer(roomId, active, uid) {
@@ -4249,6 +4410,25 @@
       }
     }
 
+    function openRegisterModal() {
+      const modal = $("registerModal");
+      const err = $("registerModalError");
+      const email = $("registerEmail");
+      if (!modal || !err || !email) return;
+      err.textContent = "";
+      email.value = String($("email")?.value || "").trim();
+      $("registerNombre").value = "";
+      $("registerPassword").value = "";
+      modal.classList.remove("hidden");
+      requestAnimationFrame(() => $("registerNombre")?.focus({ preventScroll: true }));
+    }
+
+    function closeRegisterModal() {
+      $("registerModal")?.classList.add("hidden");
+      const err = $("registerModalError");
+      if (err) err.textContent = "";
+    }
+
     async function ensureDisplayNameBeforeJoin() {
       const current = getCurrentDisplayName();
       if (current) return current;
@@ -4794,11 +4974,16 @@
     function hideMeetWaiting() {
       $("meetWaitingSection")?.classList.add("hidden");
       meetWaitingRoomId = "";
+      waitingRoomJoinRequestPending = false;
+      updateMeetWaitingStatus("");
+      const btn = $("btnMeetWaitingJoin");
+      if (btn) btn.disabled = false;
     }
 
     function showMeetWaiting(roomId) {
       const rid = String(roomId || "").trim();
       meetWaitingRoomId = rid;
+      waitingRoomJoinRequestPending = false;
       $("authSection")?.classList.add("hidden");
       $("lobbySection")?.classList.add("hidden");
       $("roomSection")?.classList.add("hidden");
@@ -4806,6 +4991,9 @@
       document.body.classList.remove("body--in-room");
       const label = $("meetWaitingRoomLabel");
       if (label) label.textContent = rid ? normRoomKey(rid) : "—";
+      const btn = $("btnMeetWaitingJoin");
+      if (btn) btn.disabled = false;
+      updateMeetWaitingStatus("Pulsa entrar para solicitar autorización al presentador.");
     }
 
     function showLobby() {
@@ -7580,6 +7768,42 @@
           syncShareButtonState();
           renderShareMenu();
         });
+        socket.on("room:entry:request", ({ roomId, requesterUserId, requesterName }) => {
+          if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+          if (!canManageSharingInMeeting()) return;
+          const uid = String(requesterUserId || "");
+          if (!uid) return;
+          const alreadyQueued =
+            (activeRoomEntryRequest && String(activeRoomEntryRequest.requesterUserId || "") === uid) ||
+            pendingRoomEntryRequestsQueue.some((r) => String(r.requesterUserId || "") === uid);
+          if (!alreadyQueued) {
+            pendingRoomEntryRequestsQueue.push({
+              roomId,
+              requesterUserId: uid,
+              requesterName: String(requesterName || ""),
+            });
+          }
+          const displayName = String(requesterName || "").trim() || getParticipantDisplayNameByUserId(uid);
+          appendRecordingNotice(`Solicitud de entrada recibida de ${displayName}.`);
+          maybeShowNextRoomEntryRequestModal();
+        });
+        socket.on("room:entry:decision", ({ roomId, approved, byUserId }) => {
+          const rid = String(roomId || "").trim().toLowerCase();
+          const waitingRid = String(meetWaitingRoomId || "").trim().toLowerCase();
+          if (!rid || !waitingRid || rid !== waitingRid) return;
+          waitingRoomJoinRequestPending = false;
+          const btn = $("btnMeetWaitingJoin");
+          if (btn) btn.disabled = false;
+          const by = String(byUserId || "");
+          const approver = participantsById.get(by);
+          const approverName = approver?.nombre || approver?.email || "el presentador";
+          if (approved) {
+            updateMeetWaitingStatus("Entrada autorizada. Ingresando a la reunión…");
+            void enterRoom(meetWaitingRoomId).catch(() => {});
+          } else {
+            updateMeetWaitingStatus(`${approverName} rechazó tu solicitud. No puedes entrar por ahora.`);
+          }
+        });
         socket.on("board:follow:state", ({ active, roomId: rid }) => {
           if (!activeRoomId) return;
           if (active && rid && !sameActiveRoom(rid, activeRoomId)) return;
@@ -7816,6 +8040,9 @@
       pendingShareRequestsQueue.length = 0;
       activeShareRequest = null;
       closeShareRequestModal();
+      pendingRoomEntryRequestsQueue.length = 0;
+      activeRoomEntryRequest = null;
+      closeRoomEntryRequestModal();
       peerSocketToUserId.clear();
       if (boardPresentationActive && socket?.connected && activeRoomId) {
         try {
@@ -7939,10 +8166,22 @@
     $("btnShareRequestReject")?.addEventListener("click", () => {
       respondToActiveShareRequest(false);
     });
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) maybeShowNextShareRequestModal();
+    $("btnRoomEntryApprove")?.addEventListener("click", () => {
+      respondToActiveRoomEntryRequest(true);
     });
-    window.addEventListener("focus", () => maybeShowNextShareRequestModal());
+    $("btnRoomEntryReject")?.addEventListener("click", () => {
+      respondToActiveRoomEntryRequest(false);
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        maybeShowNextShareRequestModal();
+        maybeShowNextRoomEntryRequestModal();
+      }
+    });
+    window.addEventListener("focus", () => {
+      maybeShowNextShareRequestModal();
+      maybeShowNextRoomEntryRequestModal();
+    });
 
     $("btnMeetWaitingJoin")?.addEventListener("click", () => {
       const r = parseRoute();
@@ -7951,7 +8190,21 @@
         log("No hay sala para unirse.");
         return;
       }
-      void enterRoom(rid).catch(() => {});
+      const isManager = String(currentUser?.rol || "").toLowerCase() === "admin";
+      if (isManager) {
+        void enterRoom(rid).catch(() => {});
+        return;
+      }
+      void connectSocketIfNeeded()
+        .then(() => requestRoomEntryApproval(rid))
+        .then((ok) => {
+          if (ok && !waitingRoomJoinRequestPending) {
+            void enterRoom(rid).catch(() => {});
+          }
+        })
+        .catch((e) => {
+          updateMeetWaitingStatus(e?.message || "No se pudo conectar para solicitar entrada.");
+        });
     });
     $("btnMeetWaitingBack")?.addEventListener("click", () => {
       _suppressHashRoute = true;
@@ -7978,36 +8231,53 @@
         _suppressHashRoute = false;
         applyRouteFromHash();
       } catch (e) {
-        log("Login: " + e.message);
+        log("Login: Credenciales inválidas.");
       }
     });
 
-    $("btnRegister").addEventListener("click", async () => {
-      const nombre = $("nombre").value.trim();
+    $("btnOpenRegister")?.addEventListener("click", () => openRegisterModal());
+    $("btnRegisterCancel")?.addEventListener("click", () => closeRegisterModal());
+    $("registerModalBackdrop")?.addEventListener("click", () => closeRegisterModal());
+    $("btnRegisterCreate")?.addEventListener("click", async () => {
+      const nombre = $("registerNombre")?.value.trim();
+      const email = $("registerEmail")?.value.trim();
+      const password = $("registerPassword")?.value || "";
+      const err = $("registerModalError");
       if (!nombre) {
-        log("El nombre es obligatorio para crear la cuenta.");
+        if (err) err.textContent = "El nombre es obligatorio.";
+        $("registerNombre")?.focus({ preventScroll: true });
         return;
       }
+      if (!email || !password) {
+        if (err) err.textContent = "Email y contraseña son obligatorios.";
+        if (!email) $("registerEmail")?.focus({ preventScroll: true });
+        else $("registerPassword")?.focus({ preventScroll: true });
+        return;
+      }
+      if (err) err.textContent = "";
       try {
-        const data = await api("/api/auth/register", {
+        await api("/api/auth/register", {
           method: "POST",
           body: JSON.stringify({
             nombre,
-            email: $("email").value.trim(),
-            password: $("password").value,
-            rol: $("rolRegistro").value,
+            email,
+            password,
+            rol: "estudiante",
           }),
         });
-        setToken(data.token);
-        currentUser = data.usuario;
-        setCurrentDisplayName(data.usuario.nombre || getStoredDisplayName());
-        log("Cuenta creada");
-        _suppressHashRoute = true;
-        location.hash = "#/lobby";
-        _suppressHashRoute = false;
-        applyRouteFromHash();
+        closeRegisterModal();
+        if ($("email")) $("email").value = email;
+        if ($("password")) $("password").value = "";
+        log("Cuenta creada. Ahora inicia sesión con tu email y contraseña.");
+        $("password")?.focus({ preventScroll: true });
       } catch (e) {
-        log("Registro: " + e.message);
+        if (err) err.textContent = "No se pudo crear la cuenta. Verifica los datos o intenta con otro correo.";
+      }
+    });
+    $("registerPassword")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        $("btnRegisterCreate")?.click();
       }
     });
 
