@@ -549,7 +549,7 @@ function attachSocketIO(io) {
 
         const rows = await MensajeReaccion.findAll({
           where: { mensajeId: mensaje.mensajeId },
-          order: [['createdAt', 'ASC']],
+          order: [['mensajeReaccionId', 'ASC']],
           include: [{ association: 'reactor', attributes: ['usuarioId', 'nombre'], required: false }],
         });
         const summary = buildReactionSummary(rows);
