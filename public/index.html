@@ -262,10 +262,95 @@
       justify-content: center;
       align-items: stretch;
     }
-    .room-shell.room-shell--gallery .room-video-layout-switch {
+    .room-shell.room-shell--gallery .room-video-layout-switch__row {
       display: none;
     }
     .room-shell.room-shell--gallery .room-center-wrap { display: none; }
+
+    /* Pantalla compartida remota: mismo reparto que vista tablero — franja de vídeos ~17vh arriba, contenido abajo */
+    .room-remote-screen-stage {
+      display: none;
+      flex: 1 1 auto;
+      min-height: 0;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      background: #252525;
+      border-bottom: 1px solid var(--z-border);
+      box-sizing: border-box;
+      position: relative;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-remote-screen-stage:not([hidden]) {
+      display: flex;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-center-wrap {
+      display: none !important;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-pane-splitter--video-board {
+      display: none !important;
+    }
+    .room-remote-screen-stage .remote-peer {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      flex: 1 1 auto !important;
+      min-height: 0;
+      margin: 0;
+    }
+    .room-remote-screen-stage .remote-peer > video {
+      flex: 1 1 auto !important;
+      width: 100% !important;
+      max-height: none !important;
+      min-height: 0 !important;
+      aspect-ratio: auto !important;
+      object-fit: contain;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-video-strip {
+      flex: 0 0 auto;
+      max-height: 17vh;
+      min-height: 64px;
+      border-bottom: 1px solid var(--z-border);
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-video-strip__stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .room-shell.room-shell--remote-screen-dominant #videos.room-videos--screen-dominant {
+      flex-direction: row;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      align-items: stretch;
+      justify-content: center;
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: 100%;
+      padding: 6px;
+      gap: 6px;
+    }
+    .room-shell.room-shell--remote-screen-dominant #videos.room-videos--screen-dominant .remote-peer {
+      width: 168px;
+      min-width: 120px;
+      max-width: 240px;
+      flex: 0 0 auto;
+    }
+    .room-shell.room-shell--remote-screen-dominant #videos.room-videos--screen-dominant .remote-peer > video {
+      max-height: 13vh;
+      min-height: 44px;
+      aspect-ratio: unset;
+      flex: 1 1 auto;
+    }
+    .room-shell.room-shell--remote-screen-dominant #remotesContainer {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      gap: 6px;
+      align-items: stretch;
+      min-width: 0;
+    }
     #videos {
       display: flex;
       flex-direction: row;
@@ -572,6 +657,16 @@
     }
     .room-tb-split .room-tb-btn[data-open="true"] {
       background: rgba(255, 255, 255, 0.1);
+    }
+    #shareSplit.room-tb-split--single .room-tb-btn {
+      border-radius: 10px;
+    }
+    .room-tb-split.room-tb-share--locked {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+    .room-tb-btn.room-tb-btn--no-share {
+      cursor: not-allowed;
     }
     .room-tb-chevron {
       width: 19px;
@@ -1482,6 +1577,40 @@
       background: linear-gradient(to top, #0f172a 78%, rgba(15, 23, 42, 0));
       padding-top: 0.4rem;
     }
+    .share-req-modal__card {
+      width: min(560px, 92vw);
+      border: 2px solid #7c3aed;
+      box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+    }
+    .share-req-modal__badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      background: rgba(124, 58, 237, 0.18);
+      border: 1px solid rgba(167, 139, 250, 0.45);
+      color: #ddd6fe;
+      font-size: 0.82rem;
+      margin-bottom: 0.8rem;
+    }
+    .share-req-modal__name {
+      font-size: 1.1rem;
+      color: #f8fafc;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+    .share-req-modal__hint {
+      color: #cbd5e1;
+      margin: 0.1rem 0 0;
+    }
+    .share-req-modal__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.65rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
     .scheduled-list {
       margin-top: 0.65rem;
       display: grid;
@@ -1977,6 +2106,27 @@
     </div>
   </section>
 
+  <section id="meetWaitingSection" class="hidden" aria-labelledby="meetWaitingTitle">
+    <div class="home-shell">
+      <header class="home-header">
+        <div>
+          <p class="auth-eyebrow">Reunión</p>
+          <h2 id="meetWaitingTitle">Sala de espera</h2>
+          <p class="home-subtitle">
+            Estás a punto de unirte a la sala <strong id="meetWaitingRoomLabel"></strong>. Pulsa entrar cuando estés listo; hasta entonces no se activa la videollamada.
+          </p>
+        </div>
+      </header>
+      <section class="home-card" style="max-width: 520px">
+        <p class="home-muted" style="margin-top: 0">Si abriste este enlace por error, vuelve al inicio sin unirte.</p>
+        <div class="home-actions" style="margin-top: 1rem; flex-wrap: wrap">
+          <button type="button" id="btnMeetWaitingJoin" class="btn-primary">Entrar a la reunión</button>
+          <button type="button" id="btnMeetWaitingBack" class="btn-ghost">Volver al inicio</button>
+        </div>
+      </section>
+    </div>
+  </section>
+
   <div id="profileNameModal" class="profile-modal hidden" role="dialog" aria-modal="true" aria-labelledby="profileNameModalTitle">
     <div class="profile-modal__backdrop" id="profileNameModalBackdrop"></div>
     <div class="profile-modal__card">
@@ -2071,6 +2221,27 @@
       </div>
     </div>
   </div>
+  <div
+    id="shareRequestModal"
+    class="profile-modal hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="shareRequestModalTitle"
+  >
+    <div class="profile-modal__backdrop"></div>
+    <div class="profile-modal__card share-req-modal__card">
+      <div class="share-req-modal__badge">Solicitud de compartir pantalla</div>
+      <h3 id="shareRequestModalTitle">Autorización requerida</h3>
+      <p id="shareRequestModalName" class="share-req-modal__name"></p>
+      <p class="share-req-modal__hint">
+        El participante solicita permiso para compartir su pantalla. Puedes aceptar o rechazar.
+      </p>
+      <div class="share-req-modal__actions">
+        <button type="button" id="btnShareRequestReject" class="btn-muted">Rechazar</button>
+        <button type="button" id="btnShareRequestApprove">Aceptar</button>
+      </div>
+    </div>
+  </div>
 
   <section id="roomSection" class="hidden">
     <div class="room-shell" id="roomShell">
@@ -2132,6 +2303,12 @@
               </div>
             </div>
           </div>
+          <div
+            id="roomRemoteScreenStage"
+            class="room-remote-screen-stage"
+            hidden
+            aria-hidden="true"
+          ></div>
           <div
             class="room-pane-splitter room-pane-splitter--video-board"
             id="roomVideoBoardSplitter"
@@ -2372,15 +2549,22 @@
           <button type="button" id="btnCamMenu" class="room-tb-chevron" aria-label="Opciones de video" aria-haspopup="menu" aria-expanded="false">▲</button>
           <div id="camMenu" class="room-popover" role="menu" aria-label="Opciones de video"></div>
         </div>
-        <div class="room-tb-split" id="shareSplit">
-          <button type="button" id="btnShareMain" class="room-tb-btn" title="Compartir contenido" aria-label="Compartir">
+        <div class="room-tb-split room-tb-split--single" id="shareSplit">
+          <button
+            type="button"
+            id="btnShareMain"
+            class="room-tb-btn"
+            title="Compartir contenido"
+            aria-label="Compartir"
+            aria-haspopup="menu"
+            aria-expanded="false"
+          >
             <svg class="room-tb-btn__svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" />
               <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
             <span class="room-tb-label">Compartir</span>
           </button>
-          <button type="button" id="btnShareMenu" class="room-tb-chevron" aria-label="Opciones de compartir" aria-haspopup="menu" aria-expanded="false">▲</button>
           <div id="shareMenu" class="room-popover" role="menu" aria-label="Opciones de compartir"></div>
         </div>
         <div class="room-tb-split hidden" id="recordSplit">
@@ -2412,7 +2596,7 @@
           </div>
         </div>
         <div class="room-tb-split" id="reactionSplit">
-          <button type="button" id="btnRoomReaction" class="room-tb-btn" title="Enviar reacción a la sala">
+          <button type="button" id="btnRoomReaction" class="room-tb-btn" title="Reaccionar en la sala" aria-haspopup="menu" aria-expanded="false">
             <svg class="room-tb-btn__svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
               <path d="M8 10h.01M16 10h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -2420,7 +2604,6 @@
             </svg>
             <span class="room-tb-label">Reaccionar</span>
           </button>
-          <button type="button" id="btnRoomReactionMenu" class="room-tb-chevron" aria-label="Opciones de reacción" aria-haspopup="menu" aria-expanded="false">▲</button>
           <div id="roomReactionMenu" class="room-popover" role="menu" aria-label="Reacciones de la sala"></div>
         </div>
         <button type="button" id="btnSalirSala" class="room-tb-btn room-tb-btn--danger" title="Colgar y salir de la reunión">
@@ -2614,6 +2797,8 @@
     const chatThreads = new Map();
     let activeChatThreadKey = "general";
     let activeRoomId = null;
+    /** Room id mostrado en sala de espera (antes de `enterRoom`). */
+    let meetWaitingRoomId = "";
     /** UUID de reunión en BD (p. ej. historial / adjuntos); la sala Socket usa `activeRoomId` (room_id). */
     let activeReunionId = null;
     /** Tras subir archivo al servidor, se envía con el siguiente «Enviar». */
@@ -2704,6 +2889,29 @@
     let lastKnownRoomIdForRecording = null;
     let openToolbarMenuId = null;
     let preferredShareTarget = "screen";
+    /** True tras «Compartir» con destino tablero hasta detener la presentación. */
+    let boardPresentationActive = false;
+    /** Otro participante está presentando tablero (sincronizado por Socket). */
+    let remoteBoardPresentationUserId = "";
+    /** Docente/`usuarioId` que está compartiendo pantalla según servidor (el track remoto suele ocultar `displaySurface`). */
+    let remoteScreenShareUserId = "";
+    /** Invitado: permiso temporal concedido por el presentador para compartir pantalla. */
+    let presenterGrantedScreenShare = false;
+    /** Invitado: hay una solicitud de compartir en curso. */
+    let screenShareRequestPending = false;
+    /** Si pidió permiso desde el botón principal, se auto-intenta compartir al aprobar. */
+    let autoStartShareAfterApproval = false;
+    /** `meet:screenShare` recibido antes de asignar `activeRoomId` (orden al unirse). */
+    let pendingMeetScreenShare = null;
+    /** socket.io peer id → usuarioId del participante (vincula vídeo WebRTC al anuncio de pantalla). */
+    const peerSocketToUserId = new Map();
+    /** Cola de solicitudes de compartir pantalla pendientes para el presentador. */
+    const pendingShareRequestsQueue = [];
+    /** Solicitud de compartir actualmente mostrada en modal. */
+    let activeShareRequest = null;
+    /** `board:presentation` recibido antes de asignar `activeRoomId` (orden al unirse). */
+    let pendingBoardPresentation = null;
+    let remoteScreenLayoutRaf = 0;
     let shareWithAudio = true;
     let screenShareStream = null;
     let screenShareTrack = null;
@@ -2920,13 +3128,16 @@
       renderMediaMenus();
     }
 
+    function toolbarMenuTriggerButton(key) {
+      if (key === "reaction") return $("btnRoomReaction");
+      if (key === "share") return $("btnShareMain");
+      return $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
+    }
+
     function closeToolbarMenus() {
       ["mic", "cam", "share", "record", "reaction"].forEach((key) => {
         const menu = key === "reaction" ? $("roomReactionMenu") : $(`${key}Menu`);
-        const btn =
-          key === "reaction"
-            ? $("btnRoomReactionMenu")
-            : $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
+        const btn = toolbarMenuTriggerButton(key);
         const split = $(`${key}Split`);
         if (menu) menu.classList.remove("room-popover--open");
         if (btn) btn.setAttribute("aria-expanded", "false");
@@ -2937,10 +3148,7 @@
 
     function toggleToolbarMenu(key) {
       const menu = key === "reaction" ? $("roomReactionMenu") : $(`${key}Menu`);
-      const btn =
-        key === "reaction"
-          ? $("btnRoomReactionMenu")
-          : $(`btn${key.charAt(0).toUpperCase() + key.slice(1)}Menu`);
+      const btn = toolbarMenuTriggerButton(key);
       const split = $(`${key}Split`);
       if (!menu || !btn || !split) return;
       const shouldOpen = openToolbarMenuId !== key;
@@ -3022,6 +3230,31 @@
       if (!menu) return;
       menu.innerHTML = "";
       appendMenuTitle(menu, "Compartir");
+      const canShare = canShareInMeeting();
+      const canManage = canManageSharingInMeeting();
+      if (!canShare) {
+        if (canRequestSharePermissionInMeeting()) {
+          appendMenuItem(
+            menu,
+            screenShareRequestPending
+              ? "Solicitud enviada al presentador…"
+              : "Solicitar permiso para compartir pantalla",
+            {
+              disabled: screenShareRequestPending,
+              onClick: () => {
+                autoStartShareAfterApproval = true;
+                void requestSharePermission();
+                closeToolbarMenus();
+              },
+            }
+          );
+        } else {
+          appendMenuItem(menu, "Solo el presentador puede compartir contenido.", {
+            disabled: true,
+          });
+        }
+        return;
+      }
       appendMenuItem(menu, shareWithAudio ? "Audio compartido: activado" : "Audio compartido: desactivado", {
         role: "menuitemcheckbox",
         checked: shareWithAudio,
@@ -3032,9 +3265,18 @@
       });
       appendMenuSeparator(menu);
       if (screenShareTrack?.readyState === "live") {
-        appendMenuItem(menu, "Dejar de compartir", {
+        appendMenuItem(menu, "Dejar de compartir pantalla", {
           onClick: () => {
             void stopScreenShare({ restoreStatus: true });
+            closeToolbarMenus();
+          },
+        });
+        appendMenuSeparator(menu);
+      }
+      if (boardPresentationActive && screenShareTrack?.readyState !== "live") {
+        appendMenuItem(menu, "Dejar de compartir tablero", {
+          onClick: () => {
+            stopBoardPresentation({ restoreStatus: true });
             closeToolbarMenus();
           },
         });
@@ -3049,15 +3291,17 @@
           closeToolbarMenus();
         },
       });
-      appendMenuItem(menu, "Tablero", {
-        role: "menuitemradio",
-        checked: preferredShareTarget === "board",
-        onClick: () => {
-          preferredShareTarget = "board";
-          void runShareAction("board");
-          closeToolbarMenus();
-        },
-      });
+      if (canManage) {
+        appendMenuItem(menu, "Tablero", {
+          role: "menuitemradio",
+          checked: preferredShareTarget === "board",
+          onClick: () => {
+            preferredShareTarget = "board";
+            void runShareAction("board");
+            closeToolbarMenus();
+          },
+        });
+      }
     }
 
     function renderMediaMenus() {
@@ -3130,18 +3374,348 @@
     }
 
     function syncShareButtonState() {
-      const active = !!(screenShareTrack && screenShareTrack.readyState === "live");
+      const screenActive = !!(screenShareTrack && screenShareTrack.readyState === "live");
+      const active = screenActive || boardPresentationActive;
       const btn = $("btnShareMain");
       if (!btn) return;
       btn.dataset.off = active ? "false" : "true";
       btn.setAttribute("aria-pressed", active ? "true" : "false");
-      btn.title = active ? "Dejar de compartir pantalla" : "Compartir contenido";
       const lbl = btn.querySelector(".room-tb-label");
       if (lbl) lbl.textContent = active ? "Dejar" : "Compartir";
+      updateShareControlsForRole();
+    }
+
+    function emitBoardPresentation(active) {
+      if (!socket?.connected || !activeRoomId) return;
+      try {
+        socket.emit("board:presentation", { roomId: normRoomKey(activeRoomId), active: !!active });
+      } catch (_) {}
+    }
+
+    function emitMeetScreenShare(active) {
+      if (!socket?.connected || !activeRoomId) return;
+      if (active && !canShareInMeeting()) return;
+      try {
+        socket.emit("meet:screenShare", { roomId: normRoomKey(activeRoomId), active: !!active });
+      } catch (_) {}
+    }
+
+    async function requestSharePermission() {
+      if (!activeRoomId) {
+        setMediaStatus("Debes estar dentro de una reunión para solicitar compartir pantalla.");
+        return false;
+      }
+      if (!socket?.connected) {
+        setMediaStatus("Sin conexión en tiempo real. Reintenta cuando la sala se reconecte.");
+        return false;
+      }
+      if (!canRequestSharePermissionInMeeting()) {
+        setMediaStatus("No puedes solicitar compartir en este momento.");
+        return false;
+      }
+      if (screenShareRequestPending) {
+        setMediaStatus("Ya enviaste una solicitud. Espera la respuesta del presentador.");
+        return false;
+      }
+      screenShareRequestPending = true;
+      syncShareButtonState();
+      renderShareMenu();
+      setMediaStatus("Enviando solicitud al presentador…");
+      return await new Promise((resolve) => {
+        let resolved = false;
+        const finish = (ok) => {
+          if (resolved) return;
+          resolved = true;
+          resolve(!!ok);
+        };
+        const ackTimer = setTimeout(() => {
+          screenShareRequestPending = false;
+          syncShareButtonState();
+          renderShareMenu();
+          setMediaStatus(
+            "No se pudo enviar la solicitud (sin respuesta del servidor). Verifica que el servidor esté actualizado y reiniciado."
+          );
+          finish(false);
+        }, 6000);
+        socket.emit(
+          "meet:screenShare:request",
+          { roomId: normRoomKey(activeRoomId) },
+          (resp) => {
+            clearTimeout(ackTimer);
+            screenShareRequestPending = false;
+            syncShareButtonState();
+            renderShareMenu();
+            if (!resp?.ok) {
+              setMediaStatus(resp?.error || "No se pudo enviar la solicitud de compartir.");
+              finish(false);
+              return;
+            }
+            setMediaStatus("Solicitud enviada al presentador. Esperando aprobación.");
+            finish(true);
+          }
+        );
+      });
+    }
+
+    function getParticipantDisplayNameByUserId(userId) {
+      const uid = String(userId || "");
+      if (!uid) return "Un participante";
+      const p = participantsById.get(uid);
+      return p?.nombre || p?.email || uid.slice(0, 8);
+    }
+
+    function openShareRequestModal(req) {
+      const modal = $("shareRequestModal");
+      const nameEl = $("shareRequestModalName");
+      if (!modal || !nameEl || !req) return;
+      const displayName = getParticipantDisplayNameByUserId(req.requesterUserId);
+      nameEl.textContent = `${displayName} quiere compartir pantalla`;
+      modal.classList.remove("hidden");
+    }
+
+    function closeShareRequestModal() {
+      $("shareRequestModal")?.classList.add("hidden");
+    }
+
+    function maybeShowNextShareRequestModal() {
+      if (!canManageSharingInMeeting()) return;
+      if (activeShareRequest) return;
+      if (!pendingShareRequestsQueue.length) return;
+      if (document.hidden) return;
+      activeShareRequest = pendingShareRequestsQueue.shift();
+      openShareRequestModal(activeShareRequest);
+    }
+
+    function respondToActiveShareRequest(approved) {
+      if (!activeShareRequest || !activeRoomId || !socket?.connected) return;
+      const req = activeShareRequest;
+      activeShareRequest = null;
+      closeShareRequestModal();
+      socket.emit(
+        "meet:screenShare:response",
+        {
+          roomId: normRoomKey(activeRoomId),
+          targetUserId: String(req.requesterUserId || ""),
+          approved: !!approved,
+        },
+        (resp) => {
+          if (!resp?.ok) {
+            setMediaStatus(resp?.error || "No se pudo responder la solicitud de compartir.");
+          }
+          maybeShowNextShareRequestModal();
+        }
+      );
+      const displayName = getParticipantDisplayNameByUserId(req.requesterUserId);
+      appendRecordingNotice(
+        approved
+          ? `Autorizaste a ${displayName} para compartir pantalla.`
+          : `Rechazaste la solicitud de compartir pantalla de ${displayName}.`
+      );
+    }
+
+    function applyMeetScreenShareFromServer(roomId, active, uid) {
+      if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+      const oid = uid != null ? String(uid).trim().toLowerCase() : "";
+      if (active) {
+        remoteScreenShareUserId = oid;
+      } else {
+        if (
+          remoteScreenShareUserId &&
+          oid &&
+          String(remoteScreenShareUserId).trim().toLowerCase() !== oid
+        ) {
+          return;
+        }
+        remoteScreenShareUserId = "";
+      }
+      scheduleRemoteScreenLayoutUpdate();
+    }
+
+    function flushPendingMeetScreenShareAfterJoin() {
+      if (!pendingMeetScreenShare || !activeRoomId) return;
+      const d = pendingMeetScreenShare;
+      pendingMeetScreenShare = null;
+      applyMeetScreenShareFromServer(d.roomId, d.active, d.userId);
+    }
+
+    function scheduleRemoteScreenLayoutUpdate() {
+      if (remoteScreenLayoutRaf) return;
+      remoteScreenLayoutRaf = requestAnimationFrame(() => {
+        remoteScreenLayoutRaf = 0;
+        updateRemoteScreenShareLayout();
+      });
+    }
+
+    function isDisplayCaptureVideoTrack(track) {
+      if (!track || track.kind !== "video") return false;
+      try {
+        const s = track.getSettings?.() || {};
+        if (
+          s.displaySurface === "monitor" ||
+          s.displaySurface === "window" ||
+          s.displaySurface === "browser"
+        ) {
+          return true;
+        }
+      } catch (_) {}
+      const label = String(track.label || "").toLowerCase();
+      return (
+        label.includes("screen") ||
+        label.includes("pantalla") ||
+        label.includes("display") ||
+        label.includes("monitor") ||
+        label.includes("window") ||
+        label.includes("tab") ||
+        label.includes("pest") ||
+        label.includes("application") ||
+        label.includes("chrome") ||
+        label.includes("youtube")
+      );
+    }
+
+    function updateRemoteScreenShareLayout() {
+      const shell = $("roomShell");
+      const videos = $("videos");
+      const rc = $("remotesContainer");
+      const stage = $("roomRemoteScreenStage");
+      const localWrap = $("localVideo")?.closest(".remote-peer");
+      if (!shell || !videos || !rc || !activeRoomId) return;
+
+      for (const [remoteSocketId, vid] of remoteVideos) {
+        const stream = vid.srcObject;
+        const track = stream?.getVideoTracks?.()?.[0];
+        const peerUid = peerSocketToUserId.get(remoteSocketId);
+        const matchesAnnounced =
+          !!remoteScreenShareUserId &&
+          peerUid &&
+          String(peerUid).trim().toLowerCase() ===
+            String(remoteScreenShareUserId).trim().toLowerCase();
+        const isScreen = matchesAnnounced || isDisplayCaptureVideoTrack(track);
+        const wrap = vid.closest(".remote-peer");
+        if (!wrap || wrap === localWrap) continue;
+        wrap.classList.toggle("remote-peer--screen-share", isScreen);
+      }
+
+      let screenWrap = null;
+      for (const [, vid] of remoteVideos) {
+        const wrap = vid.closest(".remote-peer");
+        if (!wrap || wrap === localWrap) continue;
+        if (wrap.classList.contains("remote-peer--screen-share")) {
+          screenWrap = wrap;
+        } else {
+          rc.appendChild(wrap);
+        }
+      }
+
+      if (stage) {
+        if (screenWrap) {
+          stage.hidden = false;
+          stage.removeAttribute("hidden");
+          stage.setAttribute("aria-hidden", "false");
+          stage.appendChild(screenWrap);
+        } else {
+          while (stage.firstChild) {
+            rc.appendChild(stage.firstChild);
+          }
+          stage.hidden = true;
+          stage.setAttribute("hidden", "");
+          stage.setAttribute("aria-hidden", "true");
+        }
+      }
+
+      if (localWrap && localWrap.parentElement === videos) {
+        videos.insertBefore(localWrap, videos.firstChild);
+      }
+      if (!rc.parentElement || rc.parentElement !== videos) {
+        if (localWrap?.nextSibling) {
+          videos.insertBefore(rc, localWrap.nextSibling);
+        } else {
+          videos.appendChild(rc);
+        }
+      } else if (localWrap && rc.previousElementSibling !== localWrap) {
+        videos.insertBefore(rc, localWrap.nextSibling);
+      }
+
+      const anyRemoteScreen = !!screenWrap;
+      shell.classList.toggle("room-shell--remote-screen-dominant", anyRemoteScreen);
+      videos.classList.toggle("room-videos--screen-dominant", anyRemoteScreen);
+    }
+
+    function applyRemoteBoardPresentationUi(active) {
+      if (!activeRoomId) return;
+      const rid = normRoomKey(activeRoomId);
+      if (active) {
+        _suppressHashRoute = true;
+        location.hash = "#/meet/" + encodeURIComponent(rid) + "/board";
+        _suppressHashRoute = false;
+        setMeetView("board");
+      } else {
+        if (!boardPresentationActive && !(screenShareTrack?.readyState === "live")) {
+          _suppressHashRoute = true;
+          location.hash = "#/meet/" + encodeURIComponent(rid) + "/gallery";
+          _suppressHashRoute = false;
+          setMeetView("gallery");
+        }
+      }
+      requestAnimationFrame(() => {
+        try {
+          resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
+          drawBoard();
+        } catch (_) {}
+        scheduleRemoteScreenLayoutUpdate();
+      });
+    }
+
+    function applyBoardPresentationFromServer(roomId, active, uid) {
+      if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+      const myId = String(currentUser?.usuarioId || "").trim().toLowerCase();
+      const oid = uid != null ? String(uid).trim().toLowerCase() : "";
+      if (active) {
+        remoteBoardPresentationUserId = uid != null ? String(uid) : "";
+        if (oid && oid === myId) return;
+        applyRemoteBoardPresentationUi(true);
+      } else {
+        if (
+          remoteBoardPresentationUserId &&
+          oid &&
+          String(remoteBoardPresentationUserId).trim().toLowerCase() !== oid
+        ) {
+          return;
+        }
+        remoteBoardPresentationUserId = "";
+        applyRemoteBoardPresentationUi(false);
+      }
+    }
+
+    function flushPendingBoardPresentationAfterJoin() {
+      if (!pendingBoardPresentation || !activeRoomId) return;
+      const d = pendingBoardPresentation;
+      pendingBoardPresentation = null;
+      applyBoardPresentationFromServer(d.roomId, d.active, d.userId);
+    }
+
+    function stopBoardPresentation(options = {}) {
+      const restoreStatus = options.restoreStatus !== false;
+      const was = boardPresentationActive;
+      boardPresentationActive = false;
+      if (was) emitBoardPresentation(false);
+      const roomId = activeRoomId ? normRoomKey(activeRoomId) : "";
+      if (roomId) {
+        location.hash = "#/meet/" + encodeURIComponent(roomId) + "/gallery";
+      }
+      syncShareButtonState();
+      renderShareMenu();
+      closeToolbarMenus();
+      if (restoreStatus) {
+        setMediaStatus("Dejaste de compartir el tablero.");
+      }
+      scheduleRemoteScreenLayoutUpdate();
     }
 
     async function stopScreenShare(options = {}) {
       const restoreStatus = options.restoreStatus === true;
+      const hadLiveScreenShare =
+        !!(screenShareTrack && screenShareTrack.readyState === "live");
       if (screenShareTrack) {
         screenShareTrack.onended = null;
       }
@@ -3169,9 +3743,22 @@
       if (restoreStatus) {
         setMediaStatus(fallbackVideo ? "Se dejó de compartir pantalla; cámara restaurada." : "Se dejó de compartir pantalla.");
       }
+      closeToolbarMenus();
+      if (hadLiveScreenShare) emitMeetScreenShare(false);
+      if (hadLiveScreenShare && !canManageSharingInMeeting()) {
+        presenterGrantedScreenShare = false;
+        autoStartShareAfterApproval = false;
+      }
+      syncShareButtonState();
+      renderShareMenu();
+      scheduleRemoteScreenLayoutUpdate();
     }
 
     async function startScreenShare() {
+      if (!canShareInMeeting()) {
+        setMediaStatus("Solo el presentador puede compartir contenido.");
+        return;
+      }
       if (!activeRoomId) {
         log("Entra en una sala antes de compartir.");
         return;
@@ -3186,6 +3773,13 @@
           video: { frameRate: { ideal: 30, max: 30 } },
           audio: shareWithAudio,
         });
+        if (!canShareInMeeting()) {
+          try {
+            stream.getTracks().forEach((t) => t.stop());
+          } catch (_) {}
+          setMediaStatus("No tienes permisos para compartir pantalla en esta reunión.");
+          return;
+        }
         const track = stream.getVideoTracks()[0];
         if (!track) {
           setMediaStatus("No se pudo iniciar la pantalla compartida.");
@@ -3205,6 +3799,8 @@
         renderShareMenu();
         setMediaStatus("Compartiendo pantalla con la sala.");
         log("Compartir pantalla activo.");
+        emitMeetScreenShare(true);
+        scheduleRemoteScreenLayoutUpdate();
       } catch (e) {
         setMediaStatus("Se canceló compartir pantalla.");
       }
@@ -3212,14 +3808,37 @@
 
     async function runShareAction(target) {
       preferredShareTarget = target === "board" ? "board" : "screen";
+      if (preferredShareTarget === "board" && !canManageSharingInMeeting()) {
+        setMediaStatus("Solo el presentador puede compartir tablero.");
+        closeToolbarMenus();
+        return;
+      }
+      if (preferredShareTarget === "screen" && !canShareInMeeting()) {
+        if (canRequestSharePermissionInMeeting()) {
+          autoStartShareAfterApproval = true;
+          await requestSharePermission();
+        } else {
+          setMediaStatus("Solo el presentador puede compartir contenido.");
+        }
+        closeToolbarMenus();
+        return;
+      }
       if (preferredShareTarget === "board") {
         await stopScreenShare();
+        boardPresentationActive = true;
+        emitBoardPresentation(true);
         const roomId = activeRoomId ? normRoomKey(activeRoomId) : "";
         if (roomId) {
           location.hash = "#/meet/" + encodeURIComponent(roomId) + "/board";
         }
         setMediaStatus("Compartiendo tablero en la reunión.");
+        syncShareButtonState();
+        renderShareMenu();
+        scheduleRemoteScreenLayoutUpdate();
         return;
+      }
+      if (boardPresentationActive) {
+        stopBoardPresentation({ restoreStatus: false });
       }
       await startScreenShare();
     }
@@ -3832,7 +4451,7 @@
     function buildMeetingJoinLink(roomId) {
       const rid = String(roomId || "").trim();
       if (!rid) return "";
-      return `${location.origin}${location.pathname}#/meet/${encodeURIComponent(rid)}/board`;
+      return `${location.origin}${location.pathname}#/meet/${encodeURIComponent(rid)}/wait`;
     }
 
     /** PK interna de BD (no confundir con `roomId`). Sequelize puede exponer `reunionId` o `reunion_id` según serialización. */
@@ -4149,7 +4768,25 @@
       } catch (e) { console.warn("ICE config", e); }
     }
 
+    function hideMeetWaiting() {
+      $("meetWaitingSection")?.classList.add("hidden");
+      meetWaitingRoomId = "";
+    }
+
+    function showMeetWaiting(roomId) {
+      const rid = String(roomId || "").trim();
+      meetWaitingRoomId = rid;
+      $("authSection")?.classList.add("hidden");
+      $("lobbySection")?.classList.add("hidden");
+      $("roomSection")?.classList.add("hidden");
+      $("meetWaitingSection")?.classList.remove("hidden");
+      document.body.classList.remove("body--in-room");
+      const label = $("meetWaitingRoomLabel");
+      if (label) label.textContent = rid ? normRoomKey(rid) : "—";
+    }
+
     function showLobby() {
+      hideMeetWaiting();
       $("authSection").classList.add("hidden");
       $("lobbySection").classList.remove("hidden");
       $("roomSection").classList.add("hidden");
@@ -4157,15 +4794,17 @@
       renderLobbyHome();
     }
     function showAuth() {
+      hideMeetWaiting();
       $("authSection").classList.remove("hidden");
       $("lobbySection").classList.add("hidden");
       $("roomSection").classList.add("hidden");
       document.body.classList.remove("body--in-room");
     }
     function showRoom() {
+      hideMeetWaiting();
       $("authSection")?.classList.add("hidden");
       $("lobbySection")?.classList.add("hidden");
-      $("roomSection").classList.remove("hidden");
+      $("roomSection")?.classList.remove("hidden");
       document.body.classList.add("body--in-room", "app-route-meet");
       document.body.classList.remove("app-route-login", "app-route-lobby");
       setChatPanelHidden(false);
@@ -4185,7 +4824,9 @@
       if (segs[0] === "login") return { name: "login" };
       if (segs[0] === "lobby") return { name: "lobby" };
       if (segs[0] === "meet" && segs[1]) {
-        const view = segs[2] === "gallery" ? "gallery" : "board";
+        let view = "board";
+        if (segs[2] === "gallery") view = "gallery";
+        else if (segs[2] === "wait") view = "wait";
         return { name: "meet", roomId: segs[1], view };
       }
       return { name: getToken() ? "lobby" : "login" };
@@ -4202,6 +4843,7 @@
         vbtn.setAttribute("aria-pressed", gallery ? "true" : "false");
       }
       if (!gallery) applyRoomVideoStripSizing();
+      scheduleRemoteScreenLayoutUpdate();
     }
 
     function clampRoomVideoStripHeight(h, primaryEl) {
@@ -4418,13 +5060,31 @@
         const ridNorm = normRoomKey(r.roomId);
         if (activeRoomId && normRoomKey(activeRoomId) === ridNorm) {
           showRoom();
-          setMeetView(r.view);
+          if (r.view === "wait") {
+            _suppressHashRoute = true;
+            location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
+            _suppressHashRoute = false;
+            setMeetView("gallery");
+          } else if (r.view === "gallery" || r.view === "board") {
+            if (r.view === "gallery" && remoteBoardPresentationUserId) {
+              _suppressHashRoute = true;
+              location.hash = "#/meet/" + encodeURIComponent(normRoomKey(activeRoomId)) + "/board";
+              _suppressHashRoute = false;
+              setMeetView("board");
+            } else {
+              setMeetView(r.view);
+            }
+          }
           setTimeout(() => {
             try {
               syncZoomUi();
               drawBoard();
             } catch (e) {}
           }, 0);
+          return;
+        }
+        if (r.view === "wait") {
+          showMeetWaiting(r.roomId);
           return;
         }
         showLobby();
@@ -5452,7 +6112,14 @@
       };
       pc.ontrack = (e) => {
         const vid = remoteVideos.get(remoteSocketId);
-        if (vid) vid.srcObject = e.streams[0];
+        const stream = e.streams[0];
+        if (vid) vid.srcObject = stream;
+        if (stream) {
+          const bump = () => scheduleRemoteScreenLayoutUpdate();
+          stream.addEventListener("addtrack", bump);
+          stream.addEventListener("removetrack", bump);
+          bump();
+        }
         if (isMeetingRecordingMixActive() && shouldConnectRemoteToRecordingMix()) {
           connectRemotePeerToMix(remoteSocketId);
         }
@@ -5510,6 +6177,7 @@
 
     function cleanupPeer(remoteSocketId) {
       teardownPeerPcOnly(remoteSocketId);
+      peerSocketToUserId.delete(remoteSocketId);
       const vid = remoteVideos.get(remoteSocketId);
       if (vid) {
         vid.srcObject = null;
@@ -5518,6 +6186,7 @@
       }
       peerStatusEls.delete(remoteSocketId);
       updateLocalAggregateStatus();
+      scheduleRemoteScreenLayoutUpdate();
     }
 
     async function negotiateOffer(remoteSocketId) {
@@ -5897,6 +6566,65 @@
       const d = roomDocenteUsuarioId;
       if (u == null || d == null) return false;
       return String(u).trim().toLowerCase() === String(d).trim().toLowerCase();
+    }
+
+    function isAdminUser() {
+      return String(currentUser?.rol || "").toLowerCase() === "admin";
+    }
+
+    /** Puede administrar compartir (docente de la sala o admin). */
+    function canManageSharingInMeeting() {
+      if (!activeRoomId || !currentUser?.usuarioId) return false;
+      if (isAdminUser()) return true;
+      return isRoomDocente();
+    }
+
+    /** Puede compartir pantalla ahora mismo (docente/admin o invitado autorizado por docente). */
+    function canShareInMeeting() {
+      if (!activeRoomId || !currentUser?.usuarioId) return false;
+      if (canManageSharingInMeeting()) return true;
+      return presenterGrantedScreenShare;
+    }
+
+    /** Invitado elegible para pedir permiso de compartir pantalla. */
+    function canRequestSharePermissionInMeeting() {
+      if (!activeRoomId || !currentUser?.usuarioId) return false;
+      return !canManageSharingInMeeting();
+    }
+
+    function updateShareControlsForRole() {
+      const split = $("shareSplit");
+      const btn = $("btnShareMain");
+      if (!btn) return;
+      const canShare = canShareInMeeting();
+      const canRequest = canRequestSharePermissionInMeeting();
+      const screenActive = !!(screenShareTrack && screenShareTrack.readyState === "live");
+      const presenting = boardPresentationActive;
+      const enabled = canShare || canRequest || screenActive || presenting;
+      btn.disabled = !enabled;
+      btn.classList.toggle("room-tb-btn--no-share", !enabled);
+      let title = "Compartir contenido";
+      if (screenShareRequestPending) {
+        title = "Solicitud enviada al presentador. Esperando aprobación.";
+      } else if (canShare) {
+        if (screenActive) title = "Dejar de compartir pantalla";
+        else if (presenting) title = "Dejar de compartir tablero";
+      } else if (canRequest) {
+        title = "Solicitar permiso al presentador para compartir pantalla.";
+      } else {
+        title = "Solo el presentador puede compartir contenido.";
+      }
+      btn.title = title;
+      if (split) split.classList.toggle("room-tb-share--locked", !enabled);
+      if (!canShare) {
+        if (screenActive) {
+          void stopScreenShare({ restoreStatus: true });
+        }
+        if (presenting) {
+          stopBoardPresentation({ restoreStatus: true });
+        }
+        closeToolbarMenus();
+      }
     }
 
     function isBoardViewLocked() {
@@ -6737,6 +7465,7 @@
         reunion?.docenteUsuarioId != null ? String(reunion.docenteUsuarioId) : null;
       updateBoardFollowUi();
       updateTeacherRecordingControlsVisibility();
+      updateShareControlsForRole();
       if (!reunionId) return;
       const partData = await api("/api/reuniones/" + reunionId + "/participantes");
       (partData.participantes || []).forEach((p) => {
@@ -6772,6 +7501,59 @@
         });
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
+        socket.on("board:presentation", ({ roomId, active, userId: uid }) => {
+          if (!activeRoomId) {
+            pendingBoardPresentation = { roomId, active, userId: uid };
+            return;
+          }
+          applyBoardPresentationFromServer(roomId, active, uid);
+        });
+        socket.on("meet:screenShare", ({ roomId, active, userId: uid }) => {
+          if (!activeRoomId) {
+            pendingMeetScreenShare = { roomId, active, userId: uid };
+            return;
+          }
+          applyMeetScreenShareFromServer(roomId, active, uid);
+        });
+        socket.on("meet:screenShare:request", ({ roomId, requesterUserId }) => {
+          if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+          if (!canManageSharingInMeeting()) return;
+          const uid = String(requesterUserId || "");
+          if (!uid) return;
+          const alreadyQueued =
+            (activeShareRequest && String(activeShareRequest.requesterUserId || "") === uid) ||
+            pendingShareRequestsQueue.some((r) => String(r.requesterUserId || "") === uid);
+          if (!alreadyQueued) {
+            pendingShareRequestsQueue.push({ roomId, requesterUserId: uid });
+          }
+          const displayName = getParticipantDisplayNameByUserId(uid);
+          appendRecordingNotice(
+            `Solicitud de compartir pantalla recibida de ${displayName}.`
+          );
+          maybeShowNextShareRequestModal();
+        });
+        socket.on("meet:screenShare:grant", ({ roomId, approved, byUserId }) => {
+          if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+          screenShareRequestPending = false;
+          presenterGrantedScreenShare = !!approved;
+          const by = String(byUserId || "");
+          const approver = participantsById.get(by);
+          const approverName = approver?.nombre || approver?.email || "el presentador";
+          if (approved) {
+            setMediaStatus(`El presentador autorizó tu solicitud para compartir pantalla.`);
+            appendRecordingNotice(`${approverName} autorizó que compartas pantalla.`);
+            if (autoStartShareAfterApproval) {
+              autoStartShareAfterApproval = false;
+              void startScreenShare();
+            }
+          } else {
+            autoStartShareAfterApproval = false;
+            setMediaStatus("El presentador rechazó tu solicitud de compartir pantalla.");
+            appendRecordingNotice(`${approverName} rechazó tu solicitud de compartir pantalla.`);
+          }
+          syncShareButtonState();
+          renderShareMenu();
+        });
         socket.on("board:follow:state", ({ active, roomId: rid }) => {
           if (!activeRoomId) return;
           if (active && rid && !sameActiveRoom(rid, activeRoomId)) return;
@@ -6839,6 +7621,7 @@
           } catch (e) { console.warn(e); }
         });
         socket.on("presence:join", ({ userId, socketId }) => {
+          if (socketId && userId) peerSocketToUserId.set(socketId, userId);
           if (userId) {
             connectedUserIds.add(userId);
             if (!participantsById.has(userId) && activeRoomId) {
@@ -6847,11 +7630,9 @@
               refreshChatThreadPicker();
             }
           }
-          if (socketId) {
-            // peer WebRTC se maneja al negociar; aquí solo actualizamos estado de sala
-          }
         });
         socket.on("presence:leave", ({ userId, socketId }) => {
+          if (socketId) peerSocketToUserId.delete(socketId);
           if (userId && userId !== currentUser?.usuarioId) {
             connectedUserIds.delete(userId);
             refreshChatThreadPicker();
@@ -6886,6 +7667,7 @@
 
     async function enterRoom(roomIdInput = "") {
       closeToolbarMenus();
+      pendingBoardPresentation = null;
       const roomId = String(roomIdInput || "").trim();
       if (!roomId) {
         log("No se encontró un Room ID válido para entrar.");
@@ -6930,6 +7712,9 @@
             );
             activeReunionId = resp.reunionId != null ? String(resp.reunionId) : null;
             lastKnownRoomIdForRecording = activeRoomId;
+            presenterGrantedScreenShare = false;
+            screenShareRequestPending = false;
+            autoStartShareAfterApproval = false;
             roomDocenteUsuarioId =
               resp.docenteUsuarioId != null
                 ? String(resp.docenteUsuarioId)
@@ -6939,19 +7724,21 @@
               if (arl) arl.textContent = activeRoomId;
             }
             showRoom();
-            setMeetView("board");
+            setMeetView("gallery");
             setRoomBoardLayout("top");
             _suppressHashRoute = true;
-            location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/board";
+            location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
             _suppressHashRoute = false;
             ensureGeneralThread();
             chatThreads.forEach((t) => {
               t.unread = 0;
             });
             connectedUserIds.clear();
+            peerSocketToUserId.clear();
             if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
             (resp.peers || []).forEach((p) => {
               if (p.userId) connectedUserIds.add(p.userId);
+              if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
             });
             await loadParticipantsForRoom(activeRoomId);
             setActiveChatThread("general");
@@ -6982,6 +7769,8 @@
                 drawBoard();
               }
             }, 0);
+            flushPendingBoardPresentationAfterJoin();
+            flushPendingMeetScreenShareAfterJoin();
             resolve();
           });
         });
@@ -6992,6 +7781,23 @@
 
     async function leaveRoom() {
       closeToolbarMenus();
+      pendingBoardPresentation = null;
+      pendingMeetScreenShare = null;
+      remoteScreenShareUserId = "";
+      presenterGrantedScreenShare = false;
+      screenShareRequestPending = false;
+      autoStartShareAfterApproval = false;
+      pendingShareRequestsQueue.length = 0;
+      activeShareRequest = null;
+      closeShareRequestModal();
+      peerSocketToUserId.clear();
+      if (boardPresentationActive && socket?.connected && activeRoomId) {
+        try {
+          socket.emit("board:presentation", { roomId: normRoomKey(activeRoomId), active: false });
+        } catch (_) {}
+      }
+      boardPresentationActive = false;
+      remoteBoardPresentationUserId = "";
       const room = activeRoomId;
       if (socket && room) {
         try {
@@ -7018,6 +7824,7 @@
       lastKnownRoomIdForRecording = null;
       roomDocenteUsuarioId = null;
       updateTeacherRecordingControlsVisibility();
+      updateShareControlsForRole();
       presenterFollowLeadActive = false;
       boardFollowRoomActive = false;
       followingPresenter = false;
@@ -7046,7 +7853,19 @@
       $("roomSection").classList.add("hidden");
       document.body.classList.remove("body--in-room", "app-route-meet");
       const shell = $("roomShell");
-      if (shell) shell.classList.remove("room-shell--gallery", "room-shell--videos-right");
+      if (shell)
+        shell.classList.remove(
+          "room-shell--gallery",
+          "room-shell--videos-right",
+          "room-shell--remote-screen-dominant"
+        );
+      $("videos")?.classList.remove("room-videos--screen-dominant");
+      const rssLeave = $("roomRemoteScreenStage");
+      if (rssLeave) {
+        rssLeave.textContent = "";
+        rssLeave.hidden = true;
+        rssLeave.setAttribute("aria-hidden", "true");
+      }
       setRoomBoardLayout("top");
       setChatPanelHidden(false);
       const vbtn = $("btnRoomViewToggle");
@@ -7087,6 +7906,32 @@
         e.preventDefault();
         $("btnProfileNameModalSave")?.click();
       }
+    });
+    $("btnShareRequestApprove")?.addEventListener("click", () => {
+      respondToActiveShareRequest(true);
+    });
+    $("btnShareRequestReject")?.addEventListener("click", () => {
+      respondToActiveShareRequest(false);
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) maybeShowNextShareRequestModal();
+    });
+    window.addEventListener("focus", () => maybeShowNextShareRequestModal());
+
+    $("btnMeetWaitingJoin")?.addEventListener("click", () => {
+      const r = parseRoute();
+      const rid = String(meetWaitingRoomId || "").trim() || (r.name === "meet" ? String(r.roomId || "").trim() : "");
+      if (!rid) {
+        log("No hay sala para unirse.");
+        return;
+      }
+      void enterRoom(rid).catch(() => {});
+    });
+    $("btnMeetWaitingBack")?.addEventListener("click", () => {
+      _suppressHashRoute = true;
+      location.hash = "#/lobby";
+      _suppressHashRoute = false;
+      applyRouteFromHash();
     });
 
     $("btnLogin").addEventListener("click", async () => {
@@ -7320,6 +8165,16 @@
       const shell = $("roomShell");
       const cur = shell?.classList.contains("room-shell--gallery") ? "gallery" : "board";
       const next = cur === "gallery" ? "board" : "gallery";
+      if (next === "gallery" && remoteBoardPresentationUserId) {
+        log("Un participante está presentando el tablero; mantén la vista tablero para verlo.");
+        return;
+      }
+      if (next === "gallery") {
+        if (boardPresentationActive) emitBoardPresentation(false);
+        boardPresentationActive = false;
+        syncShareButtonState();
+        renderShareMenu();
+      }
       location.hash = "#/meet/" + encodeURIComponent(normRoomKey(activeRoomId)) + "/" + next;
     });
     $("btnToggleChat")?.addEventListener("click", () => setChatPanelHidden(!chatPanelHidden));
@@ -7378,25 +8233,31 @@
       renderDeviceMenu("video");
       toggleToolbarMenu("cam");
     });
-    $("btnShareMenu")?.addEventListener("click", () => {
-      renderShareMenu();
-      toggleToolbarMenu("share");
-    });
     $("btnRecordMenu")?.addEventListener("click", () => toggleToolbarMenu("record"));
-    $("btnRoomReactionMenu")?.addEventListener("click", () => {
-      renderRoomReactionMenu();
-      toggleToolbarMenu("reaction");
-    });
     $("btnRoomReaction")?.addEventListener("click", () => {
       renderRoomReactionMenu();
       toggleToolbarMenu("reaction");
     });
     $("btnShareMain")?.addEventListener("click", () => {
+      if (!canShareInMeeting()) {
+        if (canRequestSharePermissionInMeeting()) {
+          autoStartShareAfterApproval = true;
+          void requestSharePermission();
+          return;
+        }
+        log("Solo el presentador puede compartir contenido.");
+        return;
+      }
       if (screenShareTrack?.readyState === "live") {
         void stopScreenShare({ restoreStatus: true });
         return;
       }
-      void runShareAction(preferredShareTarget);
+      if (boardPresentationActive) {
+        stopBoardPresentation({ restoreStatus: true });
+        return;
+      }
+      renderShareMenu();
+      toggleToolbarMenu("share");
     });
     document.addEventListener("click", (ev) => {
       const target = ev.target;
