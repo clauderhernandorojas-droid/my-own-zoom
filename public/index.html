@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Own Zoom — Cliente</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <style>
     :root {
@@ -2615,8 +2615,31 @@
 
   <script>
     const LS = "moj_token";
+    const API_ORIGIN_STORAGE_KEY = "moj_api_origin";
+    const DEFAULT_RENDER_API_ORIGIN = "https://lc-zoom.onrender.com";
+    const isLikelyRenderHost = () =>
+      typeof location !== "undefined" && /\.onrender\.com$/i.test(String(location.hostname || ""));
+    const inferApiOrigin = () => {
+      try {
+        const override =
+          String(window.__MOJ_API_ORIGIN || "").trim() ||
+          String(localStorage.getItem(API_ORIGIN_STORAGE_KEY) || "").trim();
+        if (override) return override.replace(/\/+$/, "");
+      } catch (_) {}
+      if (isLikelyRenderHost() && String(location.hostname || "").toLowerCase() !== "lc-zoom.onrender.com") {
+        return DEFAULT_RENDER_API_ORIGIN;
+      }
+      return "";
+    };
+    const API_ORIGIN = inferApiOrigin();
+    const toApiUrl = (path) => {
+      const p = String(path || "");
+      if (/^https?:\/\//i.test(p)) return p;
+      const normalized = p.startsWith("/") ? p : "/" + p;
+      return API_ORIGIN ? API_ORIGIN + normalized : normalized;
+    };
     const api = (path, opts = {}) =>
-      fetch(path, {
+      fetch(toApiUrl(path), {
         ...opts,
         headers: {
           "Content-Type": "application/json",
@@ -2638,7 +2661,7 @@
       const fd = new FormData();
       fd.append("file", file);
       const r = await fetch(
-        "/api/reuniones/room/" + encodeURIComponent(activeRoomId) + "/chat-adjunto",
+        toApiUrl("/api/reuniones/room/" + encodeURIComponent(activeRoomId) + "/chat-adjunto"),
         {
           method: "POST",
           headers: { Authorization: "Bearer " + getToken() },
@@ -2658,7 +2681,7 @@
 
     async function downloadChatAdjunto(mensajeId, suggestedName) {
       if (!getToken()) return;
-      const r = await fetch("/api/mensajes/adjunto/" + encodeURIComponent(mensajeId), {
+      const r = await fetch(toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(mensajeId)), {
         headers: { Authorization: "Bearer " + getToken() },
       });
       if (!r.ok) {
@@ -4762,7 +4785,7 @@
 
     async function loadIce() {
       try {
-        const r = await fetch("/api/rtc/config");
+        const r = await fetch(toApiUrl("/api/rtc/config"));
         const j = await r.json();
         if (j.iceServers?.length) iceServers = j.iceServers;
       } catch (e) { console.warn("ICE config", e); }
@@ -7188,8 +7211,7 @@
       }
       if (mid && !isLocal && m.adjuntoRelPath) {
         addItem("Copiar enlace de descarga", () => {
-          const path =
-            location.origin + "/api/mensajes/adjunto/" + encodeURIComponent(mid);
+          const path = toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(mid));
           void copyTextToClipboard(path);
         });
       }
@@ -7232,7 +7254,7 @@
           return chatAdjuntoPreviewCache.get(cacheKey);
         }
         try {
-          const r = await fetch("/api/mensajes/adjunto/" + encodeURIComponent(m.mensajeId), {
+          const r = await fetch(toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(m.mensajeId)), {
             headers: { Authorization: "Bearer " + getToken() },
           });
           if (!r.ok) return "";
@@ -7482,7 +7504,11 @@
       if (!token) throw new Error("Sin token");
       if (socket?.connected) return Promise.resolve(socket);
       return new Promise((resolve, reject) => {
-        socket = io({ auth: { token }, transports: ["websocket", "polling"] });
+        if (API_ORIGIN) {
+          socket = io(API_ORIGIN, { auth: { token }, transports: ["websocket", "polling"] });
+        } else {
+          socket = io({ auth: { token }, transports: ["websocket", "polling"] });
+        }
         socket.on("connect", () => resolve(socket));
         socket.on("connect_error", (e) => {
           const msg =
