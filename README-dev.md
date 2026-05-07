@@ -71,6 +71,13 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
   - Eventos Socket añadidos: `room:entry:request`, `room:entry:response`, `room:entry:decision`.
 - **Franja de vídeo en sala**: una fila con marca **My Own Zoom** + botón **Copiar enlace** (sin UUID visible bajo el título); vídeos a la derecha. `#btnToggleChat` y `#btnRoomViewToggle` existen ocultos solo para sincronizar JS con el panel azul de layout/chat.
 - **Tablero**: menús laterales (colores, emojis, grosor, tamaño de texto, más) fuera de la barra vertical; posición **`fixed`** para evitar recortes y scroll fantasma; barra vertical acotada en altura (`max-height`) sin estirar vacío.
+- **Texto en tablero (herramienta T)** — `public/index.html`:
+  - Edición inline con **`contenteditable`** (mismo aspecto de borde punteado que la selección final; evita controles nativos de `textarea`).
+  - **Sin `max-width`** en el editor para que el cuadro pueda crecer horizontalmente sin recortar el texto (`white-space: pre` salvo saltos con Enter).
+  - Al **redimensionar** un bloque de texto seleccionado con el puntero, solo manijas en **esquinas**; manijas algo mayores y zona de golpeo ampliada; cursor de resize al pasar sobre la manija en modo puntero.
+  - Coherencia canvas ↔ editor: las medidas de texto usan **`getBoardPixelRatio()`** (relación `canvas.width` / ancho CSS), alineado con el redimensionado del canvas por `devicePixelRatio` en `resizeBoardCanvasToViewport`.
+  - La posición persistida del texto usa la **ancla mundo** del editor (`worldX` / `worldY`) al confirmar, evitando drift por conversiones redundantes.
+  - Tamaño de fuente inicial por defecto para texto nuevo: **24 px** (`boardTextSize`; el menú de tamaño de texto del tablero sigue actualizando el editor activo).
 - **Reacciones**:
   - **Mensajes de chat** con persistencia por BD (`mensaje_reacciones`) y sync por Socket (`chat:reaction:toggle` / `chat:messageReaction`) en general y privados.
   - **Barra rápida de emojis** encima del input de chat (incluye botón `...` para más emojis); si el input está vacío, el emoji se envía como mensaje.
@@ -165,4 +172,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — además de lo anterior: reacciones persistentes por mensaje (general/privado), reacción de sala en toolbar junto a Grabar, barra rápida de emojis en chat (`...` para más), fix responsive para mantener chat a la derecha en ventanas pequeñas, y borrador por trazo/elemento completo.*
+*Última actualización de este documento: mayo 2026 — texto en tablero: editor `contenteditable`, alineación métrica con DPR/pixel ratio del canvas, handles solo en esquinas y README alineado al comportamiento actual.*

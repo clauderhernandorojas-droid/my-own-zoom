@@ -1214,7 +1214,7 @@
       position: absolute;
       z-index: 50;
       min-width: 48px;
-      max-width: min(96vw, 1400px);
+      max-width: none;
       padding: 0;
       margin: 0;
       white-space: pre;
@@ -1228,11 +1228,8 @@
       font-family: sans-serif;
       outline: 1.5px dashed #2563eb;
       outline-offset: 0;
-      resize: none;
       box-sizing: content-box;
       caret-color: #111;
-      appearance: none;
-      -webkit-appearance: none;
       display: block;
     }
     .msg-privado { color: #6a1b9a; }
@@ -2878,7 +2875,7 @@
     let boardTool = "pencil";
     let boardColor = "#111111";
     let boardLineWidth = 4;
-    let boardTextSize = 16;
+    let boardTextSize = 24;
     let activeTextInput = null;
     /** Índice en `boardState.elementos` del texto que se está editando (no dibujarlo en canvas para evitar doble capa / desfase). */
     let editingTextElementIndex = -1;
@@ -2889,9 +2886,9 @@
     let pointerAction = null;
     /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
     let clipboardBoardElement = null;
-    const HANDLE_SCREEN_PX = 14;
+    const HANDLE_SCREEN_PX = 18;
     /** Zona clicable más grande que el dibujo de la manija (mismo centro). */
-    const HANDLE_HIT_SCREEN_PX = 36;
+    const HANDLE_HIT_SCREEN_PX = 48;
     /** Tamaño de referencia para el encuadre inicial (no limita el tablero). */
     const BOARD_DEFAULT_VIEW_W = 1600;
     const BOARD_DEFAULT_VIEW_H = 900;
@@ -8806,6 +8803,16 @@
       return screenToWorld(sx, sy);
     }
 
+    function getBoardPixelRatio() {
+      const c = $("board");
+      if (!c) return 1;
+      const r = c.getBoundingClientRect();
+      if (!r || r.width <= 0) return 1;
+      const pr = c.width / r.width;
+      if (!Number.isFinite(pr) || pr <= 0) return 1;
+      return pr;
+    }
+
     function handleHalfWorld() {
       return (HANDLE_SCREEN_PX / 2) / boardZoom;
     }
@@ -8814,7 +8821,7 @@
       return (HANDLE_HIT_SCREEN_PX / 2) / boardZoom;
     }
 
-    function getResizeHandleRects(bounds) {
+    function getResizeHandleRects(bounds, element = null) {
       const hh = handleHalfWorld();
       const s = hh * 2;
       const x1 = bounds.x;
@@ -8823,16 +8830,24 @@
       const y2 = bounds.y + bounds.h;
       const mx = bounds.x + bounds.w / 2;
       const my = bounds.y + bounds.h / 2;
-      const ids = [
-        ["nw", x1, y1],
-        ["n", mx, y1],
-        ["ne", x2, y1],
-        ["e", x2, my],
-        ["se", x2, y2],
-        ["s", mx, y2],
-        ["sw", x1, y2],
-        ["w", x1, my],
-      ];
+      const isText = element?.type === "text";
+      const ids = isText
+        ? [
+            ["nw", x1, y1],
+            ["ne", x2, y1],
+            ["se", x2, y2],
+            ["sw", x1, y2],
+          ]
+        : [
+            ["nw", x1, y1],
+            ["n", mx, y1],
+            ["ne", x2, y1],
+            ["e", x2, my],
+            ["se", x2, y2],
+            ["s", mx, y2],
+            ["sw", x1, y2],
+            ["w", x1, my],
+          ];
       return ids.map(([id, cx, cy]) => ({
         id,
         x: cx - hh,
@@ -8842,7 +8857,7 @@
       }));
     }
 
-    function getResizeHandleHitRects(bounds) {
+    function getResizeHandleHitRects(bounds, element = null) {
       const hh = handleHitHalfWorld();
       const s = hh * 2;
       const x1 = bounds.x;
@@ -8851,16 +8866,24 @@
       const y2 = bounds.y + bounds.h;
       const mx = bounds.x + bounds.w / 2;
       const my = bounds.y + bounds.h / 2;
-      const ids = [
-        ["nw", x1, y1],
-        ["n", mx, y1],
-        ["ne", x2, y1],
-        ["e", x2, my],
-        ["se", x2, y2],
-        ["s", mx, y2],
-        ["sw", x1, y2],
-        ["w", x1, my],
-      ];
+      const isText = element?.type === "text";
+      const ids = isText
+        ? [
+            ["nw", x1, y1],
+            ["ne", x2, y1],
+            ["se", x2, y2],
+            ["sw", x1, y2],
+          ]
+        : [
+            ["nw", x1, y1],
+            ["n", mx, y1],
+            ["ne", x2, y1],
+            ["e", x2, my],
+            ["se", x2, y2],
+            ["s", mx, y2],
+            ["sw", x1, y2],
+            ["w", x1, my],
+          ];
       return ids.map(([id, cx, cy]) => ({
         id,
         x: cx - hh,
@@ -8870,9 +8893,9 @@
       }));
     }
 
-    function hitTestResizeHandle(p, bounds) {
+    function hitTestResizeHandle(p, bounds, element = null) {
       if (!bounds) return null;
-      const rects = getResizeHandleHitRects(bounds);
+      const rects = getResizeHandleHitRects(bounds, element);
       for (let i = rects.length - 1; i >= 0; i--) {
         const r = rects[i];
         if (pointInRect(p, r)) return r.id;
@@ -8924,6 +8947,27 @@
       return Math.max(8, Math.min(160, Math.round(v)));
     }
 
+    function getInlineEditorText(editorEl) {
+      if (!editorEl) return "";
+      return String(editorEl.innerText || "").replace(/\r/g, "");
+    }
+
+    function setInlineEditorText(editorEl, text) {
+      if (!editorEl) return;
+      editorEl.textContent = String(text || "");
+    }
+
+    function moveInlineEditorCaretToEnd(editorEl) {
+      if (!editorEl) return;
+      const sel = window.getSelection?.();
+      if (!sel) return;
+      const range = document.createRange();
+      range.selectNodeContents(editorEl);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
     /** Ancho de línea coherente con el canvas (incluye rebases negativos cuando el motor los expone). */
     function measureTextLineWidth(ctx, line) {
       const m = ctx.measureText(line);
@@ -8938,9 +8982,10 @@
     function drawBoardTextElement(ctx, el, z) {
       ctx.fillStyle = el.color || "#111";
       const F = el.fontSize || 16;
-      ctx.font = `${F / z}px sans-serif`;
+      const pr = getBoardPixelRatio();
+      ctx.font = `${(F * pr) / z}px sans-serif`;
       ctx.textBaseline = "top";
-      const fsu = F / z;
+      const fsu = (F * pr) / z;
       const lh = fsu * 1.2;
       const lines = String(el.text).split("\n");
       const x = el.x || 0;
@@ -8957,7 +9002,8 @@
       }
       if (el.type === "text" && el.text != null && String(el.text).length > 0) {
         const z = boardZoom;
-        const fsu = (el.fontSize || 16) / z;
+        const pr = getBoardPixelRatio();
+        const fsu = ((el.fontSize || 16) * pr) / z;
         const lineHeight = fsu * 1.2;
         const lines = String(el.text).split("\n");
         ctx.save();
@@ -9036,8 +9082,8 @@
       return {
         ...origEl,
         fontSize: newFs,
-        x: Math.round(ox),
-        y: Math.round(oy),
+        x: ox,
+        y: oy,
       };
     }
 
@@ -9267,7 +9313,7 @@
       ctx.setLineDash([]);
       if (!lockedSel) {
         ctx.fillStyle = "#2563eb";
-        for (const h of getResizeHandleRects(b)) {
+        for (const h of getResizeHandleRects(b, el)) {
           ctx.fillRect(h.x, h.y, h.w, h.h);
         }
       }
@@ -9314,23 +9360,29 @@
       const worldX = editIndex != null && boardState.elementos[editIndex] ? boardState.elementos[editIndex].x : p.x;
       const worldY = editIndex != null && boardState.elementos[editIndex] ? boardState.elementos[editIndex].y : p.y;
 
-      const input = document.createElement("textarea");
+      const input = document.createElement("div");
       input.className = "board-text-inline";
-      input.placeholder = "Enter = nueva línea · Ctrl+Enter = guardar";
-      input.rows = 1;
+      input.contentEditable = "true";
+      input.spellcheck = false;
+      input.setAttribute("role", "textbox");
+      input.setAttribute("aria-multiline", "true");
+      input.setAttribute("aria-label", "Editor de texto del tablero");
       input.style.visibility = "hidden";
-      input.style.setProperty("appearance", "none");
-      input.style.setProperty("-webkit-appearance", "none");
-      input.style.setProperty("resize", "none");
       input.style.setProperty("border", "none");
       input.style.setProperty("border-radius", "1px");
       input.style.setProperty("outline", "1.5px dashed #2563eb");
       input.style.setProperty("outline-offset", "0");
       input.style.setProperty("box-shadow", "none");
       input.style.setProperty("background", "transparent");
+      input.style.setProperty("overflow", "visible");
+      input.style.setProperty("white-space", "pre");
+      input.style.setProperty("word-break", "normal");
+      input.style.setProperty("overflow-wrap", "normal");
+      input.style.setProperty("text-indent", "0");
+      input.style.setProperty("transform-origin", "top left");
       if (editIndex != null && boardState.elementos[editIndex]) {
         const el = boardState.elementos[editIndex];
-        input.value = el.text || "";
+        setInlineEditorText(input, el.text || "");
         boardColor = el.color || boardColor;
         input.style.color = el.color || boardColor || "#111111";
         const fs = el.fontSize || 16;
@@ -9348,11 +9400,13 @@
         const rect = canvas.getBoundingClientRect();
         const scaleX = rect.width / canvas.width;
         const scaleY = rect.height / canvas.height;
+        const pr = getBoardPixelRatio();
         const z = boardZoom;
         const fs = readTextFontSizeFromInput(input);
-        const fsu = fs / z;
+        const fsu = (fs * pr) / z;
         const lineHeightCanvas = fsu * 1.2;
-        const lines = input.value.length > 0 ? input.value.split("\n") : [" "];
+        const raw = getInlineEditorText(input);
+        const lines = raw.length > 0 ? raw.split("\n") : [" "];
         const ctx2 = canvas.getContext("2d");
         ctx2.save();
         ctx2.setTransform(1, 0, 0, 1, 0, 0);
@@ -9362,10 +9416,8 @@
           maxW = Math.max(maxW, measureTextLineWidth(ctx2, line || " "));
         }
         ctx2.restore();
-        const padX = 10;
-        const padY = 6;
-        const textW = Math.ceil(maxW * scaleX) + padX * 2;
-        const textH = Math.ceil(lines.length * lineHeightCanvas * scaleY) + padY * 2;
+        const textW = Math.ceil(maxW * scaleX) + 18;
+        const textH = Math.ceil(lines.length * lineHeightCanvas * scaleY) + 2;
         const x1 = worldX * z + boardPanX;
         const y1 = worldY * z + boardPanY;
         input.style.left = `${rect.left + window.scrollX + x1 * scaleX}px`;
@@ -9375,12 +9427,13 @@
         input.style.fontSize = `${fs}px`;
         input.style.lineHeight = "1.2";
         input.style.fontFamily = "sans-serif";
+        input.scrollLeft = 0;
       };
 
       const commit = () => {
         if (committedOrCancelled) return;
         committedOrCancelled = true;
-        const textRaw = input.value;
+        const textRaw = getInlineEditorText(input);
         const isEmpty = !String(textRaw).trim();
         if (!activeRoomId) {
           closeInlineTextInput(false);
@@ -9398,6 +9451,8 @@
               ...next.elementos[editIndex],
               type: "text",
               text: textRaw,
+              x: Number.isFinite(worldX) ? worldX : next.elementos[editIndex].x,
+              y: Number.isFinite(worldY) ? worldY : next.elementos[editIndex].y,
               color: colorCommit,
               fontSize: fontCommit,
             };
@@ -9412,8 +9467,8 @@
           next.elementos.push({
             type: "text",
             text: textRaw,
-            x: p.x,
-            y: p.y,
+            x: Number.isFinite(worldX) ? worldX : p.x,
+            y: Number.isFinite(worldY) ? worldY : p.y,
             color: colorCommit,
             fontSize: fontCommit,
           });
@@ -9454,10 +9509,7 @@
       input.style.visibility = "visible";
       input.focus({ preventScroll: true });
       if (editIndex != null) {
-        const len = input.value.length;
-        input.setSelectionRange(len, len);
-      } else {
-        input.setSelectionRange(0, 0);
+        moveInlineEditorCaretToEnd(input);
       }
     }
 
@@ -9574,7 +9626,7 @@
           return;
         }
         selectedElementIndex = hit.index;
-        const hId = hitTestResizeHandle(p, hit.bounds);
+        const hId = hitTestResizeHandle(p, hit.bounds, hit.element);
         const mode = hId ? "resize" : "drag";
         pointerAction = {
           mode,
@@ -9652,6 +9704,24 @@
         boardState.elementos[idx] = nextEl;
         drawBoard();
         return;
+      }
+      if (boardTool === "pointer" && !pointerAction) {
+        const p = canvasPoint(e);
+        let cursor = "default";
+        if (isFiniteWorldPoint(p)) {
+          const hit = hitTestEditableElement(p, e.altKey);
+          if (hit?.element?.locked) {
+            cursor = "not-allowed";
+          } else if (hit?.element) {
+            const hid = hitTestResizeHandle(p, hit.bounds, hit.element);
+            if (hid === "nw" || hid === "se") cursor = "nwse-resize";
+            else if (hid === "ne" || hid === "sw") cursor = "nesw-resize";
+            else if (hid === "n" || hid === "s") cursor = "ns-resize";
+            else if (hid === "e" || hid === "w") cursor = "ew-resize";
+            else cursor = "move";
+          }
+        }
+        canvas.style.cursor = cursor;
       }
       if (!drawing || !currentStroke) return;
       const pm = canvasPoint(e);
