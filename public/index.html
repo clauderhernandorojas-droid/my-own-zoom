@@ -74,21 +74,23 @@
     .room-video-strip__brand {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
       min-width: 0;
       flex: 0 0 auto;
       max-width: min(38vw, 260px);
       justify-content: center;
+      align-items: center;
     }
     .room-video-strip__title {
       font-size: 0.62rem;
       font-weight: 600;
       color: var(--z-text);
       line-height: 1.15;
+      text-align: center;
     }
     .room-video-strip__copy-link-btn {
-      align-self: flex-start;
-      margin-top: 4px;
+      align-self: center;
+      margin-top: 0;
       padding: 0.22rem 0.55rem;
       font-size: 0.62rem;
       font-weight: 600;
@@ -166,7 +168,7 @@
       position: absolute;
       top: 8px;
       right: 10px;
-      z-index: 30;
+      z-index: 200;
       display: inline-flex;
       flex-direction: column;
       gap: 6px;
@@ -174,6 +176,7 @@
       border-radius: 12px;
       background: rgba(0, 0, 0, 0.42);
       border: 1px solid rgba(148, 163, 184, 0.35);
+      pointer-events: auto;
     }
     .room-video-layout-switch__row {
       display: inline-flex;
@@ -245,6 +248,13 @@
     .room-shell.room-shell--videos-right .room-video-strip__brand {
       max-width: 100%;
     }
+    .room-shell.room-shell--videos-right .room-video-layout-switch {
+      position: static;
+      flex: 0 0 auto;
+      align-self: flex-end;
+      z-index: 1;
+      margin: 6px 6px 4px;
+    }
     .room-shell.room-shell--videos-right #videos {
       flex-direction: column;
       overflow-y: auto;
@@ -264,6 +274,10 @@
     }
     .room-shell.room-shell--gallery .room-video-layout-switch__row {
       display: none;
+    }
+    /* Con pantalla compartida (vista dominante) la franja se parece a tablero: los layout deben verse aunque el hash sea /gallery. */
+    .room-shell.room-shell--gallery.room-shell--remote-screen-dominant .room-video-layout-switch__row {
+      display: inline-flex;
     }
     .room-shell.room-shell--gallery .room-center-wrap { display: none; }
 
@@ -304,6 +318,370 @@
       min-height: 0 !important;
       aspect-ratio: auto !important;
       object-fit: contain;
+    }
+    canvas.screen-share-ink-overlay {
+      position: absolute;
+      z-index: 6;
+      pointer-events: none;
+      touch-action: none;
+    }
+    canvas.screen-share-ink-overlay.screen-share-ink-overlay--drawing {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+    .screen-share-ink-text-layer {
+      position: absolute;
+      z-index: 7;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .screen-share-ink-text-layer .screen-share-ink-text-dom {
+      position: absolute;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      white-space: pre;
+      overflow: hidden;
+      font-family: sans-serif;
+      line-height: 1.2;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: default;
+    }
+    .screen-share-ink-text-layer.screen-share-ink-text-layer--interactive .screen-share-ink-text-dom {
+      pointer-events: auto;
+      cursor: grab;
+    }
+    .screen-share-ink-text-layer.screen-share-ink-text-layer--interactive .screen-share-ink-text-dom:active {
+      cursor: grabbing;
+    }
+    .screen-share-ink-text-layer.screen-share-ink-text-layer--select .screen-share-ink-text-dom {
+      cursor: grab;
+    }
+    .screen-share-ink-selection-chrome {
+      position: absolute;
+      box-sizing: border-box;
+      border: 1.5px dashed #2563eb;
+      border-radius: 2px;
+      pointer-events: auto;
+      z-index: 8;
+      background: transparent;
+      box-shadow: none;
+      cursor: grab;
+    }
+    .screen-share-ink-selection-chrome:active {
+      cursor: grabbing;
+    }
+    .screen-share-ink-selection-chrome .screen-ink-text-handle {
+      pointer-events: auto;
+    }
+    .screen-share-ink-stroke-resize-layer {
+      position: absolute;
+      z-index: 9;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .screen-share-ink-stroke-resize-handle {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      transform: translate(-50%, -50%);
+      background: #2563eb;
+      border: 1px solid #f8fafc;
+      border-radius: 1px;
+      pointer-events: auto;
+      touch-action: none;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .screen-share-ink-stroke-resize-handle:active {
+      background: #1d4ed8;
+    }
+    #screenShareAnnotFab.screen-share-annot-fab {
+      position: fixed;
+      z-index: 71;
+      width: 48px;
+      height: 48px;
+      padding: 0;
+      margin: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 2px solid rgba(96, 165, 250, 0.65);
+      background: linear-gradient(160deg, #1e3a5f 0%, #0f172a 100%);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+      cursor: pointer;
+      touch-action: none;
+      color: #f8fafc;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    #screenShareAnnotFab.screen-share-annot-fab--visible {
+      display: flex;
+    }
+    #screenShareAnnotFab.screen-share-annot-fab:hover {
+      transform: scale(1.04);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    }
+    #screenShareAnnotFab.screen-share-annot-fab--open {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25), 0 6px 20px rgba(0, 0, 0, 0.5);
+    }
+    #screenShareAnnotFab.screen-share-annot-fab:active {
+      cursor: grabbing;
+      transform: scale(0.98);
+    }
+    .screen-share-annot-fab__glyph {
+      font-size: 1.35rem;
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+    }
+    #screenShareAnnotBar.screen-share-annot-bar {
+      position: fixed;
+      z-index: 70;
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      padding: 5px 4px;
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.94);
+      border: 1px solid #334155;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+      width: auto;
+      min-width: 0;
+      max-width: none;
+      max-height: calc(100vh - 24px);
+      overflow: visible;
+    }
+    #screenShareAnnotBar.screen-share-annot-bar--visible {
+      display: flex;
+    }
+    .screen-share-annot-vbar {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+    }
+    .screen-share-annot-vbar .screen-share-annot-tool.tool-btn {
+      width: 28px;
+      min-width: 28px;
+      height: 26px;
+      padding: 0;
+      margin: 0;
+      font-size: 0.78rem;
+      line-height: 1;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      color: #e2e8f0;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .screen-share-annot-vbar .screen-share-annot-tool.tool-btn:hover:not(:disabled):not(.screen-share-annot-tool--stub) {
+      background: rgba(96, 165, 250, 0.22);
+      color: #93c5fd;
+    }
+    .screen-share-annot-vbar .screen-share-annot-tool.tool-btn.active {
+      background: rgba(37, 99, 235, 0.4);
+      color: #ffffff;
+    }
+    .screen-share-annot-vbar .screen-share-annot-tool.tool-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+    .screen-share-annot-vbar .screen-share-annot-vsep {
+      width: 20px;
+      height: 1px;
+      margin: 3px 0;
+      background: #475569;
+      flex-shrink: 0;
+    }
+    .screen-share-annot-vbar .board-tool-icon--cursor {
+      width: 15px;
+      height: 15px;
+    }
+    .screen-share-annot-vbar .screen-share-annot-tool-glyph {
+      font-size: 0.82rem;
+      font-weight: 700;
+      pointer-events: none;
+      user-select: none;
+      color: inherit;
+    }
+    #screenShareAnnotFlyout.screen-share-annot-flyout {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 72;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 148px;
+      max-width: min(200px, 88vw);
+      max-height: min(72vh, 380px);
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(17, 24, 39, 0.97);
+      border: 1px solid #374151;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      pointer-events: auto;
+    }
+    #screenShareAnnotFlyout.screen-share-annot-flyout--visible {
+      display: flex;
+    }
+    .screen-share-annot-flyout-panel--color,
+    .screen-share-annot-flyout-panel--lw {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #screenShareAnnotFlyout.screen-share-annot-flyout--mode-color .screen-share-annot-flyout-panel--color {
+      display: flex;
+    }
+    #screenShareAnnotFlyout.screen-share-annot-flyout--mode-lw .screen-share-annot-flyout-panel--lw {
+      display: flex;
+    }
+    .screen-share-annot-flyout-panel--textsize {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #screenShareAnnotFlyout.screen-share-annot-flyout--mode-textsize .screen-share-annot-flyout-panel--textsize {
+      display: flex;
+    }
+    .screen-share-annot-flyout-panel--emoji {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #screenShareAnnotFlyout.screen-share-annot-flyout--mode-emoji .screen-share-annot-flyout-panel--emoji {
+      display: flex;
+    }
+    .screen-share-annot-emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 4px;
+    }
+    .screen-share-annot-emoji-btn {
+      min-height: 30px;
+      padding: 0;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(30, 41, 59, 0.92);
+      cursor: pointer;
+      font-size: 1.05rem;
+      line-height: 1;
+    }
+    .screen-share-annot-emoji-btn:hover {
+      background: rgba(51, 65, 85, 0.95);
+    }
+    .screen-share-annot-emoji-btn.screen-share-annot-emoji-btn--active {
+      background: #1d4ed8;
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.45);
+    }
+    .screen-share-annot-ts-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .screen-share-annot-ts-row button.screen-share-annot-ts {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 0.6rem;
+      font-weight: 600;
+      padding: 0.3rem 0.35rem;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(30, 41, 59, 0.95);
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+    .screen-share-annot-ts-row button.screen-share-annot-ts:hover {
+      background: rgba(51, 65, 85, 0.95);
+    }
+    .screen-share-annot-ts.screen-share-annot-ts--active {
+      background: #1d4ed8 !important;
+      border-color: #60a5fa !important;
+      color: #fff !important;
+    }
+    .screen-share-annot-vbar .screen-share-annot-tool.tool-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+    .screen-share-annot-flyout__title {
+      font-size: 0.58rem;
+      font-weight: 700;
+      color: #94a3b8;
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .screen-share-annot-color-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+    .screen-share-annot-swatch {
+      width: 100%;
+      aspect-ratio: 1;
+      min-height: 22px;
+      margin: 0;
+      padding: 0;
+      border-radius: 4px;
+      border: 2px solid rgba(148, 163, 184, 0.45);
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+    .screen-share-annot-swatch:hover {
+      filter: brightness(1.08);
+    }
+    .screen-share-annot-swatch.screen-share-annot-swatch--active {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.5);
+    }
+    #screenShareAnnotColorInput {
+      width: 100%;
+      margin-top: 4px;
+      height: 28px;
+      padding: 0 2px;
+      border-radius: 4px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: #0f172a;
+      cursor: pointer;
+    }
+    .screen-share-annot-lw-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .screen-share-annot-lw-row button.screen-share-annot-lw {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 0.6rem;
+      font-weight: 600;
+      padding: 0.3rem 0.35rem;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(30, 41, 59, 0.95);
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+    .screen-share-annot-lw-row button.screen-share-annot-lw:hover {
+      background: rgba(51, 65, 85, 0.95);
+    }
+    .screen-share-annot-lw.screen-share-annot-lw--active {
+      background: #1d4ed8 !important;
+      border-color: #60a5fa !important;
+      color: #fff !important;
     }
     .room-shell.room-shell--remote-screen-dominant .room-video-strip {
       flex: 0 0 auto;
@@ -349,6 +727,32 @@
       flex-wrap: nowrap;
       gap: 6px;
       align-items: stretch;
+      min-width: 0;
+    }
+    /* Barra lateral (vídeos derecha): franja horizontal de pantalla compartida no aplica; columna y altura completa. */
+    .room-shell.room-shell--videos-right.room-shell--remote-screen-dominant .room-video-strip {
+      max-height: none;
+      flex: 1 1 auto;
+      min-height: 0;
+      align-self: stretch;
+    }
+    .room-shell.room-shell--videos-right.room-shell--remote-screen-dominant #videos.room-videos--screen-dominant {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      overflow-x: hidden;
+      overflow-y: auto;
+      align-items: stretch;
+      justify-content: flex-start;
+    }
+    .room-shell.room-shell--videos-right.room-shell--remote-screen-dominant #videos.room-videos--screen-dominant .remote-peer {
+      width: auto;
+      min-width: 0;
+      max-width: none;
+    }
+    .room-shell.room-shell--videos-right.room-shell--remote-screen-dominant #remotesContainer {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      width: 100%;
       min-width: 0;
     }
     #videos {
@@ -1231,6 +1635,78 @@
       box-sizing: content-box;
       caret-color: #111;
       display: block;
+    }
+    .screen-ink-text-edit-wrap {
+      position: fixed;
+      z-index: 95;
+      box-sizing: content-box;
+      min-width: 24px;
+      min-height: 20px;
+      padding: 0;
+      margin: 0;
+      border: 1.5px dashed #2563eb;
+      border-radius: 2px;
+      background: rgba(15, 23, 42, 0.12);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .screen-ink-text-edit-wrap .screen-ink-text-edit-input {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: 100%;
+      min-width: 0;
+      min-height: 1.2em;
+      max-height: min(38vh, 320px);
+      margin: 0;
+      padding: 0;
+      border: none !important;
+      outline: none !important;
+      box-shadow: none !important;
+      background: transparent;
+      color: inherit;
+      font-family: sans-serif;
+      line-height: 1.2;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+      overflow-x: hidden;
+      overflow-y: auto;
+      resize: none;
+      caret-color: auto;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .screen-ink-text-handle {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: #2563eb;
+      border: 1px solid #f8fafc;
+      box-sizing: border-box;
+      z-index: 3;
+      touch-action: none;
+    }
+    .screen-ink-text-handle[data-corner="nw"] {
+      top: -5px;
+      left: -5px;
+      cursor: nwse-resize;
+    }
+    .screen-ink-text-handle[data-corner="ne"] {
+      top: -5px;
+      right: -5px;
+      cursor: nesw-resize;
+    }
+    .screen-ink-text-handle[data-corner="sw"] {
+      bottom: -5px;
+      left: -5px;
+      cursor: nesw-resize;
+    }
+    .screen-ink-text-handle[data-corner="se"] {
+      bottom: -5px;
+      right: -5px;
+      cursor: nwse-resize;
     }
     .msg-privado { color: #6a1b9a; }
     .hidden { display: none !important; }
@@ -2314,31 +2790,31 @@
                 </button>
               </div>
               <div class="room-video-strip__stage">
-            <div class="room-video-layout-switch" id="roomVideoLayoutSwitch" aria-label="Layout de videollamada">
-              <div class="room-video-layout-switch__row">
-                <button type="button" id="btnLayoutTop" class="room-layout-btn" aria-pressed="true" title="Vídeos arriba · tablero abajo">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="3" y="3" width="18" height="5" rx="1"></rect>
-                    <rect x="3" y="10" width="18" height="11" rx="1"></rect>
-                  </svg>
-                </button>
-                <button type="button" id="btnLayoutRight" class="room-layout-btn" aria-pressed="false" title="Tablero izquierda · vídeos derecha">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="3" y="3" width="12" height="18" rx="1"></rect>
-                    <rect x="17" y="3" width="4" height="18" rx="1"></rect>
-                  </svg>
-                </button>
-              </div>
-              <button type="button" id="btnToggleChatInline" class="room-chat-toggle-inline" aria-pressed="false">Ocultar chat</button>
-            </div>
-            <div id="videos">
-              <div class="remote-peer" data-label="Tú">
-                <div class="peer-cap" aria-hidden="true">Tú</div>
-                <video id="localVideo" autoplay playsinline muted></video>
-                <div id="localConnStatus" class="peer-conn-status" aria-live="polite"></div>
-              </div>
-              <div id="remotesContainer"></div>
-            </div>
+                <div class="room-video-layout-switch" id="roomVideoLayoutSwitch" aria-label="Layout de videollamada">
+                  <div class="room-video-layout-switch__row">
+                    <button type="button" id="btnLayoutTop" class="room-layout-btn" aria-pressed="true" title="Vídeos arriba · tablero abajo">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3" y="3" width="18" height="5" rx="1"></rect>
+                        <rect x="3" y="10" width="18" height="11" rx="1"></rect>
+                      </svg>
+                    </button>
+                    <button type="button" id="btnLayoutRight" class="room-layout-btn" aria-pressed="false" title="Tablero izquierda · vídeos derecha">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3" y="3" width="12" height="18" rx="1"></rect>
+                        <rect x="17" y="3" width="4" height="18" rx="1"></rect>
+                      </svg>
+                    </button>
+                  </div>
+                  <button type="button" id="btnToggleChatInline" class="room-chat-toggle-inline" aria-pressed="false">Ocultar chat</button>
+                </div>
+                <div id="videos">
+                  <div class="remote-peer" data-label="Tú">
+                    <div class="peer-cap" aria-hidden="true">Tú</div>
+                    <video id="localVideo" autoplay playsinline muted></video>
+                    <div id="localConnStatus" class="peer-conn-status" aria-live="polite"></div>
+                  </div>
+                  <div id="remotesContainer"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -2377,7 +2853,7 @@
                     </button>
                   </div>
                   <div class="board-vtoolbar board-toolbar board-ol board-ol--vbar" id="boardVToolbar">
-                    <button type="button" id="btnToolPointer" class="tool-btn" title="Puntero">
+                    <button type="button" id="btnToolPointer" class="tool-btn" title="Puntero — seleccionar, mover y redimensionar textos e imágenes">
                       <svg class="board-tool-icon board-tool-icon--cursor" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 3l7.8 15 2.1-5.5 5.6-2.2z"></path>
                       </svg>
@@ -2391,7 +2867,7 @@
                     <button type="button" id="btnToolEraser" class="tool-btn" title="Borrador">
                       <span class="board-tool-emoji" aria-hidden="true">🧽</span>
                     </button>
-                    <button type="button" id="btnToolText" class="tool-btn" title="Texto">
+                    <button type="button" id="btnToolText" class="tool-btn" title="Texto — clic de nuevo en un texto para editarlo; herramienta flecha (V) para mover">
                       <span class="board-tool-glyph" aria-hidden="true">T</span>
                     </button>
                     <button type="button" id="btnPaletteMenu" class="tool-btn board-tool-optional" title="Colores">
@@ -2883,6 +3359,7 @@
     let currentStroke = null;
     const boardImageCache = new Map();
     let selectedElementIndex = -1;
+    let selectedElementIndices = [];
     let pointerAction = null;
     /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
     let clipboardBoardElement = null;
@@ -2986,6 +3463,47 @@
     let screenShareAudioTrack = null;
     /** @type {HTMLVideoElement | null} */
     let screenSharePreviewVideo = null;
+    /** Trazos sobre la pantalla compartida (coords 0–1 en el rectángulo útil del vídeo); sincronizado por Socket — sin persistencia en BD */
+    let screenShareInkState = { elementos: [] };
+    /** @type {object | null} */
+    let screenInkCurrentStroke = null;
+    let screenInkDrawing = false;
+    let screenInkAnnotActive = false;
+    /** pintar | texto | emoji | borrador | select — solo si `screenInkAnnotActive`. `select`: selección texto+trazo, arrastre grupal y redimensionado de texto (solo presentador sala). */
+    let screenShareInkTool = "pencil";
+    let screenInkEmojiCurrent = "😀";
+    /** @type {number | null} Índice primario seleccionado (texto o trazo) en `screenShareInkState.elementos`. */
+    let screenInkSelectedTextIndex = null;
+    /** @type {number[]} Selección múltiple activa (texto y/o trazo) en anotación de pantalla compartida. */
+    let screenInkSelectedIndices = [];
+    /** @type {{ startPt: {x:number,y:number}, currentPt: {x:number,y:number}, additive: boolean, baseSelection: number[], pointerId: number } | null} */
+    let screenInkMarqueeAction = null;
+    /** @type {{ corner: string, origin: { x: number, y: number, w: number, h: number, fontSize: number }, video: HTMLVideoElement, canvasEl: HTMLCanvasElement, pointerId: number } | null} */
+    let screenInkDraggingSelectionResize = null;
+    /** @type {{ index: number, ts: number } | null} */
+    let screenInkSelectLastClick = null;
+    /** Tamaño base del texto en anotación (misma idea que el tablero, ~16–48). */
+    let screenInkTextSize = 22;
+    /** @type {HTMLElement | null} */
+    let screenInkInlineEditor = null;
+    /**
+     * Selección (texto/trazo): pendiente vs arrastrando; mueve todos los índices de `indices` a la vez.
+     * @type {null | { phase: string, pointerId: number, canvasEl: HTMLCanvasElement, video: HTMLVideoElement, startPt: { x: number, y: number }, indices: number[], anchorIndex: number, moved?: boolean, originals?: Map<number, { type:string, x?:number, y?:number, points?: {x:number,y:number}[] }> }}
+     */
+    let screenInkSelectionDrag = null;
+    /** Redimensión por tiradores sobre el bbox unión de trazos seleccionados (coords 0–1). */
+    let screenInkStrokeResizeDrag = null;
+    /** Mínimo ancho/alto norm del rect de resize de trazo (evita colapso al estirar). */
+    const SCREEN_INK_STROKE_RESIZE_MIN_DIM = 0.012;
+    let screenInkErasing = false;
+    /** @type {{ x: number, y: number }[] | null} */
+    let screenInkEraserPath = null;
+    let screenInkHistory = [];
+    let screenInkFuture = [];
+    /** Panel completo de anotación (no el FAB); se abre/cierra con el botón circular. */
+    let screenShareAnnotFabExpanded = false;
+    let screenInkEmitTimer = 0;
+    let screenInkLayoutRaf = 0;
     let roomBoardLayout = "top";
     let chatPanelHidden = false;
     let homeMeetings = [];
@@ -3396,6 +3914,20 @@
       return screenSharePreviewVideo;
     }
 
+    /** #localVideo debe mostrar lo mismo que se envía por WebRTC para vista dominante y lápiz del presentador. */
+    function syncLocalVideoPreviewFromMediaState() {
+      const lv = $("localVideo");
+      if (!lv) return;
+      if (screenShareTrack?.readyState === "live" && screenShareStream) {
+        lv.srcObject = screenShareStream;
+      } else if (localStream) {
+        lv.srcObject = localStream;
+      } else {
+        lv.srcObject = null;
+      }
+      lv.play().catch(() => {});
+    }
+
     function getOutgoingVideoTrack() {
       if (screenShareTrack?.readyState === "live") return screenShareTrack;
       return localStream?.getVideoTracks()[0] ?? null;
@@ -3694,6 +4226,3052 @@
       });
     }
 
+    /* --- Anotaciones lápiz sobre pantalla compartida (vista dominante + miniaturas) --- */
+    function isScreenShareAnnotSessionActive() {
+      if (!activeRoomId) return false;
+      if (screenShareTrack?.readyState === "live") return true;
+      return !!String(remoteScreenShareUserId || "").trim();
+    }
+
+    /** Docente de la sala o admin: puede seleccionar, mover, redimensionar y editar cualquier texto sobre la pantalla compartida. */
+    function canScreenShareFullTextLayoutEdit() {
+      if (!activeRoomId || !currentUser?.usuarioId) return false;
+      if (isAdminUser()) return true;
+      return isRoomDocente();
+    }
+
+    function cloneScreenShareInkState(s) {
+      return JSON.parse(JSON.stringify(s || { elementos: [] }));
+    }
+
+    function resetScreenShareInkLocal() {
+      closeScreenInkInlineEditor(false);
+      screenShareInkState = { elementos: [] };
+      screenInkDrawing = false;
+      screenInkCurrentStroke = null;
+      screenInkAnnotActive = false;
+      screenShareInkTool = "pencil";
+      screenInkErasing = false;
+      screenInkEraserPath = null;
+      screenInkSelectionDrag = null;
+      screenInkStrokeResizeDrag = null;
+      screenInkSelectedTextIndex = null;
+      screenInkSelectedIndices = [];
+      screenInkMarqueeAction = null;
+      screenInkDraggingSelectionResize = null;
+      screenInkHistory = [];
+      screenInkFuture = [];
+      clearTimeout(screenInkEmitTimer);
+      screenInkEmitTimer = 0;
+      const bd = $("btnScreenShareInkDraw");
+      if (bd) bd.setAttribute("aria-pressed", "false");
+      syncScreenInkHistoryButtons();
+      redrawAllScreenShareInkOverlays();
+      refreshScreenAnnotBarVisibility();
+    }
+
+    function applyRemoteScreenShareInkContenido(contenido) {
+      if (!contenido || !Array.isArray(contenido.elementos)) return;
+      const incoming = cloneScreenShareInkState({ elementos: contenido.elementos });
+      const currSig = JSON.stringify(screenShareInkState?.elementos || []);
+      const incomingSig = JSON.stringify(incoming?.elementos || []);
+      // Evita borrar undo/redo por el eco del propio emit local.
+      if (currSig === incomingSig) return;
+      screenShareInkState = incoming;
+      screenInkHistory = [];
+      screenInkFuture = [];
+      clearScreenInkTextSelection();
+      syncScreenInkHistoryButtons();
+      queueScreenShareInkRefresh();
+    }
+
+    function pushScreenInkHistorySnapshot() {
+      screenInkHistory.push(cloneScreenShareInkState(screenShareInkState));
+      if (screenInkHistory.length > 120) screenInkHistory.shift();
+      screenInkFuture = [];
+      syncScreenInkHistoryButtons();
+    }
+
+    function performScreenInkUndo() {
+      if (!isScreenShareAnnotSessionActive() || screenInkHistory.length === 0) return;
+      if (screenInkInlineEditor) closeScreenInkInlineEditor(true);
+      screenInkFuture.push(cloneScreenShareInkState(screenShareInkState));
+      screenShareInkState = screenInkHistory.pop();
+      clearScreenInkTextSelection();
+      redrawAllScreenShareInkOverlays();
+      emitScreenShareInkNow();
+      syncScreenShareAnnotToolbarState();
+    }
+
+    function performScreenInkRedo() {
+      if (!isScreenShareAnnotSessionActive() || screenInkFuture.length === 0) return;
+      if (screenInkInlineEditor) closeScreenInkInlineEditor(true);
+      screenInkHistory.push(cloneScreenShareInkState(screenShareInkState));
+      screenShareInkState = screenInkFuture.pop();
+      clearScreenInkTextSelection();
+      redrawAllScreenShareInkOverlays();
+      emitScreenShareInkNow();
+      syncScreenShareAnnotToolbarState();
+    }
+
+    function syncScreenInkHistoryButtons() {
+      const u = $("btnScreenShareInkUndo");
+      const r = $("btnScreenShareInkRedo");
+      const enabled = !!isScreenShareAnnotSessionActive();
+      if (u) u.disabled = !enabled || screenInkHistory.length === 0;
+      if (r) r.disabled = !enabled || screenInkFuture.length === 0;
+    }
+
+    function screenShareInkFlyoutTriggerForPosition() {
+      const fly = $("screenShareAnnotFlyout");
+      if (!fly?.classList.contains("screen-share-annot-flyout--visible")) return null;
+      if (fly.classList.contains("screen-share-annot-flyout--mode-lw")) return $("btnScreenShareInkDraw");
+      if (fly.classList.contains("screen-share-annot-flyout--mode-textsize")) return $("btnScreenShareInkText");
+      if (fly.classList.contains("screen-share-annot-flyout--mode-emoji")) return $("btnScreenShareInkEmoji");
+      return $("btnScreenShareAnnotPalette");
+    }
+
+    function screenShareInkRefreshFlyoutPosition() {
+      const tr = screenShareInkFlyoutTriggerForPosition();
+      if (tr) {
+        positionScreenShareAnnotFlyout(tr);
+        requestAnimationFrame(() => positionScreenShareAnnotFlyout(tr));
+      }
+    }
+
+    function screenShareInkRoomMatches(roomId) {
+      if (roomId == null || roomId === "") return true;
+      return activeRoomId ? sameActiveRoom(roomId, activeRoomId) : false;
+    }
+
+    function clampScreenInk01(v) {
+      return Math.min(1, Math.max(0, v));
+    }
+
+    function inkVideoInnerDims(videoEl, displayRect) {
+      const vw = videoEl.videoWidth;
+      const vh = videoEl.videoHeight;
+      let rw;
+      let rh;
+      if (
+        displayRect &&
+        typeof displayRect.width === "number" &&
+        typeof displayRect.height === "number" &&
+        displayRect.width > 0 &&
+        displayRect.height > 0
+      ) {
+        rw = displayRect.width;
+        rh = displayRect.height;
+      } else {
+        rw = videoEl.clientWidth;
+        rh = videoEl.clientHeight;
+      }
+      if (!vw || !vh || !rw || !rh) return null;
+      const scale = Math.min(rw / vw, rh / vh);
+      const cw = vw * scale;
+      const ch = vh * scale;
+      return { ox: (rw - cw) / 2, oy: (rh - ch) / 2, cw, ch };
+    }
+
+    function getScreenInkDisplayRect(video) {
+      if (!video) return null;
+      const c = video._screenInkOverlayCanvas;
+      if (c && typeof c.getBoundingClientRect === "function") return c.getBoundingClientRect();
+      return video.getBoundingClientRect();
+    }
+
+    function inkClientToNorm(videoEl, clientX, clientY, hitEl) {
+      const r =
+        hitEl && typeof hitEl.getBoundingClientRect === "function"
+          ? hitEl.getBoundingClientRect()
+          : videoEl.getBoundingClientRect();
+      const inner = inkVideoInnerDims(videoEl, r);
+      if (!inner) return null;
+      const relX = clientX - r.left;
+      const relY = clientY - r.top;
+      const x = (relX - inner.ox) / inner.cw;
+      const y = (relY - inner.oy) / inner.ch;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      if (x < -0.05 || x > 1.05 || y < -0.05 || y > 1.05) return null;
+      return { x: clampScreenInk01(x), y: clampScreenInk01(y) };
+    }
+
+    function getScreenInkLwNorm() {
+      const lw = Number(boardLineWidth);
+      if (!Number.isFinite(lw) || lw <= 0) return 0.008;
+      return Math.min(0.04, Math.max(0.002, lw / 380));
+    }
+
+    function screenInkFontPx(inner, fontSizeModel) {
+      const m = clampTextFontSize(Number(fontSizeModel) || 22);
+      const dim = Math.min(inner?.cw ?? 200, inner?.ch ?? 200);
+      const gentle = dim < 200 ? Math.max(0.78, dim / 260) : 1;
+      const px = Math.round(m * gentle);
+      return Math.max(9, Math.min(120, px));
+    }
+
+    function screenInkVideoContentRectClient(video, displayRect) {
+      const r =
+        displayRect && typeof displayRect.left === "number" && typeof displayRect.width === "number"
+          ? displayRect
+          : video.getBoundingClientRect();
+      const inner = inkVideoInnerDims(video, r);
+      if (!inner) return null;
+      return {
+        left: r.left + inner.ox,
+        top: r.top + inner.oy,
+        width: inner.cw,
+        height: inner.ch,
+      };
+    }
+
+    function clampScreenInkEditorBox(left, top, width, height, video, displayRect) {
+      const r = screenInkVideoContentRectClient(video, displayRect);
+      if (!r) return { left, top, width, height };
+      const pad = 4;
+      const x0 = r.left + pad;
+      const y0 = r.top + pad;
+      const x1 = r.left + r.width - pad;
+      const y1 = r.top + r.height - pad;
+      let w = Math.max(24, width);
+      let h = Math.max(20, height);
+      let l = left;
+      let t = top;
+      if (w > x1 - x0) w = Math.max(24, x1 - x0);
+      if (h > y1 - y0) h = Math.max(20, y1 - y0);
+      if (l + w > x1) l = x1 - w;
+      if (t + h > y1) t = y1 - h;
+      if (l < x0) l = x0;
+      if (t < y0) t = y0;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      if (l + w > vw - 2) l = vw - w - 2;
+      if (t + h > vh - 2) t = vh - h - 2;
+      if (l < 2) l = 2;
+      if (t < 2) t = 2;
+      return {
+        left: Math.round(l),
+        top: Math.round(t),
+        width: Math.round(w),
+        height: Math.round(h),
+      };
+    }
+
+    function syncScreenInkInlineEditorLayout(wrap, video, input, displayRect) {
+      if (!wrap || !video || !input || wrap._screenInkClosed) return;
+      const dr = displayRect || getScreenInkDisplayRect(video);
+      const cs = getComputedStyle(wrap);
+      const pl = parseFloat(cs.paddingLeft) || 0;
+      const pr = parseFloat(cs.paddingRight) || 0;
+      const pt = parseFloat(cs.paddingTop) || 0;
+      const pb = parseFloat(cs.paddingBottom) || 0;
+      const rect = wrap.getBoundingClientRect();
+      const wantW = Math.max(24, Math.ceil(input.scrollWidth + pl + pr));
+      const wantH = Math.max(20, Math.ceil(input.scrollHeight + pt + pb));
+      const c = clampScreenInkEditorBox(rect.left, rect.top, wantW, wantH, video, dr);
+      wrap.style.width = `${c.width}px`;
+      wrap.style.height = `${c.height}px`;
+      wrap.style.left = `${c.left}px`;
+      wrap.style.top = `${c.top}px`;
+    }
+
+    function measureScreenInkTextNormBounds(text, fontSizeModel, inner) {
+      const fsPx = screenInkFontPx(inner, fontSizeModel);
+      const c = document.createElement("canvas");
+      const ctx = c.getContext("2d");
+      if (!ctx) return { w: 0.06, h: 0.04 };
+      ctx.font = `${fsPx}px sans-serif`;
+      const lines = String(text).split("\n");
+      let maxW = 0;
+      for (const line of lines) maxW = Math.max(maxW, measureTextLineWidth(ctx, line || " "));
+      const lineH = fsPx * 1.2;
+      const hPx = lines.length * lineH;
+      return {
+        w: Math.min(0.95, (maxW + 2) / inner.cw),
+        h: Math.min(0.95, (hPx + 2) / inner.ch),
+      };
+    }
+
+    function screenInkDistPointToSegment(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1e-14) return Math.hypot(px - x1, py - y1);
+      let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const nx = x1 + t * dx;
+      const ny = y1 + t * dy;
+      return Math.hypot(px - nx, py - ny);
+    }
+
+    function screenInkPointInNormRect(px, py, rx, ry, rw, rh, pad) {
+      const p = pad || 0;
+      return px >= rx - p && px <= rx + rw + p && py >= ry - p && py <= ry + rh + p;
+    }
+
+    function screenInkTextBoundsNorm(el, inner) {
+      let w = Number(el.w);
+      let h = Number(el.h);
+      const hasText = String(el?.text || "").length > 0;
+      if (inner && hasText) {
+        // Para mantener caja y texto 1:1 en pantalla, el bbox visual se mide desde el contenido actual.
+        const b = measureScreenInkTextNormBounds(String(el.text || ""), el.fontSize || 22, inner);
+        w = b.w;
+        h = b.h;
+      } else if ((!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) && inner) {
+        const b = measureScreenInkTextNormBounds(String(el.text || ""), el.fontSize || 22, inner);
+        if (!Number.isFinite(w) || w <= 0) w = b.w;
+        if (!Number.isFinite(h) || h <= 0) h = b.h;
+      }
+      return {
+        x: Number(el.x) || 0,
+        y: Number(el.y) || 0,
+        w: Number.isFinite(w) && w > 0 ? w : 0.1,
+        h: Number.isFinite(h) && h > 0 ? h : 0.05,
+      };
+    }
+
+    function applyScreenInkMeasuredBounds(el, inner, anchorMode = "tl") {
+      if (!el || !inner) return;
+      const text = String(el.text || "");
+      if (!text.length) return;
+      const b0 = screenInkTextBoundsNorm(el, inner);
+      const m = measureScreenInkTextNormBounds(text, el.fontSize || 22, inner);
+      const mw = Math.min(0.98, Math.max(screenInkMinTextNormDims(inner).minW, m.w));
+      const mh = Math.min(0.98, Math.max(screenInkMinTextNormDims(inner).minH, m.h));
+      let nx = b0.x;
+      let ny = b0.y;
+      if (anchorMode === "br") {
+        nx = b0.x + b0.w - mw;
+        ny = b0.y + b0.h - mh;
+      } else if (anchorMode === "bl") {
+        ny = b0.y + b0.h - mh;
+      } else if (anchorMode === "tr") {
+        nx = b0.x + b0.w - mw;
+      }
+      nx = Math.max(0, Math.min(1 - mw, nx));
+      ny = Math.max(0, Math.min(1 - mh, ny));
+      el.x = nx;
+      el.y = ny;
+      el.w = mw;
+      el.h = mh;
+    }
+
+    function syncScreenInkTextDomGeometryLiveForIndex(idx) {
+      if (!Number.isInteger(idx) || idx < 0) return;
+      const el = screenShareInkState.elementos[idx];
+      if (!el || el.type !== "text") return;
+      document.querySelectorAll("canvas.screen-share-ink-overlay").forEach((c) => {
+        const video = c._inkVideo;
+        const layer = c.parentElement?.querySelector?.(".screen-share-ink-text-layer");
+        if (!video || !layer) return;
+        const inner = inkVideoInnerDims(video, c.getBoundingClientRect());
+        if (!inner) return;
+        const b = screenInkTextBoundsNorm(el, inner);
+        const dom = layer.querySelector(`.screen-share-ink-text-dom[data-ink-index="${idx}"]`);
+        if (dom) {
+          dom.style.left = `${inner.ox + b.x * inner.cw}px`;
+          dom.style.top = `${inner.oy + b.y * inner.ch}px`;
+          dom.style.width = `${Math.max(4, b.w * inner.cw)}px`;
+          dom.style.height = `${Math.max(4, b.h * inner.ch)}px`;
+          dom.style.fontSize = `${screenInkFontPx(inner, el.fontSize)}px`;
+        }
+        const chr = layer.querySelector(`.screen-share-ink-selection-chrome[data-ink-index="${idx}"]`);
+        if (chr) {
+          chr.style.left = `${inner.ox + b.x * inner.cw}px`;
+          chr.style.top = `${inner.oy + b.y * inner.ch}px`;
+          chr.style.width = `${Math.max(4, b.w * inner.cw)}px`;
+          chr.style.height = `${Math.max(4, b.h * inner.ch)}px`;
+        }
+      });
+    }
+
+    function screenInkStrokeHitByEraserPath(st, eraserPts, tol) {
+      const pts = st.points;
+      if (!pts || pts.length < 2) return false;
+      const lwBonus = typeof st.lw === "number" && st.lw > 0 ? st.lw * 0.35 : 0.006;
+      const t = tol + lwBonus;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        for (const ep of eraserPts) {
+          if (screenInkDistPointToSegment(ep.x, ep.y, a.x, a.y, b.x, b.y) <= t) return true;
+        }
+        for (let j = 0; j < eraserPts.length - 1; j++) {
+          const e1 = eraserPts[j];
+          const e2 = eraserPts[j + 1];
+          for (let u = 0; u <= 1; u += 0.15) {
+            const ex = e1.x + u * (e2.x - e1.x);
+            const ey = e1.y + u * (e2.y - e1.y);
+            if (screenInkDistPointToSegment(ex, ey, a.x, a.y, b.x, b.y) <= t) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function screenInkTextHitByEraserPath(el, eraserPts, inner, tol) {
+      const b = screenInkTextBoundsNorm(el, inner);
+      const pad = tol;
+      for (const ep of eraserPts) {
+        if (screenInkPointInNormRect(ep.x, ep.y, b.x, b.y, b.w, b.h, pad)) return true;
+      }
+      for (let j = 0; j < eraserPts.length - 1; j++) {
+        const e1 = eraserPts[j];
+        const e2 = eraserPts[j + 1];
+        for (let u = 0; u <= 1; u += 0.12) {
+          const x = e1.x + u * (e2.x - e1.x);
+          const y = e1.y + u * (e2.y - e1.y);
+          if (screenInkPointInNormRect(x, y, b.x, b.y, b.w, b.h, pad)) return true;
+        }
+      }
+      return false;
+    }
+
+    function screenInkFindIndicesHitByEraserPath(eraserPts, inner) {
+      if (!eraserPts || eraserPts.length === 0) return [];
+      const tol = 0.018;
+      const out = [];
+      const els = screenShareInkState.elementos || [];
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (!el) continue;
+        if (el.type === "stroke") {
+          if (screenInkStrokeHitByEraserPath(el, eraserPts, tol)) out.push(i);
+        } else if (el.type === "text") {
+          if (screenInkTextHitByEraserPath(el, eraserPts, inner, tol)) out.push(i);
+        }
+      }
+      return out;
+    }
+
+    function screenInkFindTopTextIndexAtNorm(pt, inner) {
+      if (!pt || !inner) return -1;
+      const pad = 0.014;
+      const els = screenShareInkState.elementos || [];
+      for (let i = els.length - 1; i >= 0; i--) {
+        const el = els[i];
+        if (!el || el.type !== "text") continue;
+        const b = screenInkTextBoundsNorm(el, inner);
+        if (screenInkPointInNormRect(pt.x, pt.y, b.x, b.y, b.w, b.h, pad)) return i;
+      }
+      return -1;
+    }
+
+    function screenInkStrokeBoundsNorm(st) {
+      const pts = st?.points;
+      if (!Array.isArray(pts) || pts.length < 2) return null;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const p of pts) {
+        if (!p) continue;
+        const x = Number(p.x);
+        const y = Number(p.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY))
+        return null;
+      const pad = Math.max(0.008, (Number(st?.lw) || 0.008) * 0.75);
+      return {
+        x: Math.max(0, minX - pad),
+        y: Math.max(0, minY - pad),
+        w: Math.min(1, maxX + pad) - Math.max(0, minX - pad),
+        h: Math.min(1, maxY + pad) - Math.max(0, minY - pad),
+      };
+    }
+
+    function screenInkUnionNormRects(a, b) {
+      if (!a) return b ? { ...b } : null;
+      if (!b) return { ...a };
+      const ax = a.x + a.w;
+      const ay = a.y + a.h;
+      const bx = b.x + b.w;
+      const by = b.y + b.h;
+      const x = Math.min(a.x, b.x);
+      const y = Math.min(a.y, b.y);
+      return { x, y, w: Math.max(ax, bx) - x, h: Math.max(ay, by) - y };
+    }
+
+    /** Bbox unión (mismo criterio que el marco de selección) de los trazos con índices dados. */
+    function screenInkUnionStrokeBoundsForIndices(indices) {
+      const els = screenShareInkState.elementos || [];
+      let u = null;
+      for (const idx of indices) {
+        const st = els[idx];
+        if (!st || st.type !== "stroke") continue;
+        const b = screenInkStrokeBoundsNorm(st);
+        if (!b || !(b.w > 0) || !(b.h > 0)) continue;
+        u = screenInkUnionNormRects(u, b);
+      }
+      return u;
+    }
+
+    /** Bbox unión de textos (`inner` requerido) y trazos seleccionados. */
+    function screenInkUnionSelectionBoundsForIndices(indices, inner) {
+      const els = screenShareInkState.elementos || [];
+      let u = null;
+      for (const idx of indices) {
+        const el = els[idx];
+        if (!el) continue;
+        let b = null;
+        if (el.type === "stroke") b = screenInkStrokeBoundsNorm(el);
+        else if (el.type === "text" && inner) b = screenInkTextBoundsNorm(el, inner);
+        if (!b || !(b.w > 0) || !(b.h > 0)) continue;
+        u = screenInkUnionNormRects(u, b);
+      }
+      return u;
+    }
+
+    /** Redimensiona bbox en normalizado (lados y esquinas; sin Shift proporcional). */
+    function applyScreenInkStrokeBBoxResize(handleId, ox, oy, ow, oh, dx, dy) {
+      let x = ox;
+      let y = oy;
+      let w = ow;
+      let h = oh;
+      switch (handleId) {
+        case "se":
+          w = ow + dx;
+          h = oh + dy;
+          break;
+        case "e":
+          w = ow + dx;
+          break;
+        case "s":
+          h = oh + dy;
+          break;
+        case "w":
+          x = ox + dx;
+          w = ow - dx;
+          break;
+        case "n":
+          y = oy + dy;
+          h = oh - dy;
+          break;
+        case "ne":
+          y = oy + dy;
+          h = oh - dy;
+          w = ow + dx;
+          break;
+        case "sw":
+          x = ox + dx;
+          w = ow - dx;
+          h = oh + dy;
+          break;
+        case "nw":
+          x = ox + dx;
+          y = oy + dy;
+          w = ow - dx;
+          h = oh - dy;
+          break;
+        default:
+          w = ow + dx;
+          h = oh + dy;
+      }
+      return { x, y, w, h };
+    }
+
+    function clampScreenInkNormResizeRect(bb) {
+      const minSz = SCREEN_INK_STROKE_RESIZE_MIN_DIM;
+      let x = clampScreenInk01(Number(bb?.x));
+      let y = clampScreenInk01(Number(bb?.y));
+      let w = Math.max(minSz, Math.min(Number(bb?.w), 1));
+      let h = Math.max(minSz, Math.min(Number(bb?.h), 1));
+      if (x + w > 1) x = Math.max(0, 1 - w);
+      else x = clampScreenInk01(x);
+      if (y + h > 1) y = Math.max(0, 1 - h);
+      else y = clampScreenInk01(y);
+      if (x + w > 1) w = Math.max(minSz, 1 - x);
+      if (y + h > 1) h = Math.max(minSz, 1 - y);
+      return { x, y, w, h };
+    }
+
+    /** Mapeo afín dentro del rect: mismo u,v en viejo → nuevo bbox. */
+    function screenInkMapPointResizeBBox(px, py, bx0, by0, bw0, bh0, bx1, by1, bw1, bh1) {
+      const eps = 1e-12;
+      const u = bw0 > eps ? (px - bx0) / bw0 : 0.5;
+      const v = bh0 > eps ? (py - by0) / bh0 : 0.5;
+      return {
+        x: clampScreenInk01(bx1 + u * bw1),
+        y: clampScreenInk01(by1 + v * bh1),
+      };
+    }
+
+    /** Redimensiona trazos y textos según el mapeo afín del bbox unión (clamped). */
+    function screenInkApplySelectionResizeWithOriginals(originals, bbox0, bbox1Raw, resizeIndices, inner) {
+      const b0 = bbox0;
+      const b1 = clampScreenInkNormResizeRect(bbox1Raw);
+      const els = screenShareInkState.elementos || [];
+      const { minW, minH } =
+        inner && inner.cw
+          ? screenInkMinTextNormDims(inner)
+          : { minW: 0.02, minH: 0.012 };
+      const denomW = Math.max(b0.w, 1e-12);
+      const denomH = Math.max(b0.h, 1e-12);
+      const scaleFonts = Math.sqrt((b1.w / denomW) * (b1.h / denomH));
+      for (const idx of resizeIndices) {
+        const el = els[idx];
+        const o = originals.get(idx);
+        if (!el || !o) continue;
+        if (o.type === "stroke" && el.type === "stroke" && Array.isArray(o.points) && Array.isArray(el.points)) {
+          const origPts = o.points;
+          for (let j = 0; j < origPts.length && j < el.points.length; j++) {
+            const p0 = origPts[j];
+            if (!p0 || !el.points[j]) continue;
+            const nx = Number(p0.x);
+            const ny = Number(p0.y);
+            const m = screenInkMapPointResizeBBox(nx, ny, b0.x, b0.y, b0.w, b0.h, b1.x, b1.y, b1.w, b1.h);
+            el.points[j].x = m.x;
+            el.points[j].y = m.y;
+          }
+        } else if (o.type === "text" && el.type === "text") {
+          const tl = screenInkMapPointResizeBBox(
+            o.x,
+            o.y,
+            b0.x,
+            b0.y,
+            b0.w,
+            b0.h,
+            b1.x,
+            b1.y,
+            b1.w,
+            b1.h,
+          );
+          const br = screenInkMapPointResizeBBox(
+            o.x + o.w,
+            o.y + o.h,
+            b0.x,
+            b0.y,
+            b0.w,
+            b0.h,
+            b1.x,
+            b1.y,
+            b1.w,
+            b1.h,
+          );
+          let nx = Math.min(tl.x, br.x);
+          let ny = Math.min(tl.y, br.y);
+          let nw = Math.abs(br.x - tl.x);
+          let nh = Math.abs(br.y - tl.y);
+          nw = Math.max(minW, Math.min(0.998, nw));
+          nh = Math.max(minH, Math.min(0.998, nh));
+          nx = clampScreenInk01(Math.min(nx, 1 - nw));
+          ny = clampScreenInk01(Math.min(ny, 1 - nh));
+          el.x = nx;
+          el.y = ny;
+          el.w = nw;
+          el.h = nh;
+          const baseFs = Number(o.fontSize);
+          el.fontSize = clampTextFontSize(
+            Math.round((Number.isFinite(baseFs) && baseFs > 0 ? baseFs : el.fontSize || 22) * scaleFonts),
+          );
+        }
+      }
+    }
+
+    function screenInkStrokeHitAtNormPoint(st, pt) {
+      const pts = st?.points;
+      if (!pt || !Array.isArray(pts) || pts.length < 2) return false;
+      const tol = Math.max(0.012, (Number(st?.lw) || 0.008) * 1.25);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        if (!a || !b) continue;
+        if (screenInkDistPointToSegment(pt.x, pt.y, a.x, a.y, b.x, b.y) <= tol) return true;
+      }
+      return false;
+    }
+
+    function screenInkFindTopElementIndexAtNorm(pt, inner) {
+      if (!pt || !inner) return -1;
+      const els = screenShareInkState.elementos || [];
+      const textPad = 0.014;
+      /** Texto/emoji (capa DOM encima del canvas): priorizar sobre trazos solapados. */
+      for (let i = els.length - 1; i >= 0; i--) {
+        const el = els[i];
+        if (!el || el.type !== "text") continue;
+        const b = screenInkTextBoundsNorm(el, inner);
+        if (screenInkPointInNormRect(pt.x, pt.y, b.x, b.y, b.w, b.h, textPad)) return i;
+      }
+      for (let i = els.length - 1; i >= 0; i--) {
+        const el = els[i];
+        if (el && el.type === "stroke" && screenInkStrokeHitAtNormPoint(el, pt)) return i;
+      }
+      return -1;
+    }
+
+    function screenInkNormRectFromPoints(a, b) {
+      return {
+        x: Math.min(a.x, b.x),
+        y: Math.min(a.y, b.y),
+        w: Math.abs(a.x - b.x),
+        h: Math.abs(a.y - b.y),
+      };
+    }
+
+    function screenInkRectIntersects(a, b) {
+      if (!a || !b) return false;
+      if (a.w <= 0 || a.h <= 0 || b.w <= 0 || b.h <= 0) return false;
+      return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+    }
+
+    /** Rect de texto algo más grande para marquee (captura mejor cajas ajustadas al glifo). */
+    function screenInkTextBoundsNormMarquee(el, inner) {
+      const b = screenInkTextBoundsNorm(el, inner);
+      const pad = 0.014;
+      const x = Math.max(0, b.x - pad);
+      const y = Math.max(0, b.y - pad);
+      const xr = Math.min(1, b.x + b.w + pad);
+      const yb = Math.min(1, b.y + b.h + pad);
+      return { x, y, w: Math.max(0, xr - x), h: Math.max(0, yb - y) };
+    }
+
+    function screenInkFindIndicesInNormRect(selRect, inner) {
+      if (!selRect || !inner) return [];
+      const out = [];
+      const els = screenShareInkState.elementos || [];
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (!el) continue;
+        let bounds = null;
+        if (el.type === "text") bounds = screenInkTextBoundsNormMarquee(el, inner);
+        else if (el.type === "stroke") bounds = screenInkStrokeBoundsNorm(el);
+        if (bounds && screenInkRectIntersects(bounds, selRect)) out.push(i);
+      }
+      return out;
+    }
+
+    function clearScreenInkTextSelection() {
+      screenInkSelectedTextIndex = null;
+      screenInkSelectedIndices = [];
+      screenInkMarqueeAction = null;
+      screenInkDraggingSelectionResize = null;
+      screenInkSelectLastClick = null;
+      screenInkSelectionDrag = null;
+      screenInkStrokeResizeDrag = null;
+    }
+
+    /** Umbral para pasar de «clic» a arrastre global de selección (coords normalizadas 0–1). */
+    const SCREEN_INK_SELECTION_DRAG_THRESHOLD = 0.0028;
+
+    function screenInkNormalizeSelectionIndicesForDrag() {
+      const els = screenShareInkState.elementos || [];
+      return [...new Set(screenInkSelectedIndices || [])].filter((i) => {
+        const el = els[i];
+        return !!(el && (el.type === "text" || el.type === "stroke"));
+      });
+    }
+
+    function applyScreenInkSelectionDragDelta(dx, dy) {
+      const s = screenInkSelectionDrag;
+      if (!s || s.phase !== "dragging" || !(s.originals instanceof Map)) return;
+      for (const idx of s.indices) {
+        const o = s.originals.get(idx);
+        const el = screenShareInkState.elementos?.[idx];
+        if (!o || !el) continue;
+        if (o.type === "text" && el.type === "text") {
+          el.x = clampScreenInk01((Number(o.x) || 0) + dx);
+          el.y = clampScreenInk01((Number(o.y) || 0) + dy);
+        } else if (o.type === "stroke" && el.type === "stroke" && Array.isArray(o.points) && Array.isArray(el.points)) {
+          const n = Math.min(o.points.length, el.points.length);
+          for (let j = 0; j < n; j++) {
+            const pj = o.points[j];
+            const target = el.points[j];
+            if (!pj || !target) continue;
+            target.x = clampScreenInk01((Number(pj.x) || 0) + dx);
+            target.y = clampScreenInk01((Number(pj.y) || 0) + dy);
+          }
+        }
+      }
+    }
+
+    function screenInkMinTextNormDims(inner) {
+      const cw = inner?.cw ?? 320;
+      const ch = inner?.ch ?? 240;
+      return {
+        minW: Math.min(0.92, Math.max(0.018, 52 / Math.max(80, cw))),
+        minH: Math.min(0.92, Math.max(0.012, 28 / Math.max(60, ch))),
+      };
+    }
+
+    /** `origin` y `ptNorm` en espacio normalizado útil del vídeo; devuelve rect clamped. */
+    function screenInkNormRectResizeFromCorner(corner, origin, ptNorm, inner) {
+      const { minW, minH } = screenInkMinTextNormDims(inner);
+      const ox = origin.x;
+      const oy = origin.y;
+      const ow = origin.w;
+      const oh = origin.h;
+      const brx = ox + ow;
+      const bry = oy + oh;
+      if (corner === "se") {
+        let w = Math.max(minW, ptNorm.x - ox);
+        let h = Math.max(minH, ptNorm.y - oy);
+        w = Math.min(w, 1 - ox);
+        h = Math.min(h, 1 - oy);
+        return { x: ox, y: oy, w, h };
+      }
+      if (corner === "nw") {
+        let nx = Math.min(ptNorm.x, brx - minW);
+        let ny = Math.min(ptNorm.y, bry - minH);
+        nx = Math.max(0, nx);
+        ny = Math.max(0, ny);
+        return { x: nx, y: ny, w: brx - nx, h: bry - ny };
+      }
+      if (corner === "ne") {
+        let w = Math.max(minW, ptNorm.x - ox);
+        w = Math.min(w, 1 - ox);
+        let h = Math.max(minH, bry - ptNorm.y);
+        h = Math.min(h, bry - oy);
+        const yTop = Math.max(oy, bry - h);
+        h = bry - yTop;
+        return { x: ox, y: yTop, w, h };
+      }
+      if (corner === "sw") {
+        let h = Math.max(minH, ptNorm.y - oy);
+        h = Math.min(h, 1 - oy);
+        let w = Math.max(minW, brx - ptNorm.x);
+        w = Math.min(w, brx);
+        let xLeft = brx - w;
+        xLeft = Math.max(0, xLeft);
+        w = brx - xLeft;
+        return { x: xLeft, y: oy, w, h };
+      }
+      return { x: ox, y: oy, w: ow, h: oh };
+    }
+
+    function attachScreenInkSelectionChromeHandle(corner, handle, idx, video, canvasEl) {
+      handle.addEventListener("pointerdown", (e) => {
+        if (!canScreenShareFullTextLayoutEdit() || screenShareInkTool !== "select") return;
+        const tel = screenShareInkState.elementos[idx];
+        if (!tel || tel.type !== "text") return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = canvasEl.getBoundingClientRect();
+        const inner = inkVideoInnerDims(video, rect);
+        if (!inner) return;
+        const b = screenInkTextBoundsNorm(tel, inner);
+        pushScreenInkHistorySnapshot();
+        screenInkDraggingSelectionResize = {
+          corner,
+          origin: { x: b.x, y: b.y, w: b.w, h: b.h, fontSize: clampTextFontSize(tel.fontSize || screenInkTextSize) },
+          video,
+          canvasEl,
+          pointerId: e.pointerId,
+        };
+        try {
+          handle.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        const onMove = (ev) => {
+          if (!screenInkDraggingSelectionResize || ev.pointerId !== screenInkDraggingSelectionResize.pointerId)
+            return;
+          const pv = screenInkDraggingSelectionResize.video;
+          const ce = screenInkDraggingSelectionResize.canvasEl;
+          const ptn = inkClientToNorm(pv, ev.clientX, ev.clientY, ce);
+          if (!ptn) return;
+          const r2 = ce.getBoundingClientRect();
+          const in2 = inkVideoInnerDims(pv, r2);
+          if (!in2) return;
+          const next = screenInkNormRectResizeFromCorner(screenInkDraggingSelectionResize.corner, screenInkDraggingSelectionResize.origin, ptn, in2);
+          tel.x = clampScreenInk01(next.x);
+          tel.y = clampScreenInk01(next.y);
+          tel.w = Math.min(0.98, Math.max(screenInkMinTextNormDims(in2).minW, next.w));
+          tel.h = Math.min(0.98, Math.max(screenInkMinTextNormDims(in2).minH, next.h));
+          const ow = Math.max(0.0001, screenInkDraggingSelectionResize.origin.w);
+          const oh = Math.max(0.0001, screenInkDraggingSelectionResize.origin.h);
+          const scale = Math.max(0.25, Math.min((next.w || ow) / ow, (next.h || oh) / oh));
+          tel.fontSize = clampTextFontSize(Math.round(screenInkDraggingSelectionResize.origin.fontSize * scale));
+          const corner = screenInkDraggingSelectionResize.corner;
+          const anchorMode =
+            corner === "se" ? "tl" : corner === "ne" ? "bl" : corner === "sw" ? "tr" : "br";
+          applyScreenInkMeasuredBounds(tel, in2, anchorMode);
+          syncScreenInkTextDomGeometryLiveForIndex(idx);
+        };
+        const onUp = (ev) => {
+          if (!screenInkDraggingSelectionResize || ev.pointerId !== screenInkDraggingSelectionResize.pointerId)
+            return;
+          try {
+            handle.releasePointerCapture(ev.pointerId);
+          } catch (_) {}
+          screenInkDraggingSelectionResize = null;
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+          handle.removeEventListener("pointercancel", onUp);
+          scheduleEmitScreenShareInk();
+          redrawAllScreenShareInkOverlays();
+        };
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+        handle.addEventListener("pointercancel", onUp);
+      });
+    }
+
+    function attachScreenShareInkTextLayerEvents(layer) {
+      if (layer._screenInkTextLayerBound) return;
+      layer._screenInkTextLayerBound = true;
+      layer.addEventListener("pointerdown", onScreenInkTextLayerPointerDown);
+      layer.addEventListener("dblclick", onScreenInkTextLayerDblClick);
+    }
+
+    function onScreenInkTextLayerPointerDown(e) {
+      if (!screenInkAnnotActive || !isScreenShareAnnotSessionActive() || !activeRoomId) return;
+      if (screenShareInkTool !== "select" || !canScreenShareFullTextLayoutEdit()) return;
+      if (e.button !== 0) return;
+      if (e.target.closest?.(".screen-ink-text-handle")) return;
+      const layer = e.currentTarget;
+      const hit = e.target.closest?.(".screen-share-ink-text-dom, .screen-share-ink-selection-chrome");
+      if (!hit || !layer.contains(hit)) return;
+      const idx = Number(hit.getAttribute("data-ink-index"));
+      if (!Number.isInteger(idx) || idx < 0) return;
+      const video = layer._inkVideo;
+      const canvasEl = video && video._screenInkOverlayCanvas;
+      if (!video || !canvasEl) return;
+      const pt = inkClientToNorm(video, e.clientX, e.clientY, canvasEl);
+      if (!pt) return;
+      const tel = screenShareInkState.elementos[idx];
+      if (!tel || tel.type !== "text") return;
+      const inner = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+      if (inner) applyScreenInkMeasuredBounds(tel, inner, "tl");
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        if (screenInkSelectedIndices.includes(idx)) {
+          screenInkSelectedIndices = screenInkSelectedIndices.filter((v) => v !== idx);
+          if (screenInkSelectedTextIndex === idx) {
+            const fallback = [...screenInkSelectedIndices]
+              .reverse()
+              .find((id) => screenShareInkState.elementos?.[id]?.type === "text");
+            screenInkSelectedTextIndex = Number.isInteger(fallback) ? fallback : null;
+          }
+        } else {
+          screenInkSelectedIndices = Array.from(new Set([...screenInkSelectedIndices, idx]));
+          screenInkSelectedTextIndex = idx;
+        }
+        screenInkSelectionDrag = null;
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+      if (!screenInkSelectedIndices.includes(idx)) {
+        screenInkSelectedIndices = [idx];
+        screenInkSelectedTextIndex = idx;
+      }
+      const dragIdxs = screenInkNormalizeSelectionIndicesForDrag();
+      if (!dragIdxs.length) return;
+      screenInkSelectionDrag = {
+        phase: "pending",
+        pointerId: e.pointerId,
+        canvasEl,
+        video,
+        startPt: { x: pt.x, y: pt.y },
+        indices: dragIdxs,
+        anchorIndex: idx,
+        moved: false,
+      };
+      redrawAllScreenShareInkOverlays();
+      try {
+        canvasEl.setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+
+    function onScreenInkTextLayerDblClick(e) {
+      if (!screenInkAnnotActive || !isScreenShareAnnotSessionActive() || !activeRoomId) return;
+      if (screenShareInkTool !== "select" || !canScreenShareFullTextLayoutEdit()) return;
+      if (e.target.closest?.(".screen-ink-text-handle")) return;
+      const hit = e.target.closest?.(".screen-share-ink-text-dom, .screen-share-ink-selection-chrome");
+      if (!hit) return;
+      const layer = hit.closest?.(".screen-share-ink-text-layer");
+      if (!layer) return;
+      const idx = Number(hit.getAttribute("data-ink-index"));
+      if (!Number.isInteger(idx) || idx < 0) return;
+      const video = layer._inkVideo;
+      if (!video) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openScreenInkInlineTextEditIndex(video, idx);
+    }
+
+    function syncScreenShareInkTextDomForPeer(wrap, video, canvasEl) {
+      if (!wrap || !video || !canvasEl || !video.videoWidth) return;
+      let layer = wrap.querySelector(".screen-share-ink-text-layer");
+      if (!layer) {
+        layer = document.createElement("div");
+        layer.className = "screen-share-ink-text-layer";
+        wrap.appendChild(layer);
+        attachScreenShareInkTextLayerEvents(layer);
+      }
+      layer._inkVideo = video;
+      const wr = wrap.getBoundingClientRect();
+      const vr = video.getBoundingClientRect();
+      layer.style.left = `${vr.left - wr.left}px`;
+      layer.style.top = `${vr.top - wr.top}px`;
+      layer.style.width = `${vr.width}px`;
+      layer.style.height = `${vr.height}px`;
+      const useSelectLayer =
+        !!(
+          canScreenShareFullTextLayoutEdit() &&
+          screenInkAnnotActive &&
+          screenShareInkTool === "select" &&
+          isScreenShareAnnotSessionActive()
+        );
+      layer.classList.toggle("screen-share-ink-text-layer--interactive", useSelectLayer);
+      layer.classList.toggle("screen-share-ink-text-layer--select", useSelectLayer);
+      const inner = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+      if (!inner) {
+        layer.replaceChildren();
+        return;
+      }
+      if (
+        screenInkSelectedTextIndex != null &&
+        (!screenShareInkState.elementos[screenInkSelectedTextIndex] ||
+          screenShareInkState.elementos[screenInkSelectedTextIndex].type !== "text")
+      ) {
+        screenInkSelectedTextIndex = null;
+      }
+      screenInkSelectedIndices = (screenInkSelectedIndices || []).filter((idx) => {
+        const el = screenShareInkState.elementos?.[idx];
+        return !!(el && (el.type === "text" || el.type === "stroke"));
+      });
+      if (screenInkSelectedTextIndex == null && screenInkSelectedIndices.length) {
+        const tIdx = [...screenInkSelectedIndices]
+          .reverse()
+          .find((i) => screenShareInkState.elementos?.[i]?.type === "text");
+        if (Number.isInteger(tIdx)) screenInkSelectedTextIndex = tIdx;
+      }
+      const skipIdx = screenInkInlineEditor?._screenInkEditIndex;
+      layer.replaceChildren();
+      const els = screenShareInkState.elementos || [];
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (!el || el.type !== "text" || !String(el.text || "").length) continue;
+        if (skipIdx != null && i === skipIdx) continue;
+        const b = screenInkTextBoundsNorm(el, inner);
+        const div = document.createElement("div");
+        div.className = "screen-share-ink-text-dom";
+        div.setAttribute("data-ink-index", String(i));
+        div.textContent = String(el.text || "");
+        div.style.left = `${inner.ox + b.x * inner.cw}px`;
+        div.style.top = `${inner.oy + b.y * inner.ch}px`;
+        div.style.width = `${Math.max(4, b.w * inner.cw)}px`;
+        div.style.height = `${Math.max(4, b.h * inner.ch)}px`;
+        div.style.color = el.color || "#111111";
+        div.style.fontSize = `${screenInkFontPx(inner, el.fontSize)}px`;
+        layer.appendChild(div);
+      }
+      if (useSelectLayer && (screenInkSelectedIndices || []).length) {
+        const selectedSet = new Set(screenInkSelectedIndices);
+        const textSelIdxs = (screenInkSelectedIndices || []).filter(
+          (i) =>
+            els[i]?.type === "text" &&
+            String(els[i]?.text || "").length &&
+            (skipIdx == null || i !== skipIdx),
+        );
+        const movableSelCount = (screenInkSelectedIndices || []).filter((i) => {
+          const elm = els[i];
+          return !!(elm && (elm.type === "text" || elm.type === "stroke"));
+        }).length;
+        /** Varios elementos: redimensionado unificado en la capa de trazo; sin asas por texto. */
+        const showHandlesOn =
+          movableSelCount >= 2
+            ? null
+            : textSelIdxs.length === 1
+              ? textSelIdxs[0]
+              : Number.isInteger(screenInkSelectedTextIndex) &&
+                  selectedSet.has(screenInkSelectedTextIndex) &&
+                  els[screenInkSelectedTextIndex]?.type === "text"
+                ? screenInkSelectedTextIndex
+                : textSelIdxs.length
+                  ? textSelIdxs[textSelIdxs.length - 1]
+                  : null;
+        for (const si of textSelIdxs) {
+          const elSel = els[si];
+          const bb = screenInkTextBoundsNorm(elSel, inner);
+          const chr = document.createElement("div");
+          chr.className = "screen-share-ink-selection-chrome";
+          chr.setAttribute("data-ink-index", String(si));
+          chr.style.left = `${inner.ox + bb.x * inner.cw}px`;
+          chr.style.top = `${inner.oy + bb.y * inner.ch}px`;
+          chr.style.width = `${Math.max(4, bb.w * inner.cw)}px`;
+          chr.style.height = `${Math.max(4, bb.h * inner.ch)}px`;
+          if (showHandlesOn === si) {
+            for (const corner of ["nw", "ne", "sw", "se"]) {
+              const h = document.createElement("div");
+              h.className = "screen-ink-text-handle";
+              h.setAttribute("data-corner", corner);
+              attachScreenInkSelectionChromeHandle(corner, h, si, video, canvasEl);
+              chr.appendChild(h);
+            }
+          }
+          layer.appendChild(chr);
+        }
+      }
+    }
+
+    function syncAllScreenShareInkTextDomLayers() {
+      if (!isScreenShareAnnotSessionActive()) {
+        document.querySelectorAll(".screen-share-ink-text-layer").forEach((l) => l.replaceChildren());
+        return;
+      }
+      document.querySelectorAll("canvas.screen-share-ink-overlay").forEach((c) => {
+        const video = c._inkVideo;
+        const wrap = c.parentElement;
+        if (!video || !wrap) return;
+        syncScreenShareInkTextDomForPeer(wrap, video, c);
+      });
+    }
+
+    function syncScreenInkStrokeResizeLayerForPeer(wrap, video, canvasEl) {
+      if (!wrap || !video || !canvasEl || !video.videoWidth) return;
+      if (screenInkStrokeResizeDrag && screenInkStrokeResizeDrag.canvasEl === canvasEl) return;
+      let layer = wrap.querySelector(".screen-share-ink-stroke-resize-layer");
+      if (!layer) {
+        layer = document.createElement("div");
+        layer.className = "screen-share-ink-stroke-resize-layer";
+        wrap.appendChild(layer);
+      }
+      layer._inkVideo = video;
+      const wr = wrap.getBoundingClientRect();
+      const vr = video.getBoundingClientRect();
+      layer.style.left = `${vr.left - wr.left}px`;
+      layer.style.top = `${vr.top - wr.top}px`;
+      layer.style.width = `${vr.width}px`;
+      layer.style.height = `${vr.height}px`;
+      const useLayer =
+        !!(
+          canScreenShareFullTextLayoutEdit() &&
+          screenInkAnnotActive &&
+          screenShareInkTool === "select" &&
+          isScreenShareAnnotSessionActive()
+        );
+      if (!useLayer) {
+        layer.replaceChildren();
+        return;
+      }
+      const inner = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+      if (!inner) {
+        layer.replaceChildren();
+        return;
+      }
+      const elementos = screenShareInkState.elementos || [];
+      const resizeSelIdx = [...new Set(screenInkSelectedIndices || [])].filter((i) => {
+        const elSel = elementos[i];
+        return !!(elSel && (elSel.type === "stroke" || elSel.type === "text"));
+      });
+      if (!resizeSelIdx.length) {
+        layer.replaceChildren();
+        return;
+      }
+      const union = screenInkUnionSelectionBoundsForIndices(resizeSelIdx, inner);
+      if (!union || !(union.w > 0) || !(union.h > 0)) {
+        layer.replaceChildren();
+        return;
+      }
+      const loneText =
+        resizeSelIdx.length === 1 && elementos[resizeSelIdx[0]]?.type === "text";
+      if (loneText) {
+        layer.replaceChildren();
+        return;
+      }
+      layer.replaceChildren();
+      const x1 = inner.ox + union.x * inner.cw;
+      const y1 = inner.oy + union.y * inner.ch;
+      const x2 = inner.ox + (union.x + union.w) * inner.cw;
+      const y2 = inner.oy + (union.y + union.h) * inner.ch;
+      const mx = (x1 + x2) / 2;
+      const my = (y1 + y2) / 2;
+      const handles = [
+        ["nw", x1, y1],
+        ["n", mx, y1],
+        ["ne", x2, y1],
+        ["e", x2, my],
+        ["se", x2, y2],
+        ["s", mx, y2],
+        ["sw", x1, y2],
+        ["w", x1, my],
+      ];
+      /** @type {Record<string,string>} */
+      const cursors = {
+        nw: "nw-resize",
+        n: "ns-resize",
+        ne: "ne-resize",
+        e: "ew-resize",
+        se: "nw-resize",
+        s: "ns-resize",
+        sw: "ne-resize",
+        w: "ew-resize",
+      };
+      const resizeSelIdxCopy = [...resizeSelIdx];
+      const multiLabel = resizeSelIdxCopy.length > 1;
+      for (const [hid, px, py] of handles) {
+        const hb = document.createElement("button");
+        hb.type = "button";
+        hb.className = "screen-share-ink-stroke-resize-handle";
+        hb.setAttribute("data-stroke-handle", hid);
+        hb.setAttribute(
+          "aria-label",
+          multiLabel ? "Redimensionar selección" : "Redimensionar trazo seleccionado",
+        );
+        hb.style.left = `${px}px`;
+        hb.style.top = `${py}px`;
+        hb.style.cursor = cursors[hid] || "default";
+        hb.addEventListener("pointerdown", (ev) => {
+          if (!canScreenShareFullTextLayoutEdit() || screenShareInkTool !== "select") return;
+          if (ev.button !== 0) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const innerLive = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+          if (!innerLive) return;
+          const uLive = screenInkUnionSelectionBoundsForIndices(resizeSelIdxCopy, innerLive);
+          if (!uLive) return;
+          pushScreenInkHistorySnapshot();
+          const originals = new Map();
+          for (const ix of resizeSelIdxCopy) {
+            const tel = screenShareInkState.elementos[ix];
+            if (!tel) continue;
+            if (tel.type === "stroke" && Array.isArray(tel.points)) {
+              originals.set(ix, {
+                type: "stroke",
+                points: tel.points.map((pp) => ({ x: Number(pp.x), y: Number(pp.y) })),
+              });
+            } else if (tel.type === "text") {
+              originals.set(ix, {
+                type: "text",
+                x: Number(tel.x) || 0,
+                y: Number(tel.y) || 0,
+                w: Number(tel.w) || 0.1,
+                h: Number(tel.h) || 0.05,
+                fontSize: clampTextFontSize(Number(tel.fontSize) || 22),
+              });
+            }
+          }
+          const pn = inkClientToNorm(video, ev.clientX, ev.clientY, canvasEl);
+          if (!pn) return;
+          screenInkSelectionDrag = null;
+          screenInkMarqueeAction = null;
+          screenInkStrokeResizeDrag = {
+            pointerId: ev.pointerId,
+            handleId: hid,
+            bbox0: { x: uLive.x, y: uLive.y, w: uLive.w, h: uLive.h },
+            resizeIndices: [...resizeSelIdxCopy],
+            originals,
+            canvasEl,
+            video,
+            startPtNorm: { x: pn.x, y: pn.y },
+          };
+          try {
+            canvasEl.setPointerCapture(ev.pointerId);
+          } catch (_) {}
+        });
+        layer.appendChild(hb);
+      }
+    }
+
+    function syncAllScreenInkStrokeResizeLayers() {
+      if (!isScreenShareAnnotSessionActive()) {
+        document.querySelectorAll(".screen-share-ink-stroke-resize-layer").forEach((l) => l.replaceChildren());
+        return;
+      }
+      document.querySelectorAll("canvas.screen-share-ink-overlay").forEach((c) => {
+        const video = c._inkVideo;
+        const wrap = c.parentElement;
+        if (!video || !wrap) return;
+        syncScreenInkStrokeResizeLayerForPeer(wrap, video, c);
+      });
+    }
+
+    function bindScreenInkInlineEditorEvents(wrap, video, input) {
+      const onDocPointerDown = (ev) => {
+        if (screenInkInlineEditor !== wrap || wrap._screenInkClosed) return;
+        if (wrap._screenInkResizing) return;
+        const t = ev.target;
+        if (t instanceof Element && wrap.contains(t)) return;
+        closeScreenInkInlineEditor(true);
+      };
+      document.addEventListener("pointerdown", onDocPointerDown, true);
+      wrap._screenInkDocPointerDown = onDocPointerDown;
+
+      input.addEventListener("keydown", (ke) => {
+        if (ke.key === "Escape") {
+          ke.preventDefault();
+          closeScreenInkInlineEditor(false);
+          clearScreenInkTextSelection();
+          redrawAllScreenShareInkOverlays();
+        }
+      });
+      input.addEventListener("blur", () => {
+        setTimeout(() => {
+          if (screenInkInlineEditor !== wrap || wrap._screenInkClosed) return;
+          if (wrap._screenInkResizing) return;
+          const ae = document.activeElement;
+          if (ae && wrap.contains(ae)) return;
+          closeScreenInkInlineEditor(true);
+        }, 180);
+      });
+      input.addEventListener("input", () => {
+        try {
+          const drIn = getScreenInkDisplayRect(video);
+          const in2 = inkVideoInnerDims(video, drIn);
+          if (!in2) return;
+          input.style.fontSize = `${screenInkFontPx(in2, screenInkTextSize)}px`;
+          syncScreenInkInlineEditorLayout(wrap, video, input, drIn);
+        } catch (_) {}
+      });
+    }
+
+    function openScreenInkInlineTextEditIndex(video, idx) {
+      if (!canScreenShareFullTextLayoutEdit()) return;
+      const el = screenShareInkState.elementos[idx];
+      if (!video || !el || el.type !== "text") return;
+      if (screenInkInlineEditor) closeScreenInkInlineEditor(true);
+      screenInkSelectedTextIndex = idx;
+      const dr = getScreenInkDisplayRect(video);
+      const inner = inkVideoInnerDims(video, dr);
+      if (!inner) return;
+      screenInkTextSize = clampTextFontSize(el.fontSize || screenInkTextSize);
+      const fs = screenInkFontPx(inner, screenInkTextSize);
+      const b = screenInkTextBoundsNorm(el, inner);
+      let wPx = Math.max(24, Math.ceil(b.w * inner.cw));
+      let hPx = Math.max(20, Math.ceil(b.h * inner.ch));
+
+      const wrap = document.createElement("div");
+      wrap.className = "screen-ink-text-edit-wrap";
+      wrap._screenInkVideo = video;
+      wrap._screenInkClosed = false;
+      wrap._screenInkResizing = false;
+      wrap._screenInkEditIndex = idx;
+
+      const input = document.createElement("textarea");
+      input.className = "screen-ink-text-edit-input";
+      input.rows = 1;
+      input.setAttribute("wrap", "off");
+      input.spellcheck = false;
+      input.setAttribute("aria-label", "Editar texto sobre pantalla compartida");
+      boardColor = el.color || boardColor || "#111111";
+      input.style.color = el.color || "#111111";
+      input.style.fontSize = `${fs}px`;
+      input.style.lineHeight = "1.2";
+      input.style.overflowY = "hidden";
+      wrap._screenInkInput = input;
+      wrap.appendChild(input);
+
+      for (const corner of ["nw", "ne", "sw", "se"]) {
+        const h = document.createElement("div");
+        h.className = "screen-ink-text-handle";
+        h.setAttribute("data-corner", corner);
+        bindScreenInkTextResizeHandle(h, corner, wrap, video, input);
+        wrap.appendChild(h);
+      }
+
+      let leftPx = dr.left + inner.ox + b.x * inner.cw;
+      let topPx = dr.top + inner.oy + b.y * inner.ch;
+      const c = clampScreenInkEditorBox(leftPx, topPx, wPx, hPx, video, dr);
+      wrap.style.left = `${c.left}px`;
+      wrap.style.top = `${c.top}px`;
+      wrap.style.width = `${c.width}px`;
+      wrap.style.height = `${c.height}px`;
+
+      setInlineEditorText(input, String(el.text || ""));
+      document.body.appendChild(wrap);
+      screenInkInlineEditor = wrap;
+      redrawAllScreenShareInkOverlays();
+      bindScreenInkInlineEditorEvents(wrap, video, input);
+      requestAnimationFrame(() => {
+        syncScreenInkInlineEditorLayout(wrap, video, input, getScreenInkDisplayRect(video));
+        input.focus();
+        moveInlineEditorCaretToEnd(input);
+      });
+    }
+
+    function closeScreenInkInlineEditor(commit) {
+      const wrap = screenInkInlineEditor;
+      if (!wrap || wrap._screenInkClosed) return;
+      const input = wrap._screenInkInput;
+      const video = wrap._screenInkVideo;
+      const editIdx = wrap._screenInkEditIndex;
+      const textRaw = commit ? String(getInlineEditorText(input) || "").trim() : "";
+
+      if (commit && editIdx != null && Number.isInteger(editIdx) && editIdx >= 0 && !textRaw) {
+        wrap._screenInkClosed = true;
+        screenInkInlineEditor = null;
+        try {
+          wrap.remove();
+        } catch (_) {}
+        const el0 = screenShareInkState.elementos[editIdx];
+        if (activeRoomId && el0 && el0.type === "text") {
+          pushScreenInkHistorySnapshot();
+          screenShareInkState.elementos.splice(editIdx, 1);
+          scheduleEmitScreenShareInk();
+        }
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      /** @type {{ nx: number, ny: number, wN: number, hN: number, fsCommit: number } | null} */
+      let snapshot = null;
+      const shouldPersist = !!(commit && textRaw && activeRoomId && video && input);
+
+      if (shouldPersist) {
+        const dr = getScreenInkDisplayRect(video);
+        syncScreenInkInlineEditorLayout(wrap, video, input, dr);
+        const inner = inkVideoInnerDims(video, dr);
+        if (inner) {
+          const wr = wrap.getBoundingClientRect();
+          const ox = dr.left + inner.ox;
+          const oy = dr.top + inner.oy;
+          const nx = clampScreenInk01((wr.left - ox) / inner.cw);
+          const ny = clampScreenInk01((wr.top - oy) / inner.ch);
+          const cs = getComputedStyle(wrap);
+          const pl = parseFloat(cs.paddingLeft) || 0;
+          const pr = parseFloat(cs.paddingRight) || 0;
+          const pt = parseFloat(cs.paddingTop) || 0;
+          const pb = parseFloat(cs.paddingBottom) || 0;
+          const contentW = Math.max(wr.width, input.scrollWidth + pl + pr);
+          const contentH = Math.max(wr.height, input.scrollHeight + pt + pb);
+          const wN = Math.min(0.98, contentW / inner.cw);
+          const hN = Math.min(0.98, contentH / inner.ch);
+          snapshot = {
+            nx,
+            ny,
+            wN,
+            hN,
+            fsCommit: readTextFontSizeFromInput(input),
+          };
+        }
+      }
+
+      wrap._screenInkClosed = true;
+      screenInkInlineEditor = null;
+      if (wrap._screenInkDocPointerDown) {
+        try {
+          document.removeEventListener("pointerdown", wrap._screenInkDocPointerDown, true);
+        } catch (_) {}
+        wrap._screenInkDocPointerDown = null;
+      }
+      try {
+        wrap.remove();
+      } catch (_) {}
+
+      if (!shouldPersist || !snapshot) {
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      screenInkTextSize = clampTextFontSize(snapshot.fsCommit);
+      const newEl = {
+        type: "text",
+        x: snapshot.nx,
+        y: snapshot.ny,
+        w: snapshot.wN,
+        h: snapshot.hN,
+        text: textRaw,
+        color: boardColor || "#111111",
+        fontSize: clampTextFontSize(screenInkTextSize),
+      };
+      pushScreenInkHistorySnapshot();
+      if (
+        editIdx != null &&
+        Number.isInteger(editIdx) &&
+        editIdx >= 0 &&
+        screenShareInkState.elementos[editIdx] &&
+        screenShareInkState.elementos[editIdx].type === "text"
+      ) {
+        screenShareInkState.elementos[editIdx] = newEl;
+      } else {
+        screenShareInkState.elementos.push(newEl);
+        if (screenShareInkState.elementos.length > 500) screenShareInkState.elementos.shift();
+      }
+      scheduleEmitScreenShareInk();
+      redrawAllScreenShareInkOverlays();
+    }
+
+    function bindScreenInkTextResizeHandle(handle, corner, wrap, video, input) {
+      handle.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        wrap._screenInkResizing = true;
+        const r0 = wrap.getBoundingClientRect();
+        const start = {
+          cx: e.clientX,
+          cy: e.clientY,
+          left: r0.left,
+          top: r0.top,
+          w: r0.width,
+          h: r0.height,
+        };
+        const pid = e.pointerId;
+        try {
+          handle.setPointerCapture(pid);
+        } catch (_) {}
+
+        const onMove = (ev) => {
+          if (ev.pointerId !== pid) return;
+          const dx = ev.clientX - start.cx;
+          const dy = ev.clientY - start.cy;
+          let w = start.w;
+          let h = start.h;
+          let left = start.left;
+          let top = start.top;
+          if (corner === "se") {
+            w = start.w + dx;
+            h = start.h + dy;
+          } else if (corner === "ne") {
+            w = start.w + dx;
+            h = start.h - dy;
+            top = start.top + dy;
+          } else if (corner === "sw") {
+            w = start.w - dx;
+            h = start.h + dy;
+            left = start.left + dx;
+          } else if (corner === "nw") {
+            w = start.w - dx;
+            h = start.h - dy;
+            left = start.left + dx;
+            top = start.top + dy;
+          }
+          const c = clampScreenInkEditorBox(left, top, w, h, video, getScreenInkDisplayRect(video));
+          wrap.style.left = `${c.left}px`;
+          wrap.style.top = `${c.top}px`;
+          wrap.style.width = `${c.width}px`;
+          wrap.style.height = `${c.height}px`;
+        };
+        const onUp = (ev) => {
+          if (ev.pointerId !== pid) return;
+          wrap._screenInkResizing = false;
+          try {
+            handle.releasePointerCapture(pid);
+          } catch (_) {}
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+          handle.removeEventListener("pointercancel", onUp);
+          try {
+            input.focus({ preventScroll: true });
+          } catch (_) {
+            try {
+              input.focus();
+            } catch (_) {}
+          }
+        };
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+        handle.addEventListener("pointercancel", onUp);
+      });
+    }
+
+    function openScreenInkInlineTextAtNorm(video, normPt) {
+      if (!video || !normPt) return;
+      if (screenInkInlineEditor) closeScreenInkInlineEditor(true);
+      const dr = getScreenInkDisplayRect(video);
+      const inner = inkVideoInnerDims(video, dr);
+      if (!inner) return;
+      const fs = screenInkFontPx(inner, screenInkTextSize);
+      const initialW = Math.max(24, Math.ceil(fs * 0.7));
+      const initialH = Math.max(20, Math.ceil(fs * 1.22));
+
+      const wrap = document.createElement("div");
+      wrap.className = "screen-ink-text-edit-wrap";
+      wrap._screenInkVideo = video;
+      wrap._screenInkClosed = false;
+      wrap._screenInkResizing = false;
+      wrap._screenInkEditIndex = null;
+
+      const input = document.createElement("textarea");
+      input.className = "screen-ink-text-edit-input";
+      input.rows = 1;
+      input.setAttribute("wrap", "off");
+      input.spellcheck = false;
+      input.setAttribute("aria-label", "Texto sobre pantalla compartida");
+      input.style.color = boardColor || "#111111";
+      input.style.fontSize = `${fs}px`;
+      input.style.lineHeight = "1.2";
+      input.style.overflowY = "hidden";
+      wrap._screenInkInput = input;
+      wrap.appendChild(input);
+
+      for (const corner of ["nw", "ne", "sw", "se"]) {
+        const h = document.createElement("div");
+        h.className = "screen-ink-text-handle";
+        h.setAttribute("data-corner", corner);
+        bindScreenInkTextResizeHandle(h, corner, wrap, video, input);
+        wrap.appendChild(h);
+      }
+
+      let leftPx = dr.left + inner.ox + normPt.x * inner.cw;
+      let topPx = dr.top + inner.oy + normPt.y * inner.ch;
+      const c = clampScreenInkEditorBox(leftPx, topPx, initialW, initialH, video, dr);
+      wrap.style.left = `${c.left}px`;
+      wrap.style.top = `${c.top}px`;
+      wrap.style.width = `${c.width}px`;
+      wrap.style.height = `${c.height}px`;
+
+      setInlineEditorText(input, "");
+      document.body.appendChild(wrap);
+      screenInkInlineEditor = wrap;
+      bindScreenInkInlineEditorEvents(wrap, video, input);
+      requestAnimationFrame(() => {
+        syncScreenInkInlineEditorLayout(wrap, video, input, getScreenInkDisplayRect(video));
+        input.focus();
+        moveInlineEditorCaretToEnd(input);
+      });
+    }
+
+    function queueScreenShareInkRefresh() {
+      if (screenInkLayoutRaf) return;
+      screenInkLayoutRaf = requestAnimationFrame(() => {
+        screenInkLayoutRaf = 0;
+        layoutScreenShareInkOverlays();
+        redrawAllScreenShareInkOverlays();
+      });
+    }
+
+    function pruneOrphanScreenInkOverlays(validWraps) {
+      document.querySelectorAll("canvas.screen-share-ink-overlay").forEach((c) => {
+        const p = c.parentElement;
+        if (!p || !p.classList.contains("remote-peer")) {
+          c.remove();
+          return;
+        }
+        if (!validWraps.has(p)) c.remove();
+      });
+      document.querySelectorAll(".screen-share-ink-text-layer").forEach((layer) => {
+        const p = layer.parentElement;
+        if (!p || !p.classList.contains("remote-peer")) {
+          layer.remove();
+          return;
+        }
+        if (!validWraps.has(p)) layer.remove();
+      });
+      document.querySelectorAll(".screen-share-ink-stroke-resize-layer").forEach((layer) => {
+        const p = layer.parentElement;
+        if (!p || !p.classList.contains("remote-peer")) {
+          layer.remove();
+          return;
+        }
+        if (!validWraps.has(p)) layer.remove();
+      });
+    }
+
+    function layoutScreenShareInkOverlays() {
+      if (!isScreenShareAnnotSessionActive()) {
+        pruneOrphanScreenInkOverlays(new Set());
+        return;
+      }
+      const wraps = new Set();
+      document.querySelectorAll(".remote-peer--screen-share").forEach((w) => wraps.add(w));
+      const lw = $("localVideo")?.closest(".remote-peer");
+      if (lw && lw.classList.contains("remote-peer--local-screen-capture-target")) wraps.add(lw);
+      pruneOrphanScreenInkOverlays(wraps);
+      wraps.forEach((wrap) => {
+        const vid = wrap.querySelector("video");
+        if (!vid || !vid.videoWidth) return;
+        if (!vid._screenInkVideoEventsBound) {
+          vid._screenInkVideoEventsBound = true;
+          vid.addEventListener("loadedmetadata", () => queueScreenShareInkRefresh());
+          vid.addEventListener("resize", () => queueScreenShareInkRefresh());
+          vid.addEventListener("playing", () => queueScreenShareInkRefresh());
+        }
+        let c = wrap.querySelector("canvas.screen-share-ink-overlay");
+        if (!c) {
+          c = document.createElement("canvas");
+          c.className = "screen-share-ink-overlay";
+          c.setAttribute("aria-hidden", "true");
+          wrap.appendChild(c);
+          attachScreenShareInkOverlayHandlers(c);
+        }
+        c._inkVideo = vid;
+        vid._screenInkOverlayCanvas = c;
+        const wr = wrap.getBoundingClientRect();
+        const vr = vid.getBoundingClientRect();
+        c.style.left = `${vr.left - wr.left}px`;
+        c.style.top = `${vr.top - wr.top}px`;
+        c.style.width = `${vr.width}px`;
+        c.style.height = `${vr.height}px`;
+        let cursor = "crosshair";
+        if (screenInkAnnotActive && screenShareInkTool === "text") cursor = "text";
+        else if (screenInkAnnotActive && screenShareInkTool === "select") cursor = "default";
+        c.style.cursor = cursor;
+        if (screenInkAnnotActive && screenShareInkTool === "text") {
+          c.title =
+            "Clic: el texto comienza con la esquina superior izquierda del cuadro en ese punto.";
+        } else {
+          c.removeAttribute("title");
+        }
+        c.classList.toggle(
+          "screen-share-ink-overlay--drawing",
+          !!(screenInkAnnotActive && isScreenShareAnnotSessionActive()),
+        );
+      });
+    }
+
+    function attachScreenShareInkOverlayHandlers(canvasEl) {
+      if (!canvasEl._screenInkBound) {
+        canvasEl._screenInkBound = true;
+        canvasEl.addEventListener("pointerdown", onScreenInkPointerDown);
+        canvasEl.addEventListener("pointermove", onScreenInkPointerMove);
+        canvasEl.addEventListener("pointerup", onScreenInkPointerUp);
+        canvasEl.addEventListener("pointercancel", onScreenInkPointerUp);
+      }
+      if (!canvasEl._screenInkDblBound) {
+        canvasEl._screenInkDblBound = true;
+        canvasEl.addEventListener("dblclick", onScreenInkOverlayDblClick);
+      }
+    }
+
+    function onScreenInkOverlayDblClick(e) {
+      if (!screenInkAnnotActive || !isScreenShareAnnotSessionActive() || !activeRoomId) return;
+      if (screenShareInkTool !== "select" || !canScreenShareFullTextLayoutEdit()) return;
+      const canvasEl = e.currentTarget;
+      const video = canvasEl._inkVideo;
+      if (!video) return;
+      const pt = inkClientToNorm(video, e.clientX, e.clientY, canvasEl);
+      if (!pt) return;
+      const inner = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+      if (!inner) return;
+      const idx = screenInkFindTopTextIndexAtNorm(pt, inner);
+      if (idx < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openScreenInkInlineTextEditIndex(video, idx);
+    }
+
+    function onScreenInkPointerDown(e) {
+      if (!screenInkAnnotActive || !isScreenShareAnnotSessionActive() || !activeRoomId) return;
+      if (e.button !== 0) return;
+      const canvasEl = e.currentTarget;
+      const video = canvasEl._inkVideo;
+      if (!video) return;
+      const pt = inkClientToNorm(video, e.clientX, e.clientY, canvasEl);
+      if (!pt) return;
+      const innerEarly = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+
+      if (screenShareInkTool === "text" && innerEarly) {
+        const tHit = screenInkFindTopTextIndexAtNorm(pt, innerEarly);
+        if (tHit >= 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
+
+      if (
+        screenShareInkTool === "select" &&
+        canScreenShareFullTextLayoutEdit() &&
+        innerEarly
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        const hitIdx = screenInkFindTopElementIndexAtNorm(pt, innerEarly);
+        if (hitIdx >= 0) {
+          if (e.shiftKey) {
+            if (screenInkSelectedIndices.includes(hitIdx)) {
+              screenInkSelectedIndices = screenInkSelectedIndices.filter((v) => v !== hitIdx);
+              if (screenInkSelectedTextIndex === hitIdx) {
+                const fallback = [...screenInkSelectedIndices]
+                  .reverse()
+                  .find((id) => screenShareInkState.elementos?.[id]?.type === "text");
+                screenInkSelectedTextIndex = Number.isInteger(fallback) ? fallback : null;
+              }
+            } else {
+              screenInkSelectedIndices = Array.from(new Set([...screenInkSelectedIndices, hitIdx]));
+              if (screenShareInkState.elementos?.[hitIdx]?.type === "text") {
+                screenInkSelectedTextIndex = hitIdx;
+              }
+            }
+            screenInkSelectionDrag = null;
+          } else {
+            if (!screenInkSelectedIndices.includes(hitIdx)) {
+              screenInkSelectedIndices = [hitIdx];
+              screenInkSelectedTextIndex =
+                screenShareInkState.elementos?.[hitIdx]?.type === "text" ? hitIdx : null;
+            }
+            const dragIdxs = screenInkNormalizeSelectionIndicesForDrag();
+            if (dragIdxs.length) {
+              screenInkSelectionDrag = {
+                phase: "pending",
+                pointerId: e.pointerId,
+                canvasEl,
+                video,
+                startPt: { x: pt.x, y: pt.y },
+                indices: dragIdxs,
+                anchorIndex: hitIdx,
+                moved: false,
+              };
+              try {
+                canvasEl.setPointerCapture(e.pointerId);
+              } catch (_) {}
+            }
+          }
+          redrawAllScreenShareInkOverlays();
+          return;
+        }
+        const normUnionDrag = screenInkNormalizeSelectionIndicesForDrag();
+        if (!e.shiftKey && normUnionDrag.length >= 2 && innerEarly) {
+          const uDrag = screenInkUnionSelectionBoundsForIndices(normUnionDrag, innerEarly);
+          if (
+            uDrag &&
+            uDrag.w > 0 &&
+            uDrag.h > 0 &&
+            screenInkPointInNormRect(pt.x, pt.y, uDrag.x, uDrag.y, uDrag.w, uDrag.h, 0)
+          ) {
+            screenInkDraggingSelectionResize = null;
+            screenInkMarqueeAction = null;
+            screenInkSelectionDrag = {
+              phase: "pending",
+              pointerId: e.pointerId,
+              canvasEl,
+              video,
+              startPt: { x: pt.x, y: pt.y },
+              indices: [...normUnionDrag],
+              anchorIndex: null,
+              moved: false,
+            };
+            try {
+              canvasEl.setPointerCapture(e.pointerId);
+            } catch (_) {}
+            redrawAllScreenShareInkOverlays();
+            return;
+          }
+        }
+        screenInkSelectionDrag = null;
+        screenInkDraggingSelectionResize = null;
+        const base = e.shiftKey ? Array.from(new Set(screenInkSelectedIndices)) : [];
+        if (!e.shiftKey) {
+          screenInkSelectedIndices = [];
+          screenInkSelectedTextIndex = null;
+        }
+        screenInkMarqueeAction = {
+          startPt: { x: pt.x, y: pt.y },
+          currentPt: { x: pt.x, y: pt.y },
+          additive: !!e.shiftKey,
+          baseSelection: base,
+          pointerId: e.pointerId,
+        };
+        try {
+          canvasEl.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (screenShareInkTool === "text") {
+        openScreenInkInlineTextAtNorm(video, pt);
+        return;
+      }
+
+      if (screenShareInkTool === "emoji") {
+        const emoji = String(screenInkEmojiCurrent || "😀");
+        const innerEmoji = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+        if (!innerEmoji) return;
+        const fsModel = clampTextFontSize(Math.max(18, screenInkTextSize + 10));
+        const b = measureScreenInkTextNormBounds(emoji, fsModel, innerEmoji);
+        pushScreenInkHistorySnapshot();
+        screenShareInkState.elementos.push({
+          type: "text",
+          x: clampScreenInk01(pt.x),
+          y: clampScreenInk01(pt.y),
+          w: b.w,
+          h: b.h,
+          text: emoji,
+          color: "#ffffff",
+          fontSize: fsModel,
+        });
+        if (screenShareInkState.elementos.length > 500) screenShareInkState.elementos.shift();
+        scheduleEmitScreenShareInk();
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (screenShareInkTool === "eraser") {
+        screenInkErasing = true;
+        screenInkEraserPath = [pt];
+        try {
+          canvasEl.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        return;
+      }
+
+      if (screenShareInkTool === "select") return;
+
+      screenInkDrawing = true;
+      screenInkCurrentStroke = {
+        type: "stroke",
+        points: [pt],
+        color: boardColor || "#111111",
+        lw: getScreenInkLwNorm(),
+      };
+      try {
+        canvasEl.setPointerCapture(e.pointerId);
+      } catch (_) {}
+      redrawAllScreenShareInkOverlays();
+    }
+
+    function onScreenInkPointerMove(e) {
+      const canvasEl = e.currentTarget;
+      const video = canvasEl._inkVideo;
+      if (!video) return;
+      const pt = inkClientToNorm(video, e.clientX, e.clientY, canvasEl);
+      if (!pt) return;
+
+      if (
+        screenInkStrokeResizeDrag &&
+        e.pointerId === screenInkStrokeResizeDrag.pointerId &&
+        canvasEl === screenInkStrokeResizeDrag.canvasEl &&
+        screenShareInkTool === "select"
+      ) {
+        const rz = screenInkStrokeResizeDrag;
+        const pn = inkClientToNorm(rz.video, e.clientX, e.clientY, rz.canvasEl);
+        if (!pn) return;
+        const dx = pn.x - rz.startPtNorm.x;
+        const dy = pn.y - rz.startPtNorm.y;
+        const raw = applyScreenInkStrokeBBoxResize(
+          rz.handleId,
+          rz.bbox0.x,
+          rz.bbox0.y,
+          rz.bbox0.w,
+          rz.bbox0.h,
+          dx,
+          dy,
+        );
+        const innerRz = inkVideoInnerDims(rz.video, rz.canvasEl.getBoundingClientRect());
+        screenInkApplySelectionResizeWithOriginals(
+          rz.originals,
+          rz.bbox0,
+          raw,
+          rz.resizeIndices,
+          innerRz,
+        );
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (screenInkMarqueeAction) {
+        if (e.pointerId !== screenInkMarqueeAction.pointerId) return;
+        screenInkMarqueeAction.currentPt = { x: pt.x, y: pt.y };
+        const inner = inkVideoInnerDims(video, canvasEl.getBoundingClientRect());
+        if (!inner) return;
+        const selRect = screenInkNormRectFromPoints(
+          screenInkMarqueeAction.startPt,
+          screenInkMarqueeAction.currentPt,
+        );
+        const picked = screenInkFindIndicesInNormRect(selRect, inner);
+        if (screenInkMarqueeAction.additive) {
+          screenInkSelectedIndices = Array.from(
+            new Set([...(screenInkMarqueeAction.baseSelection || []), ...picked]),
+          );
+        } else {
+          screenInkSelectedIndices = picked;
+        }
+        const topText = [...screenInkSelectedIndices]
+          .reverse()
+          .find((idx) => screenShareInkState.elementos?.[idx]?.type === "text");
+        screenInkSelectedTextIndex = Number.isInteger(topText) ? topText : null;
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (
+        screenShareInkTool === "select" &&
+        canScreenShareFullTextLayoutEdit() &&
+        screenInkSelectionDrag &&
+        e.pointerId === screenInkSelectionDrag.pointerId
+      ) {
+        const sd = screenInkSelectionDrag;
+        const dxAll = pt.x - sd.startPt.x;
+        const dyAll = pt.y - sd.startPt.y;
+        if (sd.phase === "pending") {
+          if (Math.hypot(dxAll, dyAll) < SCREEN_INK_SELECTION_DRAG_THRESHOLD)
+            return;
+          sd.phase = "dragging";
+          sd.moved = true;
+          pushScreenInkHistorySnapshot();
+          sd.originals = new Map();
+          for (const idx of sd.indices) {
+            const el = screenShareInkState.elementos?.[idx];
+            if (!el) continue;
+            if (el.type === "text") {
+              sd.originals.set(idx, { type: "text", x: Number(el.x) || 0, y: Number(el.y) || 0 });
+            } else if (el.type === "stroke" && Array.isArray(el.points)) {
+              sd.originals.set(idx, {
+                type: "stroke",
+                points: el.points.map((p) => ({ x: Number(p?.x), y: Number(p?.y) })),
+              });
+            }
+          }
+        }
+        applyScreenInkSelectionDragDelta(dxAll, dyAll);
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (screenInkErasing && screenInkEraserPath && screenShareInkTool === "eraser") {
+        const last = screenInkEraserPath[screenInkEraserPath.length - 1];
+        if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) > 0.0025) screenInkEraserPath.push(pt);
+        return;
+      }
+
+      if (!screenInkDrawing || !screenInkCurrentStroke) return;
+      screenInkCurrentStroke.points.push(pt);
+      redrawAllScreenShareInkOverlays();
+    }
+
+    function onScreenInkPointerUp(e) {
+      const canvasEl = e.currentTarget;
+      const video = canvasEl._inkVideo;
+
+      if (
+        screenInkStrokeResizeDrag &&
+        e.pointerId === screenInkStrokeResizeDrag.pointerId &&
+        canvasEl === screenInkStrokeResizeDrag.canvasEl
+      ) {
+        try {
+          canvasEl.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        scheduleEmitScreenShareInk();
+        screenInkStrokeResizeDrag = null;
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (screenInkMarqueeAction && e.pointerId === screenInkMarqueeAction.pointerId) {
+        try {
+          canvasEl.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        screenInkMarqueeAction = null;
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (
+        screenInkSelectionDrag &&
+        e.pointerId === screenInkSelectionDrag.pointerId &&
+        screenShareInkTool === "select" &&
+        canScreenShareFullTextLayoutEdit()
+      ) {
+        const sd = screenInkSelectionDrag;
+        try {
+          canvasEl.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        const didDrag = sd.phase === "dragging";
+        const anchor = sd.anchorIndex;
+        const vid = sd.video;
+        if (didDrag && sd.moved) scheduleEmitScreenShareInk();
+        if (
+          !didDrag &&
+          vid &&
+          screenShareInkState.elementos?.[anchor]?.type === "text" &&
+          sd.indices?.length === 1 &&
+          sd.indices[0] === anchor
+        ) {
+          const now = Date.now();
+          if (
+            screenInkSelectLastClick &&
+            screenInkSelectLastClick.index === anchor &&
+            now - screenInkSelectLastClick.ts <= 320
+          ) {
+            screenInkSelectLastClick = null;
+            screenInkSelectionDrag = null;
+            redrawAllScreenShareInkOverlays();
+            openScreenInkInlineTextEditIndex(vid, anchor);
+            return;
+          }
+          screenInkSelectLastClick = { index: anchor, ts: now };
+        } else {
+          screenInkSelectLastClick = null;
+        }
+        screenInkSelectionDrag = null;
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      try {
+        canvasEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+
+      if (screenShareInkTool === "eraser" && screenInkErasing) {
+        screenInkErasing = false;
+        const path = screenInkEraserPath;
+        screenInkEraserPath = null;
+        const inner = video ? inkVideoInnerDims(video, canvasEl.getBoundingClientRect()) : null;
+        const idxs = screenInkFindIndicesHitByEraserPath(path || [], inner);
+        if (idxs.length) {
+          pushScreenInkHistorySnapshot();
+          const rm = new Set(idxs);
+          screenShareInkState.elementos = screenShareInkState.elementos.filter((_, i) => !rm.has(i));
+          scheduleEmitScreenShareInk();
+          clearScreenInkTextSelection();
+        }
+        redrawAllScreenShareInkOverlays();
+        return;
+      }
+
+      if (!screenInkDrawing) return;
+      screenInkDrawing = false;
+      const st = screenInkCurrentStroke;
+      screenInkCurrentStroke = null;
+      if (st && st.points.length >= 2) {
+        pushScreenInkHistorySnapshot();
+        screenShareInkState.elementos.push(st);
+        if (screenShareInkState.elementos.length > 500) screenShareInkState.elementos.shift();
+        scheduleEmitScreenShareInk();
+      }
+      redrawAllScreenShareInkOverlays();
+    }
+
+    function redrawAllScreenShareInkOverlays() {
+      document.querySelectorAll("canvas.screen-share-ink-overlay").forEach((c) =>
+        redrawScreenShareInkCanvas(c),
+      );
+      syncAllScreenShareInkTextDomLayers();
+      syncAllScreenInkStrokeResizeLayers();
+    }
+
+    function screenInkNormToCss(normPt, inner) {
+      return { x: inner.ox + normPt.x * inner.cw, y: inner.oy + normPt.y * inner.ch };
+    }
+
+    function redrawScreenShareInkCanvas(canvasEl) {
+      const video = canvasEl._inkVideo;
+      if (!video || !video.videoWidth) return;
+      const rect = canvasEl.getBoundingClientRect();
+      const cssW = Math.max(1, rect.width);
+      const cssH = Math.max(1, rect.height);
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const tw = Math.round(cssW * dpr);
+      const th = Math.round(cssH * dpr);
+      if (canvasEl.width !== tw || canvasEl.height !== th) {
+        canvasEl.width = tw;
+        canvasEl.height = th;
+      }
+      const ctx = canvasEl.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+      const inner = inkVideoInnerDims(video, rect);
+      if (!inner) return;
+      const list = screenShareInkState.elementos.map((st, i) => ({ st, i }));
+      if (screenInkCurrentStroke) list.push({ st: screenInkCurrentStroke, i: -1 });
+      for (const { st } of list) {
+        if (!st) continue;
+        if (st.type === "stroke" && Array.isArray(st.points) && st.points.length >= 2) {
+          const pts = st.points;
+          ctx.beginPath();
+          const p0 = screenInkNormToCss(pts[0], inner);
+          ctx.moveTo(p0.x, p0.y);
+          for (let j = 1; j < pts.length; j++) {
+            const p = screenInkNormToCss(pts[j], inner);
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.strokeStyle = st.color || "#111111";
+          const lwNorm = typeof st.lw === "number" && st.lw > 0 ? st.lw : 0.008;
+          ctx.lineWidth = Math.max(1, lwNorm * Math.min(inner.cw, inner.ch));
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          ctx.stroke();
+        }
+      }
+      if (screenShareInkTool === "select" && canScreenShareFullTextLayoutEdit()) {
+        const selected = screenInkNormalizeSelectionIndicesForDrag();
+        if (selected.length >= 2) {
+          const u = screenInkUnionSelectionBoundsForIndices(selected, inner);
+          if (u && u.w > 0 && u.h > 0) {
+            ctx.save();
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 2.25;
+            ctx.strokeStyle = "#0369a1";
+            const x = inner.ox + u.x * inner.cw;
+            const y = inner.oy + u.y * inner.ch;
+            const w = Math.max(2, u.w * inner.cw);
+            const h = Math.max(2, u.h * inner.ch);
+            ctx.strokeRect(x, y, w, h);
+            ctx.restore();
+          }
+        } else if (selected.length === 1) {
+          const el = screenShareInkState.elementos?.[selected[0]];
+          if (el?.type === "stroke") {
+            const b = screenInkStrokeBoundsNorm(el);
+            if (b && b.w > 0 && b.h > 0) {
+              ctx.save();
+              ctx.setLineDash([6, 4]);
+              ctx.lineWidth = 1.5;
+              ctx.strokeStyle = "#2563eb";
+              const x = inner.ox + b.x * inner.cw;
+              const y = inner.oy + b.y * inner.ch;
+              const w = Math.max(2, b.w * inner.cw);
+              const h = Math.max(2, b.h * inner.ch);
+              ctx.strokeRect(x, y, w, h);
+              ctx.restore();
+            }
+          }
+        }
+        if (screenInkMarqueeAction) {
+          const sr = screenInkNormRectFromPoints(
+            screenInkMarqueeAction.startPt,
+            screenInkMarqueeAction.currentPt,
+          );
+          const x = inner.ox + sr.x * inner.cw;
+          const y = inner.oy + sr.y * inner.ch;
+          const w = sr.w * inner.cw;
+          const h = sr.h * inner.ch;
+          ctx.save();
+          ctx.setLineDash([6, 4]);
+          ctx.lineWidth = 1.25;
+          ctx.strokeStyle = "#2563eb";
+          ctx.fillStyle = "rgba(37,99,235,0.12)";
+          ctx.fillRect(x, y, w, h);
+          ctx.strokeRect(x, y, w, h);
+          ctx.restore();
+        }
+      }
+    }
+
+    function scheduleEmitScreenShareInk() {
+      clearTimeout(screenInkEmitTimer);
+      screenInkEmitTimer = setTimeout(emitScreenShareInkNow, 90);
+    }
+
+    function emitScreenShareInkNow() {
+      if (!socket?.connected || !activeRoomId || !isScreenShareAnnotSessionActive()) return;
+      socket.emit("screenshare-annotate:update", {
+        roomId: normRoomKey(activeRoomId),
+        contenido: cloneScreenShareInkState(screenShareInkState),
+      });
+    }
+
+    const SCREEN_SHARE_ANNOT_FAB_POS_KEY = "screenShareAnnotFabPos";
+    const SCREEN_SHARE_ANNOT_FAB_DRAG_PX = 10;
+
+    function syncScreenShareAnnotToolbarState() {
+      const normC = (boardColor || "#111111").toLowerCase();
+      document.querySelectorAll(".screen-share-annot-swatch").forEach((el) => {
+        const c = (el.getAttribute("data-color") || "").toLowerCase();
+        el.classList.toggle("screen-share-annot-swatch--active", c === normC);
+      });
+      const ci = $("screenShareAnnotColorInput");
+      if (ci && (ci.value || "").toLowerCase() !== normC) ci.value = boardColor || "#111111";
+      const w = String(boardLineWidth);
+      document.querySelectorAll(".screen-share-annot-lw").forEach((el) => {
+        const v = el.getAttribute("data-line-width") || "";
+        el.classList.toggle("screen-share-annot-lw--active", v === w);
+      });
+      const ts = String(clampTextFontSize(screenInkTextSize));
+      document.querySelectorAll(".screen-share-annot-ts").forEach((el) => {
+        const v = el.getAttribute("data-text-size") || "";
+        el.classList.toggle("screen-share-annot-ts--active", v === ts);
+      });
+      document.querySelectorAll(".screen-share-annot-emoji-btn").forEach((el) => {
+        const v = el.getAttribute("data-emoji") || "";
+        el.classList.toggle("screen-share-annot-emoji-btn--active", v === screenInkEmojiCurrent);
+      });
+      const annotOn = !!screenInkAnnotActive;
+      const pencil = $("btnScreenShareInkDraw");
+      if (pencil) {
+        pencil.setAttribute("aria-pressed", annotOn && screenShareInkTool === "pencil" ? "true" : "false");
+        pencil.classList.toggle("active", annotOn && screenShareInkTool === "pencil");
+      }
+      const tb = $("btnScreenShareInkText");
+      if (tb) {
+        tb.setAttribute("aria-pressed", annotOn && screenShareInkTool === "text" ? "true" : "false");
+        tb.classList.toggle("active", annotOn && screenShareInkTool === "text");
+      }
+      const em = $("btnScreenShareInkEmoji");
+      if (em) {
+        em.setAttribute("aria-pressed", annotOn && screenShareInkTool === "emoji" ? "true" : "false");
+        em.classList.toggle("active", annotOn && screenShareInkTool === "emoji");
+      }
+      const er = $("btnScreenShareInkEraser");
+      if (er) {
+        er.setAttribute("aria-pressed", annotOn && screenShareInkTool === "eraser" ? "true" : "false");
+        er.classList.toggle("active", annotOn && screenShareInkTool === "eraser");
+      }
+      const sel = $("btnScreenShareInkSelect");
+      if (sel) {
+        const cap = !!canScreenShareFullTextLayoutEdit();
+        sel.classList.toggle("hidden", !cap);
+        if (!cap && screenShareInkTool === "select") {
+          screenShareInkTool = "pencil";
+        }
+        sel.setAttribute("aria-pressed", annotOn && cap && screenShareInkTool === "select" ? "true" : "false");
+        sel.classList.toggle("active", annotOn && cap && screenShareInkTool === "select");
+      }
+      syncScreenInkHistoryButtons();
+      syncAllScreenShareInkTextDomLayers();
+    }
+
+    function applySavedScreenShareAnnotFabPosition(fab) {
+      if (!fab) return;
+      try {
+        const raw = localStorage.getItem(SCREEN_SHARE_ANNOT_FAB_POS_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p && p.v === 3 && Number.isFinite(p.left) && Number.isFinite(p.bottom)) {
+            fab.style.left = `${Math.round(p.left)}px`;
+            fab.style.bottom = `${Math.round(p.bottom)}px`;
+            fab.style.top = "auto";
+            fab.style.right = "auto";
+            return;
+          }
+        }
+      } catch (_) {}
+      fab.style.left = "16px";
+      fab.style.bottom = "calc(80px + env(safe-area-inset-bottom, 0px))";
+      fab.style.top = "auto";
+      fab.style.right = "auto";
+    }
+
+    function persistScreenShareAnnotFabGeometry(fab) {
+      if (!fab) return;
+      const r = fab.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) return;
+      const w = fab.offsetWidth;
+      const h = fab.offsetHeight;
+      if (w < 8 || h < 8) return;
+      let left = Math.round(r.left);
+      let bottom = Math.round(window.innerHeight - r.bottom);
+      left = Math.max(4, Math.min(window.innerWidth - w - 4, left));
+      bottom = Math.max(4, Math.min(window.innerHeight - h - 4, bottom));
+      fab.style.left = `${left}px`;
+      fab.style.bottom = `${bottom}px`;
+      fab.style.top = "auto";
+      fab.style.right = "auto";
+      try {
+        localStorage.setItem(SCREEN_SHARE_ANNOT_FAB_POS_KEY, JSON.stringify({ v: 3, left, bottom }));
+      } catch (_) {}
+    }
+
+    function clampScreenShareAnnotFabIntoView(fab) {
+      if (!fab || !fab.classList.contains("screen-share-annot-fab--visible")) return;
+      const r = fab.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) return;
+      persistScreenShareAnnotFabGeometry(fab);
+    }
+
+    function closeScreenShareAnnotFlyout() {
+      $("screenShareAnnotFlyout")?.classList.remove(
+        "screen-share-annot-flyout--visible",
+        "screen-share-annot-flyout--mode-color",
+        "screen-share-annot-flyout--mode-lw",
+        "screen-share-annot-flyout--mode-textsize",
+        "screen-share-annot-flyout--mode-emoji",
+      );
+      $("btnScreenShareAnnotPalette")?.classList.remove("active");
+      $("btnScreenShareInkText")?.classList.remove("active");
+      $("btnScreenShareInkEmoji")?.classList.remove("active");
+    }
+
+    function openScreenShareAnnotFlyoutMode(mode, triggerBtn) {
+      const fly = $("screenShareAnnotFlyout");
+      if (!fly || !triggerBtn) return;
+      const isLw = mode === "lineWidth";
+      const isColor = mode === "color";
+      const isTs = mode === "textSize";
+      const isEmoji = mode === "emoji";
+      if (!isLw && !isColor && !isTs && !isEmoji) return;
+      const vis = fly.classList.contains("screen-share-annot-flyout--visible");
+      const sameMode =
+        (isColor && fly.classList.contains("screen-share-annot-flyout--mode-color")) ||
+        (isLw && fly.classList.contains("screen-share-annot-flyout--mode-lw")) ||
+        (isTs && fly.classList.contains("screen-share-annot-flyout--mode-textsize")) ||
+        (isEmoji && fly.classList.contains("screen-share-annot-flyout--mode-emoji"));
+      if (vis && sameMode) {
+        closeScreenShareAnnotFlyout();
+        return;
+      }
+      fly.classList.remove(
+        "screen-share-annot-flyout--mode-color",
+        "screen-share-annot-flyout--mode-lw",
+        "screen-share-annot-flyout--mode-textsize",
+        "screen-share-annot-flyout--mode-emoji",
+      );
+      fly.classList.add(
+        isColor ? "screen-share-annot-flyout--mode-color" : isLw
+          ? "screen-share-annot-flyout--mode-lw"
+          : isTs
+            ? "screen-share-annot-flyout--mode-textsize"
+            : "screen-share-annot-flyout--mode-emoji",
+      );
+      fly.classList.add("screen-share-annot-flyout--visible");
+      $("btnScreenShareAnnotPalette")?.classList.toggle("active", isColor);
+      $("btnScreenShareInkText")?.classList.toggle("active", isTs);
+      $("btnScreenShareInkEmoji")?.classList.toggle("active", isEmoji);
+      syncScreenShareAnnotToolbarState();
+      requestAnimationFrame(() => {
+        positionScreenShareAnnotFlyout(triggerBtn);
+        requestAnimationFrame(() => positionScreenShareAnnotFlyout(triggerBtn));
+      });
+    }
+
+    function positionScreenShareAnnotFlyout(triggerBtn) {
+      const fly = $("screenShareAnnotFlyout");
+      const bar = $("screenShareAnnotBar");
+      if (!fly || !triggerBtn) return;
+      const br = (
+        bar?.classList.contains("screen-share-annot-bar--visible") ? bar : triggerBtn
+      ).getBoundingClientRect();
+      const tr = triggerBtn.getBoundingClientRect();
+      const margin = 8;
+      const fw = fly.offsetWidth || 172;
+      const fh = fly.offsetHeight || 260;
+      let left = br.right + margin;
+      let top = tr.top;
+      if (left + fw > window.innerWidth - margin) {
+        left = br.left - fw - margin;
+      }
+      if (top + fh > window.innerHeight - margin) {
+        top = Math.max(margin, window.innerHeight - fh - margin);
+      }
+      left = Math.max(margin, Math.min(left, window.innerWidth - fw - margin));
+      top = Math.max(margin, Math.min(top, window.innerHeight - fh - margin));
+      fly.style.left = `${Math.round(left)}px`;
+      fly.style.top = `${Math.round(top)}px`;
+    }
+
+    function ensureScreenShareAnnotFlyoutDismiss() {
+      if (document.body._annotFlyoutDismissBound) return;
+      document.body._annotFlyoutDismissBound = true;
+      document.addEventListener(
+        "pointerdown",
+        (e) => {
+          const fly = $("screenShareAnnotFlyout");
+          const pal = $("btnScreenShareAnnotPalette");
+          const circleFab = $("screenShareAnnotFab");
+          const bar = $("screenShareAnnotBar");
+          if (!fly?.classList.contains("screen-share-annot-flyout--visible")) return;
+          const t = e.target;
+          if (
+            fly.contains(t) ||
+            pal?.contains(t) ||
+            circleFab?.contains(t) ||
+            bar?.contains(t)
+          ) {
+            return;
+          }
+          closeScreenShareAnnotFlyout();
+        },
+        true,
+      );
+    }
+
+    function positionExpandedBarNearFab() {
+      const fab = $("screenShareAnnotFab");
+      const bar = $("screenShareAnnotBar");
+      if (!fab || !bar || !bar.classList.contains("screen-share-annot-bar--visible")) return;
+      const fr = fab.getBoundingClientRect();
+      const gap = 10;
+      bar.style.left = `${Math.round(fr.left)}px`;
+      bar.style.right = "auto";
+      bar.style.top = "auto";
+      const barH = Math.max(1, bar.getBoundingClientRect().height || bar.offsetHeight || 200);
+      const fabTop = fr.top;
+      const neededAbove = barH + gap;
+      if (fabTop < neededAbove + 8) {
+        bar.style.bottom = `${Math.round(window.innerHeight - fr.bottom - gap - barH)}px`;
+      } else {
+        bar.style.bottom = `${Math.round(window.innerHeight - fr.top + gap)}px`;
+      }
+      if ($("screenShareAnnotFlyout")?.classList.contains("screen-share-annot-flyout--visible")) {
+        screenShareInkRefreshFlyoutPosition();
+      }
+    }
+
+    function setScreenShareAnnotFabExpanded(on) {
+      screenShareAnnotFabExpanded = !!on;
+      if (!screenShareAnnotFabExpanded) closeScreenShareAnnotFlyout();
+      const fab = $("screenShareAnnotFab");
+      const bar = $("screenShareAnnotBar");
+      if (fab) {
+        fab.setAttribute("aria-expanded", screenShareAnnotFabExpanded ? "true" : "false");
+        fab.classList.toggle("screen-share-annot-fab--open", screenShareAnnotFabExpanded);
+      }
+      const show = isScreenShareAnnotSessionActive();
+      if (bar) bar.classList.toggle("screen-share-annot-bar--visible", show && screenShareAnnotFabExpanded);
+      if (show && screenShareAnnotFabExpanded) {
+        requestAnimationFrame(() => {
+          positionExpandedBarNearFab();
+          requestAnimationFrame(() => positionExpandedBarNearFab());
+        });
+      }
+    }
+
+    function toggleScreenShareAnnotFabExpanded() {
+      setScreenShareAnnotFabExpanded(!screenShareAnnotFabExpanded);
+    }
+
+    function ensureScreenShareAnnotResizeListener() {
+      if (window._screenShareAnnotResizeBound) return;
+      window._screenShareAnnotResizeBound = true;
+      window.addEventListener(
+        "resize",
+        () => {
+          const fab = $("screenShareAnnotFab");
+          if (fab?.classList.contains("screen-share-annot-fab--visible")) clampScreenShareAnnotFabIntoView(fab);
+          if (isScreenShareAnnotSessionActive() && screenShareAnnotFabExpanded) positionExpandedBarNearFab();
+          if ($("screenShareAnnotFlyout")?.classList.contains("screen-share-annot-flyout--visible")) {
+            screenShareInkRefreshFlyoutPosition();
+          }
+        },
+        { passive: true },
+      );
+    }
+
+    function bindScreenShareAnnotFabPointer(fab) {
+      if (!fab || fab._annotFabPtrBound) return;
+      fab._annotFabPtrBound = true;
+      let ptrDown = false;
+      let ptrId = 0;
+      let startX = 0;
+      let startY = 0;
+      let dragPx = false;
+      let offX = 0;
+      let offY = 0;
+
+      const onMove = (ev) => {
+        if (!ptrDown || ev.pointerId !== ptrId) return;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!dragPx && Math.hypot(dx, dy) >= SCREEN_SHARE_ANNOT_FAB_DRAG_PX) dragPx = true;
+        if (!dragPx) return;
+        ev.preventDefault();
+        const w = fab.offsetWidth;
+        const h = fab.offsetHeight;
+        let left = ev.clientX - offX;
+        let top = ev.clientY - offY;
+        left = Math.max(4, Math.min(window.innerWidth - w - 4, left));
+        top = Math.max(4, Math.min(window.innerHeight - h - 4, top));
+        fab.style.left = `${Math.round(left)}px`;
+        fab.style.top = `${Math.round(top)}px`;
+        fab.style.bottom = "auto";
+        fab.style.right = "auto";
+        if (isScreenShareAnnotSessionActive() && screenShareAnnotFabExpanded) positionExpandedBarNearFab();
+      };
+
+      const onUp = (ev) => {
+        if (!ptrDown || ev.pointerId !== ptrId) return;
+        ptrDown = false;
+        try {
+          fab.releasePointerCapture(ptrId);
+        } catch (_) {}
+        fab.removeEventListener("pointermove", onMove);
+        fab.removeEventListener("pointerup", onUp);
+        fab.removeEventListener("pointercancel", onUp);
+        if (dragPx) {
+          persistScreenShareAnnotFabGeometry(fab);
+          if (isScreenShareAnnotSessionActive() && screenShareAnnotFabExpanded) positionExpandedBarNearFab();
+        } else {
+          toggleScreenShareAnnotFabExpanded();
+        }
+        dragPx = false;
+      };
+
+      fab.addEventListener("pointerdown", (e) => {
+        if (!fab.classList.contains("screen-share-annot-fab--visible")) return;
+        if (e.button !== 0) return;
+        ptrDown = true;
+        ptrId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        dragPx = false;
+        const r = fab.getBoundingClientRect();
+        offX = e.clientX - r.left;
+        offY = e.clientY - r.top;
+        fab.setPointerCapture(ptrId);
+        fab.addEventListener("pointermove", onMove);
+        fab.addEventListener("pointerup", onUp);
+        fab.addEventListener("pointercancel", onUp);
+      });
+    }
+
+    function ensureScreenShareAnnotFab() {
+      ensureScreenShareAnnotResizeListener();
+      let fab = $("screenShareAnnotFab");
+      if (fab) {
+        bindScreenShareAnnotFabPointer(fab);
+        return;
+      }
+      fab = document.createElement("button");
+      fab.type = "button";
+      fab.id = "screenShareAnnotFab";
+      fab.className = "screen-share-annot-fab";
+      fab.title = "Anotación sobre pantalla compartida (clic para panel, arrastrar para mover)";
+      fab.setAttribute("aria-label", "Anotación sobre pantalla compartida");
+      fab.setAttribute("aria-expanded", "false");
+      fab.setAttribute("aria-haspopup", "true");
+      fab.innerHTML = '<span class="screen-share-annot-fab__glyph" aria-hidden="true">✏️</span>';
+      document.body.appendChild(fab);
+      applySavedScreenShareAnnotFabPosition(fab);
+      bindScreenShareAnnotFabPointer(fab);
+    }
+
+    function ensureScreenShareAnnotFlyoutPanels(SWATCHES) {
+      if ($("screenShareAnnotFlyout")) return;
+      const fly = document.createElement("div");
+      fly.id = "screenShareAnnotFlyout";
+      fly.className = "screen-share-annot-flyout";
+      fly.setAttribute("aria-hidden", "true");
+
+      const panelColor = document.createElement("div");
+      panelColor.className = "screen-share-annot-flyout-panel screen-share-annot-flyout-panel--color";
+
+      const tColor = document.createElement("p");
+      tColor.className = "screen-share-annot-flyout__title";
+      tColor.textContent = "Color";
+
+      const grid = document.createElement("div");
+      grid.className = "screen-share-annot-color-grid";
+      for (const [hex, title] of SWATCHES) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "screen-share-annot-swatch";
+        b.setAttribute("data-color", hex);
+        b.title = title;
+        b.style.background = hex;
+        b.addEventListener("click", () => {
+          boardColor = hex;
+          if (boardTool === "eraser") boardTool = "pencil";
+          updateBoardToolUi();
+          syncScreenShareAnnotToolbarState();
+          closeScreenShareAnnotFlyout();
+        });
+        grid.appendChild(b);
+      }
+
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      colorInput.id = "screenShareAnnotColorInput";
+      colorInput.title = "Color personalizado";
+      colorInput.value = boardColor || "#111111";
+      colorInput.addEventListener("input", (e) => {
+        boardColor = e.target.value || "#111111";
+        if (boardTool === "eraser") boardTool = "pencil";
+        updateBoardToolUi();
+        syncScreenShareAnnotToolbarState();
+      });
+
+      panelColor.appendChild(tColor);
+      panelColor.appendChild(grid);
+      panelColor.appendChild(colorInput);
+
+      const panelLw = document.createElement("div");
+      panelLw.className = "screen-share-annot-flyout-panel screen-share-annot-flyout-panel--lw";
+
+      const tLw = document.createElement("p");
+      tLw.className = "screen-share-annot-flyout__title";
+      tLw.textContent = "Grosor";
+
+      const lwRow = document.createElement("div");
+      lwRow.className = "screen-share-annot-lw-row";
+      for (const [w, label] of [
+        [2, "Fino"],
+        [4, "Medio"],
+        [7, "Grueso"],
+      ]) {
+        const lb = document.createElement("button");
+        lb.type = "button";
+        lb.className = "screen-share-annot-lw";
+        lb.setAttribute("data-line-width", String(w));
+        lb.textContent = label;
+        lb.title = `Grosor ${label}`;
+        lb.addEventListener("click", () => {
+          boardLineWidth = w;
+          const main = $("boardLineWidth");
+          const more = $("boardLineWidthMore");
+          if (main) main.value = String(w);
+          if (more) more.value = String(w);
+          syncBoardLineWidthUi();
+          closeScreenShareAnnotFlyout();
+        });
+        lwRow.appendChild(lb);
+      }
+
+      panelLw.appendChild(tLw);
+      panelLw.appendChild(lwRow);
+
+      const panelTs = document.createElement("div");
+      panelTs.className = "screen-share-annot-flyout-panel screen-share-annot-flyout-panel--textsize";
+      const tTs = document.createElement("p");
+      tTs.className = "screen-share-annot-flyout__title";
+      tTs.textContent = "Tamaño";
+      const tsRow = document.createElement("div");
+      tsRow.className = "screen-share-annot-ts-row";
+      for (const px of [16, 18, 22, 28, 36, 44, 52]) {
+        const tb = document.createElement("button");
+        tb.type = "button";
+        tb.className = "screen-share-annot-ts";
+        tb.setAttribute("data-text-size", String(px));
+        tb.textContent = `${px}px`;
+        tb.title = `${px}px`;
+        tb.addEventListener("click", () => {
+          screenInkTextSize = clampTextFontSize(px);
+          syncScreenShareAnnotToolbarState();
+          closeScreenShareAnnotFlyout();
+          if (screenInkInlineEditor) {
+            try {
+              const v = screenInkInlineEditor._screenInkVideo;
+              const dr = getScreenInkDisplayRect(v);
+              const inner = inkVideoInnerDims(v, dr);
+              const inp = screenInkInlineEditor._screenInkInput || screenInkInlineEditor;
+              if (inner && v) {
+                inp.style.fontSize = `${screenInkFontPx(inner, screenInkTextSize)}px`;
+                syncScreenInkInlineEditorLayout(screenInkInlineEditor, v, inp, dr);
+              }
+            } catch (_) {}
+          }
+        });
+        tsRow.appendChild(tb);
+      }
+      panelTs.appendChild(tTs);
+      panelTs.appendChild(tsRow);
+
+      const panelEmoji = document.createElement("div");
+      panelEmoji.className = "screen-share-annot-flyout-panel screen-share-annot-flyout-panel--emoji";
+      const tEmoji = document.createElement("p");
+      tEmoji.className = "screen-share-annot-flyout__title";
+      tEmoji.textContent = "Emojis";
+      const emojiGrid = document.createElement("div");
+      emojiGrid.className = "screen-share-annot-emoji-grid";
+      const EMOJIS = [
+        "😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎",
+        "😍","😘","🥰","😗","😙","😚","🙂","🤗","🤩","🤔","🫡","🤨",
+        "😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😯","😪","😫",
+        "🥱","😴","😌","😛","😜","😝","🤤","😒","😓","😔","😕","🙃",
+        "🫠","🤑","😲","☹️","🙁","😖","😞","😟","😤","😢","😭","😦",
+        "😧","😨","😰","😱","😳","🥵","🥶","😵","🤯","😬","😮‍💨","😷",
+        "🤒","🤕","🤢","🤮","🤧","🥴","😇","🥳","🥸","😈","👿","🤡",
+        "💩","👻","💀","☠️","👽","🤖","🎃","😺","😸","😹","😻","😼",
+        "😽","🙀","😿","😾","👍","👎","👏","🙏"
+      ];
+      for (const emo of EMOJIS) {
+        const eb = document.createElement("button");
+        eb.type = "button";
+        eb.className = "screen-share-annot-emoji-btn";
+        eb.setAttribute("data-emoji", emo);
+        eb.textContent = emo;
+        eb.addEventListener("click", () => {
+          screenInkEmojiCurrent = emo;
+          screenInkAnnotActive = true;
+          screenShareInkTool = "emoji";
+          syncScreenShareAnnotToolbarState();
+          closeScreenShareAnnotFlyout();
+        });
+        emojiGrid.appendChild(eb);
+      }
+      panelEmoji.appendChild(tEmoji);
+      panelEmoji.appendChild(emojiGrid);
+
+      fly.appendChild(panelColor);
+      fly.appendChild(panelLw);
+      fly.appendChild(panelTs);
+      fly.appendChild(panelEmoji);
+      document.body.appendChild(fly);
+    }
+
+    function ensureScreenShareAnnotToolbar() {
+      const SWATCHES = [
+        ["#111111", "Negro"],
+        ["#e53935", "Rojo"],
+        ["#fb8c00", "Naranja"],
+        ["#fdd835", "Amarillo"],
+        ["#43a047", "Verde"],
+        ["#1e88e5", "Azul"],
+        ["#8e24aa", "Violeta"],
+      ];
+
+      let bar = $("screenShareAnnotBar");
+      if (
+        bar &&
+        (bar.querySelector(".screen-share-annot-bar__handle") ||
+          bar.getAttribute("data-annot-vbar") !== "5")
+      ) {
+        $("screenShareAnnotFlyout")?.remove();
+        bar.remove();
+        bar = null;
+      }
+      if (bar && bar.getAttribute("data-annot-vbar") === "5" && !$("screenShareAnnotFlyout")) {
+        ensureScreenShareAnnotFlyoutPanels(SWATCHES);
+        return;
+      }
+      if (bar) return;
+
+      ensureScreenShareAnnotFlyoutDismiss();
+
+      function stubTool(title, innerHtml) {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "screen-share-annot-tool tool-btn";
+        el.innerHTML = innerHtml;
+        el.title = `${title} (próximamente)`;
+        el.disabled = true;
+        return el;
+      }
+
+      bar = document.createElement("div");
+      bar.id = "screenShareAnnotBar";
+      bar.className = "screen-share-annot-bar";
+      bar.setAttribute("data-annot-vbar", "5");
+      bar.setAttribute("aria-label", "Herramientas de anotación sobre pantalla compartida");
+
+      const vbar = document.createElement("div");
+      vbar.className = "screen-share-annot-vbar";
+
+      const btnInkSelect = document.createElement("button");
+      btnInkSelect.type = "button";
+      btnInkSelect.id = "btnScreenShareInkSelect";
+      btnInkSelect.className = "screen-share-annot-tool tool-btn board-tool-optional";
+      btnInkSelect.title =
+        "Seleccionar — clic en vacío + arrastra: marco; clic en elemento seleccionado: mover todo junto texto/trazos (Shift=añadir o quitar). Doble clic en un texto: editar.";
+      btnInkSelect.innerHTML =
+        '<svg class="board-tool-icon board-tool-icon--cursor" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 3l7.8 15 2.1-5.5 5.6-2.2z"></path></svg>';
+      btnInkSelect.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!isScreenShareAnnotSessionActive()) return;
+        if (!canScreenShareFullTextLayoutEdit()) return;
+        closeScreenInkInlineEditor(false);
+        screenInkAnnotActive = true;
+        screenShareInkTool = "select";
+        screenInkErasing = false;
+        screenInkEraserPath = null;
+        closeScreenShareAnnotFlyout();
+        layoutScreenShareInkOverlays();
+        redrawAllScreenShareInkOverlays();
+        syncScreenShareAnnotToolbarState();
+      });
+      vbar.appendChild(btnInkSelect);
+
+      const btnDraw = document.createElement("button");
+      btnDraw.type = "button";
+      btnDraw.id = "btnScreenShareInkDraw";
+      btnDraw.className = "screen-share-annot-tool tool-btn";
+      btnDraw.title = "Lápiz — dibujar trazos sobre el vídeo";
+      btnDraw.innerHTML = '<span class="board-tool-emoji" aria-hidden="true">✏️</span>';
+      btnDraw.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!isScreenShareAnnotSessionActive()) return;
+        closeScreenInkInlineEditor(false);
+        screenInkAnnotActive = true;
+        screenShareInkTool = "pencil";
+        screenInkErasing = false;
+        screenInkEraserPath = null;
+        clearScreenInkTextSelection();
+        layoutScreenShareInkOverlays();
+        redrawAllScreenShareInkOverlays();
+        syncScreenShareAnnotToolbarState();
+        openScreenShareAnnotFlyoutMode("lineWidth", btnDraw);
+      });
+      vbar.appendChild(btnDraw);
+
+      const btnErase = document.createElement("button");
+      btnErase.type = "button";
+      btnErase.id = "btnScreenShareInkEraser";
+      btnErase.className = "screen-share-annot-tool tool-btn";
+      btnErase.title = "Borrador — quita trazos o textos completos al tocarlos";
+      btnErase.innerHTML = '<span class="board-tool-emoji" aria-hidden="true">🧽</span>';
+      btnErase.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!isScreenShareAnnotSessionActive()) return;
+        closeScreenInkInlineEditor(false);
+        screenInkAnnotActive = true;
+        screenShareInkTool = "eraser";
+        screenInkErasing = false;
+        screenInkEraserPath = null;
+        clearScreenInkTextSelection();
+        closeScreenShareAnnotFlyout();
+        layoutScreenShareInkOverlays();
+        redrawAllScreenShareInkOverlays();
+        syncScreenShareAnnotToolbarState();
+      });
+      vbar.appendChild(btnErase);
+
+      const btnInkText = document.createElement("button");
+      btnInkText.type = "button";
+      btnInkText.id = "btnScreenShareInkText";
+      btnInkText.className = "screen-share-annot-tool tool-btn";
+      btnInkText.title =
+        "Texto — clic en zona vacía: el cuadro se coloca con su esquina superior izquierda en el clic. Editar y mover con la herramienta Seleccionar.";
+      btnInkText.innerHTML = '<span class="screen-share-annot-tool-glyph" aria-hidden="true">T</span>';
+      btnInkText.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!isScreenShareAnnotSessionActive()) return;
+        closeScreenInkInlineEditor(false);
+        screenInkAnnotActive = true;
+        screenShareInkTool = "text";
+        screenInkErasing = false;
+        screenInkEraserPath = null;
+        clearScreenInkTextSelection();
+        layoutScreenShareInkOverlays();
+        redrawAllScreenShareInkOverlays();
+        syncScreenShareAnnotToolbarState();
+        openScreenShareAnnotFlyoutMode("textSize", btnInkText);
+      });
+      vbar.appendChild(btnInkText);
+
+      const btnInkEmoji = document.createElement("button");
+      btnInkEmoji.type = "button";
+      btnInkEmoji.id = "btnScreenShareInkEmoji";
+      btnInkEmoji.className = "screen-share-annot-tool tool-btn";
+      btnInkEmoji.title = "Emojis — clic para estampar";
+      btnInkEmoji.innerHTML = '<span class="board-tool-emoji" aria-hidden="true">😀</span>';
+      btnInkEmoji.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!isScreenShareAnnotSessionActive()) return;
+        closeScreenInkInlineEditor(false);
+        screenInkAnnotActive = true;
+        screenShareInkTool = "emoji";
+        screenInkErasing = false;
+        screenInkEraserPath = null;
+        clearScreenInkTextSelection();
+        layoutScreenShareInkOverlays();
+        redrawAllScreenShareInkOverlays();
+        syncScreenShareAnnotToolbarState();
+        openScreenShareAnnotFlyoutMode("emoji", btnInkEmoji);
+      });
+      vbar.appendChild(btnInkEmoji);
+
+      const btnPalette = document.createElement("button");
+      btnPalette.type = "button";
+      btnPalette.id = "btnScreenShareAnnotPalette";
+      btnPalette.className = "screen-share-annot-tool tool-btn board-tool-optional";
+      btnPalette.title = "Colores";
+      btnPalette.innerHTML = '<span class="board-tool-emoji" aria-hidden="true">🎨</span>';
+      btnPalette.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openScreenShareAnnotFlyoutMode("color", btnPalette);
+      });
+      vbar.appendChild(btnPalette);
+
+      const btnMore = document.createElement("button");
+      btnMore.type = "button";
+      btnMore.id = "btnScreenShareAnnotMore";
+      btnMore.className = "screen-share-annot-tool tool-btn hidden board-tool-optional";
+      btnMore.title = "Más opciones";
+      btnMore.textContent = "…";
+      btnMore.disabled = true;
+      vbar.appendChild(btnMore);
+
+      const sep = document.createElement("div");
+      sep.className = "screen-share-annot-vsep";
+      vbar.appendChild(sep);
+
+      const btnUndo = document.createElement("button");
+      btnUndo.type = "button";
+      btnUndo.id = "btnScreenShareInkUndo";
+      btnUndo.className = "screen-share-annot-tool tool-btn";
+      btnUndo.title = "Deshacer";
+      btnUndo.innerHTML = '<span aria-hidden="true" style="font-size:1rem">↶</span>';
+      btnUndo.addEventListener("click", (e) => {
+        e.stopPropagation();
+        performScreenInkUndo();
+      });
+      vbar.appendChild(btnUndo);
+
+      const btnRedo = document.createElement("button");
+      btnRedo.type = "button";
+      btnRedo.id = "btnScreenShareInkRedo";
+      btnRedo.className = "screen-share-annot-tool tool-btn";
+      btnRedo.title = "Rehacer";
+      btnRedo.innerHTML = '<span aria-hidden="true" style="font-size:1rem">↷</span>';
+      btnRedo.addEventListener("click", (e) => {
+        e.stopPropagation();
+        performScreenInkRedo();
+      });
+      vbar.appendChild(btnRedo);
+
+      const btnClear = document.createElement("button");
+      btnClear.type = "button";
+      btnClear.id = "btnScreenShareInkClear";
+      btnClear.className = "screen-share-annot-tool tool-btn";
+      btnClear.title = "Limpiar todos los trazos";
+      btnClear.innerHTML = '<span class="board-tool-emoji" aria-hidden="true">🗑️</span>';
+      btnClear.addEventListener("click", () => {
+        if (!isScreenShareAnnotSessionActive() || !socket?.connected || !activeRoomId) return;
+        pushScreenInkHistorySnapshot();
+        screenShareInkState = { elementos: [] };
+        screenInkDrawing = false;
+        screenInkCurrentStroke = null;
+        clearScreenInkTextSelection();
+        redrawAllScreenShareInkOverlays();
+        emitScreenShareInkNow();
+        syncScreenShareAnnotToolbarState();
+      });
+      vbar.appendChild(btnClear);
+
+      bar.appendChild(vbar);
+      document.body.appendChild(bar);
+
+      ensureScreenShareAnnotFlyoutPanels(SWATCHES);
+      syncScreenShareAnnotToolbarState();
+    }
+
+    function refreshScreenAnnotBarVisibility() {
+      ensureScreenShareAnnotFab();
+      ensureScreenShareAnnotToolbar();
+      const fab = $("screenShareAnnotFab");
+      const bar = $("screenShareAnnotBar");
+      if (!fab || !bar) return;
+      const show = isScreenShareAnnotSessionActive();
+      fab.classList.toggle("screen-share-annot-fab--visible", show);
+      if (!show) {
+        setScreenShareAnnotFabExpanded(false);
+        closeScreenInkInlineEditor(false);
+        screenInkAnnotActive = false;
+        screenShareInkTool = "pencil";
+        screenInkErasing = false;
+        screenInkEraserPath = null;
+        clearScreenInkTextSelection();
+        const d = $("btnScreenShareInkDraw");
+        if (d) {
+          d.setAttribute("aria-pressed", "false");
+          d.classList.remove("active");
+        }
+        syncScreenShareAnnotToolbarState();
+      } else {
+        setScreenShareAnnotFabExpanded(screenShareAnnotFabExpanded);
+        syncScreenShareAnnotToolbarState();
+        requestAnimationFrame(() => {
+          clampScreenShareAnnotFabIntoView(fab);
+          if (screenShareAnnotFabExpanded) {
+            positionExpandedBarNearFab();
+            requestAnimationFrame(() => positionExpandedBarNearFab());
+          }
+        });
+      }
+      queueScreenShareInkRefresh();
+    }
+
+    /** True cuando #localVideo reproduce el track vivo de pantalla compartida. */
+    function isLocalScreenCaptureShowingInLocalVideo() {
+      if (!(screenShareTrack && screenShareTrack.readyState === "live")) return false;
+      const lv = $("localVideo");
+      if (!lv?.srcObject) return false;
+      const vt = lv.srcObject.getVideoTracks?.() || [];
+      return vt.some((t) => t === screenShareTrack);
+    }
+
+    /** Track de cámara en `localStream`, excluyendo pantalla compartida. */
+    function getLiveLocalCameraVideoTrack() {
+      if (!localStream) return null;
+      const tracks = localStream.getVideoTracks?.() || [];
+      for (const t of tracks) {
+        if (t.readyState !== "live" || t.enabled === false) continue;
+        if (screenShareTrack && t === screenShareTrack) continue;
+        if (isDisplayCaptureVideoTrack(t)) continue;
+        return t;
+      }
+      return null;
+    }
+
+    function updateLocalScreenCaptureTargetClass() {
+      const wrap = $("localVideo")?.closest(".remote-peer");
+      if (!wrap) return;
+      wrap.classList.toggle(
+        "remote-peer--local-screen-capture-target",
+        !!(activeRoomId && isLocalScreenCaptureShowingInLocalVideo()),
+      );
+    }
+
     function applyMeetScreenShareFromServer(roomId, active, uid) {
       if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
       const oid = uid != null ? String(uid).trim().toLowerCase() : "";
@@ -3708,6 +7286,7 @@
           return;
         }
         remoteScreenShareUserId = "";
+        resetScreenShareInkLocal();
       }
       scheduleRemoteScreenLayoutUpdate();
     }
@@ -3754,6 +7333,54 @@
       );
     }
 
+    function syncLocalSelfStripCameraPreview(videos, dominantWrap, localWrap, anyDominantShare) {
+      if (!videos) return;
+      let strip = $("localSelfStripTile");
+      const needs =
+        !!anyDominantShare &&
+        dominantWrap &&
+        localWrap &&
+        dominantWrap === localWrap &&
+        isLocalScreenCaptureShowingInLocalVideo();
+
+      if (!needs) {
+        strip?.remove();
+        return;
+      }
+
+      if (!strip) {
+        strip = document.createElement("div");
+        strip.id = "localSelfStripTile";
+        strip.className = "remote-peer remote-peer--strip-self-camera";
+        strip.setAttribute("data-label", "Tú");
+        const cap = document.createElement("div");
+        cap.className = "peer-cap";
+        cap.setAttribute("aria-hidden", "true");
+        cap.textContent = "Tú";
+        const vid = document.createElement("video");
+        vid.id = "localCameraStripPreview";
+        vid.setAttribute("autoplay", "");
+        vid.setAttribute("playsinline", "");
+        vid.setAttribute("muted", "");
+        strip.appendChild(cap);
+        strip.appendChild(vid);
+        videos.insertBefore(strip, videos.firstChild);
+      }
+
+      const pv = $("localCameraStripPreview");
+      if (!pv) return;
+      const vt = getLiveLocalCameraVideoTrack();
+      if (vt) {
+        const cur = pv.srcObject?.getVideoTracks?.()?.[0];
+        if (cur !== vt) {
+          pv.srcObject = new MediaStream([vt]);
+        }
+        pv.play().catch(() => {});
+      } else {
+        pv.srcObject = null;
+      }
+    }
+
     function updateRemoteScreenShareLayout() {
       const shell = $("roomShell");
       const videos = $("videos");
@@ -3777,26 +7404,36 @@
         wrap.classList.toggle("remote-peer--screen-share", isScreen);
       }
 
-      let screenWrap = null;
+      /** Primer peer remoto cuyo vídeo está marcado como pantalla compartida. */
+      let screenWrapRemote = null;
       for (const [, vid] of remoteVideos) {
         const wrap = vid.closest(".remote-peer");
         if (!wrap || wrap === localWrap) continue;
         if (wrap.classList.contains("remote-peer--screen-share")) {
-          screenWrap = wrap;
+          screenWrapRemote = wrap;
         } else {
           rc.appendChild(wrap);
         }
       }
 
+      /** Misma vista “dominante” para invitados y para quien comparte desde este navegador. */
+      const dominantWrap =
+        screenWrapRemote || (isLocalScreenCaptureShowingInLocalVideo() ? localWrap : null);
+
       if (stage) {
-        if (screenWrap) {
+        if (dominantWrap) {
           stage.hidden = false;
           stage.removeAttribute("hidden");
           stage.setAttribute("aria-hidden", "false");
-          stage.appendChild(screenWrap);
+          stage.appendChild(dominantWrap);
         } else {
           while (stage.firstChild) {
-            rc.appendChild(stage.firstChild);
+            const ch = stage.firstChild;
+            if (localWrap && ch === localWrap) {
+              videos.insertBefore(localWrap, videos.firstChild);
+            } else {
+              rc.appendChild(ch);
+            }
           }
           stage.hidden = true;
           stage.setAttribute("hidden", "");
@@ -3808,18 +7445,21 @@
         videos.insertBefore(localWrap, videos.firstChild);
       }
       if (!rc.parentElement || rc.parentElement !== videos) {
-        if (localWrap?.nextSibling) {
+        if (localWrap?.parentElement === videos && localWrap.nextSibling) {
           videos.insertBefore(rc, localWrap.nextSibling);
         } else {
           videos.appendChild(rc);
         }
-      } else if (localWrap && rc.previousElementSibling !== localWrap) {
+      } else if (localWrap?.parentElement === videos && rc.previousElementSibling !== localWrap) {
         videos.insertBefore(rc, localWrap.nextSibling);
       }
 
-      const anyRemoteScreen = !!screenWrap;
-      shell.classList.toggle("room-shell--remote-screen-dominant", anyRemoteScreen);
-      videos.classList.toggle("room-videos--screen-dominant", anyRemoteScreen);
+      const anyDominantShare = !!dominantWrap;
+      shell.classList.toggle("room-shell--remote-screen-dominant", anyDominantShare);
+      videos.classList.toggle("room-videos--screen-dominant", anyDominantShare);
+      updateLocalScreenCaptureTargetClass();
+      syncLocalSelfStripCameraPreview(videos, dominantWrap, localWrap, anyDominantShare);
+      refreshScreenAnnotBarVisibility();
     }
 
     function applyRemoteBoardPresentationUi(active) {
@@ -3919,6 +7559,7 @@
       const fallbackAudio = localStream?.getAudioTracks()[0] ?? null;
       await replaceVideoTrackForAllPeers(fallbackVideo, localStream || null);
       await replaceAudioTrackForAllPeers(fallbackAudio);
+      syncLocalVideoPreviewFromMediaState();
       syncShareButtonState();
       renderShareMenu();
       if (restoreStatus) {
@@ -3926,6 +7567,7 @@
       }
       closeToolbarMenus();
       if (hadLiveScreenShare) emitMeetScreenShare(false);
+      if (hadLiveScreenShare) resetScreenShareInkLocal();
       if (hadLiveScreenShare && !canManageSharingInMeeting()) {
         presenterGrantedScreenShare = false;
         autoStartShareAfterApproval = false;
@@ -3976,11 +7618,13 @@
         };
         await replaceVideoTrackForAllPeers(track, stream);
         await replaceAudioTrackForAllPeers(screenShareAudioTrack || localStream?.getAudioTracks()[0] || null);
+        syncLocalVideoPreviewFromMediaState();
         syncShareButtonState();
         renderShareMenu();
         setMediaStatus("Compartiendo pantalla con la sala.");
         log("Compartir pantalla activo.");
         emitMeetScreenShare(true);
+        resetScreenShareInkLocal();
         scheduleRemoteScreenLayoutUpdate();
       } catch (e) {
         setMediaStatus("Se canceló compartir pantalla.");
@@ -6040,6 +9684,7 @@
         t.enabled = on;
       });
       syncMediaButtons();
+      scheduleRemoteScreenLayoutUpdate();
     }
 
     async function syncLocalTracksToAllSenders() {
@@ -7078,6 +10723,7 @@
         const v = btn.getAttribute("data-line-width") || "";
         btn.classList.toggle("board-menu-choice--active", v === w);
       });
+      syncScreenShareAnnotToolbarState();
     }
 
     function syncBoardTextSizeUi() {
@@ -7725,6 +11371,14 @@
             return;
           }
           applyMeetScreenShareFromServer(roomId, active, uid);
+        });
+        socket.on("screenshare-annotate:state", ({ roomId, contenido }) => {
+          if (!screenShareInkRoomMatches(roomId)) return;
+          applyRemoteScreenShareInkContenido(contenido);
+        });
+        socket.on("screenshare-annotate:update", ({ roomId, contenido }) => {
+          if (!screenShareInkRoomMatches(roomId)) return;
+          applyRemoteScreenShareInkContenido(contenido);
         });
         socket.on("meet:screenShare:request", ({ roomId, requesterUserId }) => {
           if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
@@ -8564,6 +12218,15 @@
       if (ev.key === "Escape") closeToolbarMenus();
       if (ev.key === "Escape") closeBoardSideMenus();
       if (ev.key === "Escape") closeChatCtxMenu();
+      if (
+        ev.key === "Escape" &&
+        isScreenShareAnnotSessionActive() &&
+        screenInkSelectedTextIndex != null &&
+        !screenInkInlineEditor
+      ) {
+        clearScreenInkTextSelection();
+        redrawAllScreenShareInkOverlays();
+      }
     });
     syncShareButtonState();
     renderMediaMenus();
@@ -8949,16 +12612,32 @@
 
     function getInlineEditorText(editorEl) {
       if (!editorEl) return "";
+      if (editorEl.tagName === "TEXTAREA" || editorEl.tagName === "INPUT") {
+        return String(editorEl.value || "").replace(/\r/g, "");
+      }
       return String(editorEl.innerText || "").replace(/\r/g, "");
     }
 
     function setInlineEditorText(editorEl, text) {
       if (!editorEl) return;
-      editorEl.textContent = String(text || "");
+      const s = String(text ?? "");
+      if (editorEl.tagName === "TEXTAREA" || editorEl.tagName === "INPUT") {
+        editorEl.value = s;
+      } else {
+        editorEl.textContent = s;
+      }
     }
 
     function moveInlineEditorCaretToEnd(editorEl) {
       if (!editorEl) return;
+      if (editorEl.tagName === "TEXTAREA" || editorEl.tagName === "INPUT") {
+        const n = String(editorEl.value || "").length;
+        try {
+          editorEl.selectionStart = n;
+          editorEl.selectionEnd = n;
+        } catch (_) {}
+        return;
+      }
       const sel = window.getSelection?.();
       if (!sel) return;
       const range = document.createRange();
@@ -8995,8 +12674,29 @@
       }
     }
 
+    function getStrokeBounds(el) {
+      if (!el || el.type !== "stroke" || !Array.isArray(el.points) || el.points.length === 0) return null;
+      const hw = Math.max(1, Number(el.lineWidth || 2) * 0.5);
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const pt of el.points) {
+        if (!isFiniteWorldPoint(pt)) continue;
+        minX = Math.min(minX, pt.x - hw);
+        minY = Math.min(minY, pt.y - hw);
+        maxX = Math.max(maxX, pt.x + hw);
+        maxY = Math.max(maxY, pt.y + hw);
+      }
+      if (!Number.isFinite(minX)) return null;
+      return { x: minX, y: minY, w: Math.max(2, maxX - minX), h: Math.max(2, maxY - minY) };
+    }
+
     function getElementBounds(el, ctx) {
       if (!el) return null;
+      if (el.type === "stroke") {
+        return getStrokeBounds(el);
+      }
       if (el.type === "image" && el.src) {
         return { x: el.x || 0, y: el.y || 0, w: Math.max(1, el.w || 100), h: Math.max(1, el.h || 100) };
       }
@@ -9041,6 +12741,19 @@
 
     function pointInRect(p, r) {
       return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+    }
+
+    function normalizeRectFromPoints(a, b) {
+      const x = Math.min(a.x, b.x);
+      const y = Math.min(a.y, b.y);
+      const w = Math.abs(b.x - a.x);
+      const h = Math.abs(b.y - a.y);
+      return { x, y, w, h };
+    }
+
+    function rectIntersectsRect(a, b) {
+      if (!a || !b) return false;
+      return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
     }
 
     /** Zona de golpeo del icono — alineada con `drawLockedBadge` (esquina superior derecha del bbox). */
@@ -9148,28 +12861,61 @@
       return { x, y, w, h };
     }
 
+    function hitPadWorldForText() {
+      return Math.max(6, 10 / Math.max(0.25, boardZoom));
+    }
+
     function hitTestEditableElement(p, includeLocked) {
       const context = $("board").getContext("2d");
       for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
         const el = boardState.elementos[i];
-        if (!(el?.type === "text" || el?.type === "image")) continue;
+        if (!(el?.type === "text" || el?.type === "image" || el?.type === "stroke")) continue;
+        if (el?.type === "stroke") {
+          if (hitTestStrokeAtPoint(el, p)) {
+            const bStroke = getStrokeBounds(el);
+            return { index: i, bounds: bStroke, element: el };
+          }
+          continue;
+        }
         if (el.locked && !includeLocked) continue;
         const b = getElementBounds(el, context);
         if (!b) continue;
-        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
+        const pad = el.type === "text" ? hitPadWorldForText() : 0;
+        const hb =
+          pad > 0
+            ? { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }
+            : b;
+        if (pointInRect(p, hb)) return { index: i, bounds: b, element: el };
       }
       return null;
     }
 
+    function hitTestElementsInRect(selRect, includeLocked) {
+      if (!selRect || selRect.w < 0 || selRect.h < 0) return [];
+      const context = $("board").getContext("2d");
+      const out = [];
+      for (let i = 0; i < (boardState.elementos?.length || 0); i++) {
+        const el = boardState.elementos[i];
+        if (!(el?.type === "text" || el?.type === "image" || el?.type === "stroke")) continue;
+        if (el.locked && !includeLocked) continue;
+        const b = getElementBounds(el, context);
+        if (!b) continue;
+        if (rectIntersectsRect(selRect, b)) out.push(i);
+      }
+      return out;
+    }
+
     function hitTestTextElement(p) {
       const context = $("board").getContext("2d");
+      const pad = hitPadWorldForText();
       for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
         const el = boardState.elementos[i];
         if (el?.type !== "text") continue;
         if (el.locked) continue;
         const b = getElementBounds(el, context);
         if (!b) continue;
-        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
+        const hb = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+        if (pointInRect(p, hb)) return { index: i, bounds: b, element: el };
       }
       return null;
     }
@@ -9190,7 +12936,8 @@
     function hitTestStrokeAtPoint(el, p, extraRadius = 6) {
       if (!el || el.type !== "stroke" || !Array.isArray(el.points) || el.points.length === 0) return false;
       const pts = el.points;
-      const radius = Math.max(6, Number(el.lineWidth || 2) * 0.5 + extraRadius);
+      const zoomPad = 10 / Math.max(0.25, boardZoom);
+      const radius = Math.max(6, zoomPad, Number(el.lineWidth || 2) * 0.5 + extraRadius);
       if (pts.length === 1) {
         return Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= radius;
       }
@@ -9299,25 +13046,70 @@
     }
 
     function drawSelectionOverlay(ctx) {
-      if (selectedElementIndex < 0) return;
-      const el = boardState.elementos?.[selectedElementIndex];
-      if (!el || (el.type !== "text" && el.type !== "image")) return;
-      const b = getElementBounds(el, ctx);
-      if (!b) return;
-      ctx.save();
-      const lockedSel = !!el.locked;
-      ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(b.x, b.y, b.w, b.h);
-      ctx.setLineDash([]);
-      if (!lockedSel) {
-        ctx.fillStyle = "#2563eb";
-        for (const h of getResizeHandleRects(b, el)) {
-          ctx.fillRect(h.x, h.y, h.w, h.h);
+      const selected = selectedElementIndices?.length
+        ? selectedElementIndices
+        : selectedElementIndex >= 0
+          ? [selectedElementIndex]
+          : [];
+      if (!selected.length && pointerAction?.mode !== "marquee") return;
+      for (const idx of selected) {
+        const el = boardState.elementos?.[idx];
+        if (!el || (el.type !== "text" && el.type !== "image" && el.type !== "stroke")) continue;
+        const b = getElementBounds(el, ctx);
+        if (!b) continue;
+        ctx.save();
+        const lockedSel = !!el.locked;
+        ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.setLineDash([]);
+        if (!lockedSel && (el.type === "text" || el.type === "image") && selected.length === 1) {
+          ctx.fillStyle = "#2563eb";
+          for (const h of getResizeHandleRects(b, el)) {
+            ctx.fillRect(h.x, h.y, h.w, h.h);
+          }
+        }
+        ctx.restore();
+      }
+      if (selected.length >= 2) {
+        let ux = Infinity;
+        let uy = Infinity;
+        let ux2 = -Infinity;
+        let uy2 = -Infinity;
+        let anyB = false;
+        for (const idx of selected) {
+          const elU = boardState.elementos?.[idx];
+          if (!elU || (elU.type !== "text" && elU.type !== "image" && elU.type !== "stroke")) continue;
+          const bb = getElementBounds(elU, ctx);
+          if (!bb) continue;
+          anyB = true;
+          ux = Math.min(ux, bb.x);
+          uy = Math.min(uy, bb.y);
+          ux2 = Math.max(ux2, bb.x + bb.w);
+          uy2 = Math.max(uy2, bb.y + bb.h);
+        }
+        if (anyB && ux2 > ux && uy2 > uy) {
+          ctx.save();
+          ctx.strokeStyle = "#0369a1";
+          ctx.lineWidth = 2.25;
+          ctx.setLineDash([5, 5]);
+          ctx.strokeRect(ux, uy, ux2 - ux, uy2 - uy);
+          ctx.setLineDash([]);
+          ctx.restore();
         }
       }
-      ctx.restore();
+      if (pointerAction?.mode === "marquee" && pointerAction.startPoint && pointerAction.currentPoint) {
+        const r = normalizeRectFromPoints(pointerAction.startPoint, pointerAction.currentPoint);
+        ctx.save();
+        ctx.strokeStyle = "#2563eb";
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        ctx.fillStyle = "rgba(37, 99, 235, 0.08)";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.restore();
+      }
     }
 
     function commitPointerMutation(snapshotBefore) {
@@ -9605,6 +13397,7 @@
         if (badgeHit) {
           e.preventDefault();
           selectedElementIndex = badgeHit.index;
+          selectedElementIndices = [badgeHit.index];
           pointerAction = null;
           drawBoard();
           canvas.focus();
@@ -9613,19 +13406,53 @@
         if (e.altKey) e.preventDefault();
         const hit = hitTestEditableElement(p, e.altKey);
         if (!hit) {
+          const anyIdx = hitTestAnyElementAtPoint(p);
+          const anyEl = anyIdx >= 0 ? boardState.elementos?.[anyIdx] : null;
+          if (anyEl?.type === "stroke") {
+            selectedElementIndex = anyIdx;
+            selectedElementIndices = [anyIdx];
+            pointerAction = null;
+            drawBoard();
+            canvas.focus();
+            return;
+          }
+          const start = p;
+          const prevSelection = Array.from(
+            new Set(selectedElementIndices.length ? selectedElementIndices : []),
+          );
           selectedElementIndex = -1;
-          pointerAction = null;
+          selectedElementIndices = [];
+          pointerAction = {
+            mode: "marquee",
+            startPoint: start,
+            currentPoint: start,
+            additive: !!e.shiftKey,
+            baseSelection: prevSelection,
+          };
+          e.preventDefault();
           drawBoard();
+          canvas.setPointerCapture(e.pointerId);
+          canvas.focus();
           return;
         }
         if (hit.element.locked) {
           selectedElementIndex = hit.index;
+          selectedElementIndices = [hit.index];
+          pointerAction = null;
+          drawBoard();
+          canvas.focus();
+          return;
+        }
+        if (hit.element.type === "stroke") {
+          selectedElementIndex = hit.index;
+          selectedElementIndices = [hit.index];
           pointerAction = null;
           drawBoard();
           canvas.focus();
           return;
         }
         selectedElementIndex = hit.index;
+        selectedElementIndices = [hit.index];
         const hId = hitTestResizeHandle(p, hit.bounds, hit.element);
         const mode = hId ? "resize" : "drag";
         pointerAction = {
@@ -9672,6 +13499,23 @@
         return;
       }
       if (boardTool === "pointer" && pointerAction) {
+        if (pointerAction.mode === "marquee") {
+          const p = canvasPoint(e);
+          if (!isFiniteWorldPoint(p)) return;
+          pointerAction.currentPoint = p;
+          const sr = normalizeRectFromPoints(pointerAction.startPoint, p);
+          const picked = hitTestElementsInRect(sr, e.altKey);
+          if (pointerAction.additive) {
+            selectedElementIndices = Array.from(new Set([...(pointerAction.baseSelection || []), ...picked]));
+          } else {
+            selectedElementIndices = picked;
+          }
+          selectedElementIndex = selectedElementIndices.length
+            ? selectedElementIndices[selectedElementIndices.length - 1]
+            : -1;
+          drawBoard();
+          return;
+        }
         const p = canvasPoint(e);
         if (!isFiniteWorldPoint(p)) return;
         const dx = p.x - pointerAction.startPoint.x;
@@ -9741,6 +13585,11 @@
       }
       if (pointerAction) {
         try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+        if (pointerAction.mode === "marquee") {
+          pointerAction = null;
+          drawBoard();
+          return;
+        }
         const moved =
           JSON.stringify(boardState.elementos?.[pointerAction.index] || null) !==
           JSON.stringify(pointerAction.originalElement || null);
@@ -9778,14 +13627,21 @@
       if (!activeRoomId) return;
       if (boardTool !== "text") return;
       const p = canvasPoint(e);
+      if (!isFiniteWorldPoint(p)) return;
+      const hit = hitTestTextElement(p);
+      if (hit) {
+        openInlineTextInput({ x: hit.element.x, y: hit.element.y }, { editIndex: hit.index });
+        return;
+      }
       openInlineTextInput(p);
     });
 
     canvas.addEventListener("dblclick", (e) => {
       if (!activeRoomId || activeTextInput) return;
-      if (boardTool !== "pointer") return;
+      if (boardTool !== "pointer" && boardTool !== "text") return;
       e.preventDefault();
       const p = canvasPoint(e);
+      if (!isFiniteWorldPoint(p)) return;
       const hit = hitTestTextElement(p);
       if (!hit) return;
       openInlineTextInput({ x: hit.element.x, y: hit.element.y }, { editIndex: hit.index });
@@ -9794,6 +13650,7 @@
     window.addEventListener("paste", async (e) => {
       if (!activeRoomId) return;
       if (activeTextInput && document.activeElement === activeTextInput) return;
+      if (e.target?.closest?.(".screen-ink-text-edit-wrap")) return;
 
       const clipFile = getClipboardFile(e.clipboardData);
       const routeToChat = isChatPasteOrDropTarget(e.target) || chatInputHasFocus();
@@ -9843,14 +13700,104 @@
 
     function isBoardShortcutBlockedTarget(target) {
       if (!target) return false;
+      if (target.closest?.(".screen-ink-text-edit-wrap")) return true;
       const id = target.id || "";
       if (id === "chatInput" || id === "email" || id === "password" || id === "nombre") return true;
       if (target.closest?.("#authSection")) return true;
       return false;
     }
 
+    function isScreenInkShortcutContext(target) {
+      if (!isScreenShareAnnotSessionActive()) return false;
+      if (!screenInkAnnotActive) return false;
+      if (isBoardShortcutBlockedTarget(target)) return false;
+      return true;
+    }
+
     window.addEventListener("keydown", (e) => {
       if (!activeRoomId || activeTextInput) return;
+      if (isScreenInkShortcutContext(e.target)) {
+        const mod = !!(e.ctrlKey || e.metaKey);
+        if (mod && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+          e.preventDefault();
+          performScreenInkUndo();
+          return;
+        }
+        if (
+          mod &&
+          (e.key === "y" || e.key === "Y" || (e.shiftKey && (e.key === "z" || e.key === "Z")))
+        ) {
+          e.preventDefault();
+          performScreenInkRedo();
+          return;
+        }
+        if (
+          !mod &&
+          !e.altKey &&
+          (e.key === "Delete" || e.key === "Backspace") &&
+          canScreenShareFullTextLayoutEdit() &&
+          ((Number.isInteger(screenInkSelectedTextIndex) && screenInkSelectedTextIndex >= 0) ||
+            (screenInkSelectedIndices || []).length > 0)
+        ) {
+          const idxsRaw = (screenInkSelectedIndices || []).length
+            ? screenInkSelectedIndices
+            : [screenInkSelectedTextIndex];
+          const idxs = Array.from(new Set(idxsRaw))
+            .filter((idx) => Number.isInteger(idx) && idx >= 0)
+            .sort((a, b) => b - a);
+          const valid = idxs.filter((idx) => {
+            const el = screenShareInkState.elementos?.[idx];
+            return !!(el && (el.type === "text" || el.type === "stroke"));
+          });
+          if (valid.length) {
+            e.preventDefault();
+            if (screenInkInlineEditor) closeScreenInkInlineEditor(false);
+            pushScreenInkHistorySnapshot();
+            for (const idx of valid) screenShareInkState.elementos.splice(idx, 1);
+            clearScreenInkTextSelection();
+            scheduleEmitScreenShareInk();
+            redrawAllScreenShareInkOverlays();
+            return;
+          }
+        }
+        if (
+          !mod &&
+          !e.altKey &&
+          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) &&
+          canScreenShareFullTextLayoutEdit() &&
+          screenShareInkTool === "select"
+        ) {
+          const nudgeIdxs = screenInkNormalizeSelectionIndicesForDrag();
+          if (nudgeIdxs.length) {
+            e.preventDefault();
+            const step = e.shiftKey ? 0.012 : 0.0025;
+            let dx = 0;
+            let dy = 0;
+            if (e.key === "ArrowLeft") dx = -step;
+            if (e.key === "ArrowRight") dx = step;
+            if (e.key === "ArrowUp") dy = -step;
+            if (e.key === "ArrowDown") dy = step;
+            if (!e.repeat) pushScreenInkHistorySnapshot();
+            for (const idx of nudgeIdxs) {
+              const cel = screenShareInkState.elementos?.[idx];
+              if (!cel) continue;
+              if (cel.type === "text") {
+                cel.x = clampScreenInk01((Number(cel.x) || 0) + dx);
+                cel.y = clampScreenInk01((Number(cel.y) || 0) + dy);
+              } else if (cel.type === "stroke" && Array.isArray(cel.points)) {
+                for (const p of cel.points) {
+                  if (!p) continue;
+                  p.x = clampScreenInk01((Number(p.x) || 0) + dx);
+                  p.y = clampScreenInk01((Number(p.y) || 0) + dy);
+                }
+              }
+            }
+            scheduleEmitScreenShareInk();
+            redrawAllScreenShareInkOverlays();
+            return;
+          }
+        }
+      }
       if (isBoardShortcutBlockedTarget(e.target)) return;
 
       if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
@@ -9898,15 +13845,22 @@
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         boardTool === "pointer" &&
-        selectedElementIndex >= 0
+        (selectedElementIndices.length > 0 || selectedElementIndex >= 0)
       ) {
-        const delEl = boardState.elementos?.[selectedElementIndex];
-        if (delEl?.locked) return;
-        if (delEl && (delEl.type === "text" || delEl.type === "image")) {
+        const idxs = selectedElementIndices.length
+          ? Array.from(new Set(selectedElementIndices)).sort((a, b) => b - a)
+          : [selectedElementIndex];
+        const valid = idxs.filter((idx) => {
+          const el = boardState.elementos?.[idx];
+          if (!el || el.locked) return false;
+          return el.type === "text" || el.type === "image" || el.type === "stroke";
+        });
+        if (valid.length) {
           e.preventDefault();
           const next = cloneBoardState(boardState);
-          next.elementos.splice(selectedElementIndex, 1);
+          for (const idx of valid) next.elementos.splice(idx, 1);
           selectedElementIndex = -1;
+          selectedElementIndices = [];
           applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
           return;
         }
@@ -9923,22 +13877,47 @@
         }
       }
 
-      if (selectedElementIndex < 0) return;
+      if (boardTool !== "pointer") return;
+
+      const boardArrowTargets =
+        selectedElementIndices?.length > 0
+          ? [...new Set(selectedElementIndices)].filter((i) => Number.isInteger(i) && i >= 0)
+          : selectedElementIndex >= 0
+            ? [selectedElementIndex]
+            : [];
+      if (!boardArrowTargets.length) return;
       const target = e.target;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable))
+        return;
       if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
-      const el = boardState.elementos?.[selectedElementIndex];
-      if (!el || (el.type !== "text" && el.type !== "image")) return;
-      if (el.locked) return;
-      e.preventDefault();
       const step = e.shiftKey ? 10 : 2;
+      let dx = 0;
+      let dy = 0;
+      if (e.key === "ArrowUp") dy = -step;
+      if (e.key === "ArrowDown") dy = step;
+      if (e.key === "ArrowLeft") dx = -step;
+      if (e.key === "ArrowRight") dx = step;
+      const movable = boardArrowTargets.filter((idx) => {
+        const bel = boardState.elementos?.[idx];
+        if (!bel || bel.locked) return false;
+        return bel.type === "text" || bel.type === "image" || bel.type === "stroke";
+      });
+      if (!movable.length) return;
+      e.preventDefault();
       const before = cloneBoardState(boardState);
-      const moved = { ...el };
-      if (e.key === "ArrowUp") moved.y = Math.round((moved.y || 0) - step);
-      if (e.key === "ArrowDown") moved.y = Math.round((moved.y || 0) + step);
-      if (e.key === "ArrowLeft") moved.x = Math.round((moved.x || 0) - step);
-      if (e.key === "ArrowRight") moved.x = Math.round((moved.x || 0) + step);
-      boardState.elementos[selectedElementIndex] = moved;
+      for (const idx of movable) {
+        const el = boardState.elementos[idx];
+        if (!el) continue;
+        if (el.type === "text" || el.type === "image") {
+          const moved = { ...el };
+          moved.x = Math.round((moved.x || 0) + dx);
+          moved.y = Math.round((moved.y || 0) + dy);
+          boardState.elementos[idx] = moved;
+        } else if (el.type === "stroke" && Array.isArray(el.points)) {
+          const moved = { ...el, points: el.points.map((p) => (p ? { x: (p.x || 0) + dx, y: (p.y || 0) + dy } : p)) };
+          boardState.elementos[idx] = moved;
+        }
+      }
       commitPointerMutation(before);
     });
     $("btnToolPointer")?.addEventListener("click", () => {
@@ -10049,6 +14028,14 @@
       toggleSelectedElementLock();
     });
     const boardViewportEl = $("boardViewportWrap");
+    const videosStripeEl = $("videos");
+    const remoteScreenStageEl = $("roomRemoteScreenStage");
+    if (videosStripeEl && typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => queueScreenShareInkRefresh()).observe(videosStripeEl);
+    }
+    if (remoteScreenStageEl && typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => queueScreenShareInkRefresh()).observe(remoteScreenStageEl);
+    }
     if (boardViewportEl && typeof ResizeObserver !== "undefined") {
       new ResizeObserver(() => {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
@@ -10060,6 +14047,7 @@
       resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       updateSelectionLockFloatPosition();
       updateBoardToolbarOverflow();
+      queueScreenShareInkRefresh();
     });
     $("btnBoardClear")?.addEventListener("click", () => {
       if (!activeRoomId) return;

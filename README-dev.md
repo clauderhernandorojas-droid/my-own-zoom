@@ -32,6 +32,11 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Medios locales**: si cámara y micrófono fallan, se intenta **solo micrófono** y, en último caso, unión con **stream vacío** y transceiver de vídeo **`recvonly`** para seguir en la sala. Los textos de estado de medios **no** se muestran bajo el título en la franja de vídeo (no hay `#mediaStatus` en esa zona); `setMediaStatus` puede seguir en código sin ese nodo en DOM.
 - **Barra de medios estilo Zoom**: controles inferiores con patrón botón principal + menú desplegable para **Audio**, **Vídeo**, **Compartir** y **Grabar**; listas de dispositivos movidas al menú (incluye acciones rápidas de refresco/reinicio de medios). Se simplificó UI quitando botones redundantes de aplicar/actualizar.
 - **Compartir pantalla y tablero**: menú con `Pantalla` / `Tablero`. Al compartir pantalla, se usa `getDisplayMedia`, se reemplaza la pista de vídeo enviada por WebRTC y al terminar se restaura la cámara automáticamente.
+- **Anotaciones sobre pantalla compartida (sync en sala)**:
+  - Estado **solo en RAM** en el servidor (`meetScreenShareInkByRoom` en `src/socket/index.js`), **sin persistencia** en base de datos; se limpia al dejar de compartir o al cambiar de presentador.
+  - Eventos Socket: **`screenshare-annotate:update`** (el cliente envía `contenido.elementos`; el servidor sanitiza —trazos y textos únicamente— y rebroadcast); **`screenshare-annotate:state`** para enviar estado actual o vacío a quien entra durante share o cuando termina la captura.
+  - Cliente (`public/index.html`): overlay sobre el vídeo de pantalla (lápiz, texto, emoji, borrador, selección), coordenadas normalizadas para encajar la relación de aspecto útil del vídeo.
+  - **Selección múltiple en anotaciones**: un solo marco de unión cuando hay dos o más ítems; **redimensión conjunta** de trazos y textos con asas en el bbox unión; clic en hueco dentro del bbox (sin golpear otro elemento) inicia **arrastre del grupo**; **flechas** del teclado desplazan la selección (texto + trazos) en modo seleccionar con historial incremental.
 - **Flujo de autorización para compartir pantalla (nuevo)**:
   - Invitado: al pulsar **Compartir**, no arranca captura directa; envía **solicitud** al presentador.
   - Presentador (docente/admin): recibe una solicitud **obvia en modal centrado** con acciones `Aceptar` / `Rechazar`.
@@ -85,6 +90,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
   - **Compatibilidad SQLite en orden de reacciones**: el servidor ordena por `mensajeReaccionId` (no por `createdAt`) para evitar errores en BD locales con esquemas previos.
 - **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
 - **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
+- **Selección en tablero (puntero)**: con varios elementos seleccionados se dibuja un **marco de unión**. Las **flechas del teclado** mueven toda la multiselección, incluidos los **trazos** (todos los puntos), además de texto e imagen; se respeta `locked`.
 - **Borrador del tablero**: al tocar un trazo/elemento, elimina el elemento completo (hit-test por segmento para strokes) en lugar de “pintar blanco”.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
@@ -111,6 +117,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
 | **Grabación** (vídeo + audio mezclado): solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
 | **Compartir pantalla por solicitud**: invitado solicita, presentador aprueba/rechaza en modal; grant temporal por sala y validación en socket para iniciar share | `public/index.html` (modal + cola + handlers), `src/socket/index.js` (`meet:screenShare:request/response/grant`, `meetScreenShareGrant`) |
+| **Anotaciones en pantalla compartida** (estado en RAM, sanitizado, rebroadcast) | `screenshare-annotate:update`, `screenshare-annotate:state` en `src/socket/index.js`; overlay y herramientas en `public/index.html` |
 | **API/Socket cross-origin en Render**: helper `toApiUrl`, fallback de origen, y conexión Socket.IO al backend público cuando frontend/backend están separados | `public/index.html` (`API_ORIGIN`, `inferApiOrigin`, `toApiUrl`, `connectSocketIfNeeded`) |
 | **Registro público sin escalamiento de rol**: alta siempre como `estudiante`, sin confiar en `rol` del cliente | `src/routes/auth.js`, `public/index.html` |
 | **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` en `src/routes/usuarios.js` |
@@ -172,4 +179,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — texto en tablero: editor `contenteditable`, alineación métrica con DPR/pixel ratio del canvas, handles solo en esquinas y README alineado al comportamiento actual.*
+*Última actualización de este documento: mayo 2026 — anotaciones en pantalla compartida (sync Socket + RAM), selección múltiple con bbox unión/redimensionado/arrastre y nudge con flechas; tablero con marco de unión y flechas sobre multiselección y trazos.*
