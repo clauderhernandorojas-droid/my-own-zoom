@@ -54,6 +54,9 @@ Tablero.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
 Usuario.hasMany(Reunion, { foreignKey: 'docenteUsuarioId', as: 'reunionesCreadas' });
 Reunion.belongsTo(Usuario, { foreignKey: 'docenteUsuarioId', as: 'docente' });
 
+Reunion.belongsTo(Reunion, { foreignKey: 'parentReunionId', as: 'reunionPadre' });
+Reunion.hasMany(Reunion, { foreignKey: 'parentReunionId', as: 'reunionesExcepcion' });
+
 module.exports = {
   sequelize,
   Usuario,

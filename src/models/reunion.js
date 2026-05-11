@@ -24,7 +24,6 @@ module.exports = (sequelize) => {
       roomId: {
         type: DataTypes.STRING(64),
         allowNull: false,
-        unique: true,
         field: 'room_id',
       },
       estado: {
@@ -60,6 +59,24 @@ module.exports = (sequelize) => {
         type: DataTypes.UUID,
         allowNull: true,
         field: 'serie_id',
+      },
+      parentReunionId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        field: 'parent_reunion_id',
+        references: { model: 'reuniones', key: 'reunion_id' },
+      },
+      esExcepcion: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+        field: 'es_excepcion',
+      },
+      /** YYYY-MM-DD (día civil de la instancia sustituida); solo excepciones. */
+      occurrenceDayKey: {
+        type: DataTypes.STRING(12),
+        allowNull: true,
+        field: 'occurrence_day_key',
       },
     },
     {

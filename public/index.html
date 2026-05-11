@@ -6,6 +6,7 @@
   <title>My Own Zoom — Cliente</title>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     :root {
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -1954,13 +1955,28 @@
       display: flex;
       justify-content: space-between;
       gap: 0.5rem;
-      align-items: center;
+      align-items: flex-start;
       margin-bottom: 0.45rem;
+    }
+    .calendar-head__left {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      min-width: 0;
+    }
+    .calendar-head__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      align-items: center;
+      justify-content: flex-end;
+      flex-shrink: 0;
     }
     .calendar-grid {
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
       gap: 0.3rem;
+      align-items: stretch;
     }
     .calendar-grid--week {
       margin-bottom: 0.35rem;
@@ -1969,29 +1985,171 @@
       text-align: center;
       font-weight: 600;
     }
+    .home-calendar-months {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      overflow-x: auto;
+      align-items: flex-start;
+    }
+    .home-calendar-month-panel {
+      flex: 1 1 240px;
+      min-width: 220px;
+    }
+    .home-calendar-month-panel__title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin: 0 0 0.35rem;
+      text-transform: capitalize;
+    }
     .calendar-day {
-      min-height: 34px;
+      position: relative;
+      box-sizing: border-box;
+      min-height: 52px;
       border-radius: 7px;
       border: 1px solid #334155;
       background: #0f172a;
       color: #cbd5e1;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
+      padding: 3px 2px;
       font-size: 0.82rem;
+      box-shadow: inset 0 0 0 2px transparent;
+    }
+    .calendar-day__stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      width: 100%;
+      min-width: 0;
+      pointer-events: none;
+      position: relative;
+      z-index: 0;
+    }
+    .calendar-day__num {
+      font-weight: inherit;
+      line-height: 1.1;
+    }
+    .calendar-day__time {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      line-height: 1.15;
+      margin-top: 3px;
+      text-align: center;
+      color: #e0f2fe;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .home-calendar-print-area--series-focus .calendar-day--selected-series .calendar-day__time {
+      color: #f8fafc;
+    }
+    .home-calendar-print-area--series-focus .calendar-day--event {
+      cursor: default;
+    }
+    .calendar-day__dots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      justify-content: center;
+      align-items: center;
+      max-width: 100%;
+      margin-top: 2px;
+    }
+    .calendar-day__dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #93c5fd;
+      flex-shrink: 0;
+    }
+    .calendar-day--selected-series .calendar-day__dot {
+      background: #e0f2fe;
+    }
+    .calendar-day__ver-btn {
+      margin-top: 3px;
+      font-size: 0.58rem;
+      padding: 2px 6px;
+      line-height: 1.1;
+      border-radius: 4px;
+      border: 1px solid rgba(148, 163, 184, 0.55);
+      background: rgba(30, 41, 59, 0.9);
+      color: #e2e8f0;
+      cursor: pointer;
+      pointer-events: auto;
+      position: relative;
+      z-index: 2;
+    }
+    .calendar-day__ver-btn:hover {
+      border-color: #93c5fd;
+      color: #f8fafc;
     }
     .calendar-day--empty {
       opacity: 0.35;
     }
     .calendar-day--today {
       border-color: #3b82f6;
-      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35) inset;
+      box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.45);
       color: #ffffff;
       font-weight: 700;
     }
     .calendar-day--event {
       background: rgba(37, 99, 235, 0.2);
       color: #dbeafe;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.38);
+    }
+    .calendar-day--event.calendar-day--student-view {
+      cursor: default;
+    }
+    .calendar-day--selected-series {
+      background: rgba(59, 130, 246, 0.35);
+      color: #f8fafc;
+      font-weight: 600;
+      box-shadow: inset 0 0 0 2px rgba(96, 165, 250, 0.88);
+    }
+    #homeCalendarPrintArea.home-calendar-print-area--capturing #btnImprimirAgendamiento,
+    #homeCalendarPrintArea.home-calendar-print-area--capturing #btnCalendarAgendaUndo,
+    #homeCalendarPrintArea.home-calendar-print-area--capturing #btnCalendarAgendaRedo {
+      display: none !important;
+    }
+    @media print {
+      #btnImprimirAgendamiento,
+      #btnCalendarAgendaUndo,
+      #btnCalendarAgendaRedo {
+        display: none !important;
+      }
+      .calendar-head__actions {
+        display: none !important;
+      }
+      .calendar-day__ver-btn {
+        display: none !important;
+      }
+      .calendar-day__dots {
+        display: none !important;
+      }
+      .calendar-day--selected-series {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+        background: #e8edf2 !important;
+        color: #111827 !important;
+        border-color: #1f2937 !important;
+        box-shadow: inset 0 0 0 2px #374151 !important;
+      }
+      .calendar-day--selected-series .calendar-day__time {
+        color: #111827 !important;
+      }
+      .calendar-day__time {
+        color: #111827 !important;
+        font-size: 0.68rem;
+      }
     }
     .profile-modal {
       position: fixed;
@@ -2040,6 +2198,51 @@
       border: 1px solid #334155;
       border-radius: 8px;
       color: #fff;
+    }
+    #scheduleModal #scheduleStartInput[type="datetime-local"] {
+      appearance: auto;
+      -webkit-appearance: auto;
+      min-height: 2.5rem;
+      padding: 0.45rem 0.55rem;
+    }
+    .calendar-day-detail-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-height: min(52vh, 360px);
+      overflow: auto;
+      font-size: 0.88rem;
+    }
+    .calendar-day-detail-row {
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 0.45rem 0.55rem;
+      background: #0b1220;
+    }
+    .calendar-day-detail-row__time {
+      font-weight: 600;
+      color: #93c5fd;
+      font-size: 0.82rem;
+    }
+    .calendar-day-detail-row__title {
+      margin-top: 0.15rem;
+      color: #f8fafc;
+    }
+    .calendar-day-detail-row__prof {
+      margin-top: 0.2rem;
+      font-size: 0.78rem;
+      color: #94a3b8;
+    }
+    .calendar-day-detail-row__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.45rem;
+      align-items: center;
+    }
+    .calendar-day-detail-row__actions button {
+      font-size: 0.72rem;
+      padding: 0.25rem 0.45rem;
     }
     .profile-modal__actions {
       margin-top: 0.5rem;
@@ -2101,10 +2304,16 @@
       gap: 0.5rem 0.65rem;
       overflow: hidden;
     }
+    .scheduled-item--selected {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45);
+      background: rgba(30, 58, 138, 0.22);
+    }
     .scheduled-item__main {
       flex: 1 1 200px;
       min-width: 0;
       max-width: 100%;
+      cursor: pointer;
     }
     .scheduled-item__title {
       font-weight: 600;
@@ -2576,14 +2785,26 @@
 
         <section class="home-card">
           <h3>Calendario</h3>
-          <div class="calendar-head">
-            <strong id="homeCalendarMonth">Mes</strong>
-            <span id="homeCalendarRoleHint" class="home-muted">Vista</span>
+          <div id="homeCalendarPrintArea" class="home-calendar-print-area">
+            <div class="calendar-head">
+              <div class="calendar-head__left">
+                <strong id="homeCalendarMonth">Mes</strong>
+                <span id="homeCalendarRoleHint" class="home-muted">Vista</span>
+              </div>
+              <div class="calendar-head__actions">
+                <button type="button" id="btnCalendarAgendaUndo" class="btn-ghost" disabled title="Deshacer última acción sobre excepciones / omisiones">
+                  Deshacer
+                </button>
+                <button type="button" id="btnCalendarAgendaRedo" class="btn-ghost" disabled title="Rehacer la última acción deshecha">
+                  Rehacer
+                </button>
+                <button type="button" id="btnImprimirAgendamiento" class="btn-ghost">
+                  Imprimir Agendamiento
+                </button>
+              </div>
+            </div>
+            <div id="homeCalendarMonths" class="home-calendar-months"></div>
           </div>
-          <div class="calendar-grid calendar-grid--week">
-            <span>Lu</span><span>Ma</span><span>Mi</span><span>Ju</span><span>Vi</span><span>Sá</span><span>Do</span>
-          </div>
-          <div id="homeCalendarGrid" class="calendar-grid"></div>
         </section>
 
         <section class="home-card home-card--wide">
@@ -2640,13 +2861,13 @@
     <div class="profile-modal__backdrop" id="scheduleModalBackdrop"></div>
     <div class="profile-modal__card">
       <h3 id="scheduleModalTitle">Agendar reunión</h3>
-      <p>Configura título, fecha y duración. Se guardará en tu calendario.</p>
+      <p id="scheduleModalHint">Configura título, fecha y duración. Se guardará en tu calendario.</p>
       <label>Título *
         <input id="scheduleTitleInput" type="text" placeholder="Clase de matemáticas" maxlength="140" />
       </label>
       <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
         <label>Inicio *
-          <input id="scheduleStartInput" type="datetime-local" />
+          <input id="scheduleStartInput" type="datetime-local" step="60" />
         </label>
         <label>Duración (min) *
           <input id="scheduleDurationInput" type="number" min="15" step="5" value="60" />
@@ -2655,53 +2876,55 @@
       <label>Zona horaria
         <input id="scheduleTimezoneInput" type="text" />
       </label>
-      <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
-        <label>Repetición
-          <select id="scheduleRecurrenceMode">
-            <option value="none" selected>No repetir</option>
-            <option value="daily">Diario</option>
-            <option value="weekly">Semanal</option>
-            <option value="monthly">Mensual</option>
-            <option value="custom">Personalizado</option>
-          </select>
-        </label>
-        <label id="scheduleRecurrenceEndModeWrap" class="hidden">Fin de secuencia
-          <select id="scheduleRecurrenceEndMode">
-            <option value="never" selected>Nunca</option>
-            <option value="until">Hasta fecha</option>
-          </select>
-        </label>
-      </div>
-      <label id="scheduleRecurrenceUntilWrap" class="hidden">Fecha de fin
-        <input id="scheduleRecurrenceUntil" type="date" />
-      </label>
-      <div id="scheduleCustomRecurrenceWrap" class="hidden" style="margin-top:0.35rem">
-        <div class="auth-grid auth-grid--compact">
-          <label>Base personalizada
-            <select id="scheduleCustomBase">
-              <option value="weekly" selected>Semanal</option>
-              <option value="daily">Diaria</option>
+      <div id="scheduleRecurrenceBlock">
+        <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
+          <label>Repetición
+            <select id="scheduleRecurrenceMode">
+              <option value="none" selected>No repetir</option>
+              <option value="daily">Diario</option>
+              <option value="weekly">Semanal</option>
               <option value="monthly">Mensual</option>
+              <option value="custom">Personalizado</option>
             </select>
           </label>
-          <label>Cada
-            <input id="scheduleRecurrenceInterval" type="number" min="1" step="1" value="1" />
+          <label id="scheduleRecurrenceEndModeWrap" class="hidden">Fin de secuencia
+            <select id="scheduleRecurrenceEndMode">
+              <option value="never" selected>Nunca</option>
+              <option value="until">Hasta fecha</option>
+            </select>
           </label>
         </div>
-        <div id="scheduleCustomDaysWrap">
-          <span class="home-muted" style="display:block;margin:0.2rem 0 0.1rem">Días</span>
-          <div class="recurrence-days">
-            <button type="button" class="recurrence-day-chip" data-day="1">L</button>
-            <button type="button" class="recurrence-day-chip" data-day="2">M</button>
-            <button type="button" class="recurrence-day-chip" data-day="3">X</button>
-            <button type="button" class="recurrence-day-chip" data-day="4">J</button>
-            <button type="button" class="recurrence-day-chip" data-day="5">V</button>
-            <button type="button" class="recurrence-day-chip" data-day="6">S</button>
-            <button type="button" class="recurrence-day-chip" data-day="7">D</button>
+        <label id="scheduleRecurrenceUntilWrap" class="hidden">Fecha de fin
+          <input id="scheduleRecurrenceUntil" type="date" />
+        </label>
+        <div id="scheduleCustomRecurrenceWrap" class="hidden" style="margin-top:0.35rem">
+          <div class="auth-grid auth-grid--compact">
+            <label>Base personalizada
+              <select id="scheduleCustomBase">
+                <option value="weekly" selected>Semanal</option>
+                <option value="daily">Diaria</option>
+                <option value="monthly">Mensual</option>
+              </select>
+            </label>
+            <label>Cada
+              <input id="scheduleRecurrenceInterval" type="number" min="1" step="1" value="1" />
+            </label>
+          </div>
+          <div id="scheduleCustomDaysWrap">
+            <span class="home-muted" style="display:block;margin:0.2rem 0 0.1rem">Días</span>
+            <div class="recurrence-days">
+              <button type="button" class="recurrence-day-chip" data-day="1">L</button>
+              <button type="button" class="recurrence-day-chip" data-day="2">M</button>
+              <button type="button" class="recurrence-day-chip" data-day="3">X</button>
+              <button type="button" class="recurrence-day-chip" data-day="4">J</button>
+              <button type="button" class="recurrence-day-chip" data-day="5">V</button>
+              <button type="button" class="recurrence-day-chip" data-day="6">S</button>
+              <button type="button" class="recurrence-day-chip" data-day="7">D</button>
+            </div>
           </div>
         </div>
+        <p id="scheduleRecurrenceSummary" class="home-muted" style="margin:0.45rem 0 0.2rem"></p>
       </div>
-      <p id="scheduleRecurrenceSummary" class="home-muted" style="margin:0.45rem 0 0.2rem"></p>
       <div class="row" style="margin-top:0.35rem;align-items:flex-end">
         <label style="flex:1 1 auto;margin:0">Link compartible
           <input id="scheduleShareLinkInput" type="text" readonly placeholder="Se generará al guardar" />
@@ -2712,6 +2935,23 @@
       <div class="profile-modal__actions" style="justify-content:space-between">
         <button type="button" id="btnScheduleModalCancel" class="btn-ghost">Cancelar</button>
         <button type="button" id="btnScheduleModalSave" class="btn-primary">Guardar agenda</button>
+      </div>
+    </div>
+  </div>
+  <div
+    id="calendarDayDetailModal"
+    class="profile-modal hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="calendarDayDetailTitle"
+  >
+    <div class="profile-modal__backdrop" id="calendarDayDetailBackdrop"></div>
+    <div class="profile-modal__card" style="max-width: min(420px, 94vw)">
+      <h3 id="calendarDayDetailTitle">Reuniones del día</h3>
+      <p id="calendarDayDetailSubtitle" class="home-muted" style="margin: 0 0 0.6rem"></p>
+      <div id="calendarDayDetailList" class="calendar-day-detail-list"></div>
+      <div class="profile-modal__actions" style="margin-top: 0.65rem">
+        <button type="button" id="btnCalendarDayDetailClose" class="btn-primary">Cerrar</button>
       </div>
     </div>
   </div>
@@ -3507,8 +3747,16 @@
     let roomBoardLayout = "top";
     let chatPanelHidden = false;
     let homeMeetings = [];
+    /** PK de reunión seleccionada en lobby (resalta serie en calendario; sin abrir modal). */
+    let homeLobbySelectedReunionPk = null;
     let scheduleEditingReunionId = null;
+    /** @type {{ occurrenceDayKey: string, parentReunionId: string } | null} */
+    let scheduleExceptionContext = null;
     let scheduleModalScrollTop = 0;
+    /** Pila de deshacer (memoria de sesión) para omisiones / excepciones del calendario. */
+    let calendarAgendaUndoStack = [];
+    /** Pila de rehacer (paralela a deshacer). */
+    let calendarAgendaRedoStack = [];
     let boardSideMenuOpen = "";
     const chatAdjuntoPreviewCache = new Map();
     /** @type {{ mensajeId: string, mensaje: object } | null} */
@@ -7996,6 +8244,14 @@
       return normalized === "docente" || normalized === "profesor";
     }
 
+    /** Docente, profesor o admin: pueden crear/editar agenda (alineado con API). */
+    function canEditAgendaRole(rol) {
+      const n = String(rol || "")
+        .trim()
+        .toLowerCase();
+      return n === "docente" || n === "profesor" || n === "admin";
+    }
+
     function getUserRoleLabel(rol) {
       return isTeacherRole(rol) ? "Profesor" : "Estudiante";
     }
@@ -8110,6 +8366,7 @@
         }
       }
       if (!obj || typeof obj !== "object") return null;
+      if (obj.omitInstance === true) return null;
       const mode = String(obj.mode || "none").toLowerCase();
       if (mode === "none") return null;
       const base = String(obj.base || "weekly").toLowerCase();
@@ -8119,6 +8376,27 @@
         ? obj.weekDays.map((n) => Number(n)).filter((n) => n >= 1 && n <= 7)
         : [];
       return { mode, base, interval, until, weekDays };
+    }
+
+    /**
+     * Opción B (sin DDL): omisión de un día de serie = fila excepción con JSON estable en `recurrencia`.
+     * Debe coincidir con `parseOmitInstance` en servidor (`reunionHorarioSolapamiento.js`).
+     */
+    function parseRecurrenciaOmitInstance(recRaw) {
+      if (!recRaw) return false;
+      let obj = recRaw;
+      if (typeof recRaw === "string") {
+        try {
+          obj = JSON.parse(recRaw);
+        } catch (_) {
+          return false;
+        }
+      }
+      return !!(obj && typeof obj === "object" && obj.omitInstance === true);
+    }
+
+    function isOmitExceptionMeeting(r) {
+      return !!(r && r.esExcepcion === true && parseRecurrenciaOmitInstance(r.recurrencia));
     }
 
     function recurrenceSummaryLabel(rec) {
@@ -8174,9 +8452,32 @@
       return d;
     }
 
+    function normalizeReunionFromApi(r) {
+      if (!r || typeof r !== "object") return r;
+      const nested = r.Reunion ?? r.reunion;
+      const src = nested && typeof nested === "object" ? { ...r, ...nested } : r;
+      return {
+        ...src,
+        reunionId: src.reunionId ?? src.reunion_id,
+        fechaHora: src.fechaHora ?? src.fecha_hora,
+        fechaHoraFin: src.fechaHoraFin ?? src.fecha_hora_fin,
+        roomId: src.roomId ?? src.room_id,
+        docenteUsuarioId: src.docenteUsuarioId ?? src.docente_usuario_id,
+        zonaHoraria: src.zonaHoraria ?? src.zona_horaria,
+        serieId: src.serieId ?? src.serie_id,
+        parentReunionId: src.parentReunionId ?? src.parent_reunion_id,
+        esExcepcion: src.esExcepcion ?? src.es_excepcion,
+        occurrenceDayKey: src.occurrenceDayKey ?? src.occurrence_day_key,
+        titulo: src.titulo,
+        estado: src.estado,
+        recurrencia: src.recurrencia,
+      };
+    }
+
     function getMeetingOccurrencesInRange(reunion, rangeStart, rangeEnd) {
-      if (!reunion?.fechaHora) return [];
-      const start = new Date(reunion.fechaHora);
+      const rawStart = reunion?.fechaHora ?? reunion?.fecha_hora;
+      if (rawStart == null || rawStart === "") return [];
+      const start = new Date(rawStart);
       if (Number.isNaN(start.getTime())) return [];
       const rec = parseMeetingRecurrence(reunion.recurrencia);
       const untilDate = rec?.until ? new Date(`${rec.until}T23:59:59`) : null;
@@ -8232,6 +8533,600 @@
       const horizon = new Date(fromDate.getTime() + 180 * 86400000);
       const occurrences = getMeetingOccurrencesInRange(reunion, fromDate, horizon);
       return occurrences.length ? occurrences[0] : null;
+    }
+
+    /** Instante de ocurrencia de `reunion` que cae en el día civil dado (mes 0-based). */
+    function getMeetingOccurrenceInstantOnCalendarDay(reunion, year, monthIndex, domDay) {
+      if (!reunion) return null;
+      const dayStart = new Date(year, monthIndex, domDay, 0, 0, 0, 0);
+      const dayEnd = new Date(year, monthIndex, domDay, 23, 59, 59, 999);
+      const occ = getMeetingOccurrencesInRange(reunion, dayStart, dayEnd);
+      return occ.length ? occ[0] : null;
+    }
+
+    function formatOccurrenceDayKey(d) {
+      const x = d instanceof Date ? d : new Date(d);
+      if (Number.isNaN(x.getTime())) return "";
+      return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+    }
+
+    function sameLocalCalendarDay(a, b) {
+      const x = a instanceof Date ? a : new Date(a);
+      const y = b instanceof Date ? b : new Date(b);
+      if (Number.isNaN(x.getTime()) || Number.isNaN(y.getTime())) return false;
+      return (
+        x.getFullYear() === y.getFullYear() &&
+        x.getMonth() === y.getMonth() &&
+        x.getDate() === y.getDate()
+      );
+    }
+
+    function effectiveMeetingForOccurrence(parentRow, occurrenceDate, allMeetings) {
+      if (!parentRow || parentRow.esExcepcion) return parentRow;
+      const pk = getReunionPk(parentRow);
+      if (!pk || !parseMeetingRecurrence(parentRow.recurrencia)) return parentRow;
+      const instKey = formatOccurrenceDayKey(occurrenceDate);
+      const candidates = (allMeetings || []).filter(
+        (x) =>
+          x.esExcepcion === true &&
+          String(x.parentReunionId ?? x.parent_reunion_id ?? "") === pk
+      );
+      for (const ex of candidates) {
+        if (ex.occurrenceDayKey && ex.occurrenceDayKey === instKey) return ex;
+        const exd = ex.fechaHora ? new Date(ex.fechaHora) : null;
+        if (exd && !Number.isNaN(exd.getTime()) && sameLocalCalendarDay(exd, occurrenceDate)) return ex;
+      }
+      return parentRow;
+    }
+
+    /**
+     * Excepción que sustituye el día RRULE `occurrenceDate` pero con fecha efectiva en otro día civil:
+     * no debe aparecer en la celda del día sustituido (evita “fantasmas” + modal vacío por lobbyCalendarSessionInstant).
+     */
+    function shouldSkipSubstitutionPhantom(eff, occurrenceDate) {
+      if (!eff || eff.esExcepcion !== true || isOmitExceptionMeeting(eff)) return false;
+      const fh = eff.fechaHora ? new Date(eff.fechaHora) : null;
+      if (!fh || Number.isNaN(fh.getTime())) return false;
+      const key = formatOccurrenceDayKey(occurrenceDate);
+      const okKey = eff.occurrenceDayKey && String(eff.occurrenceDayKey).trim() === key;
+      return okKey && !sameLocalCalendarDay(fh, occurrenceDate);
+    }
+
+    /** Expande padres RRULE y rellena el mapa (antes de colocar excepciones por fechaHora). */
+    function filterOriginalOccurrencesIntoMap(map, list, rangeStart, rangeEnd, ensure) {
+      const parents = list.filter((r) => !r.esExcepcion);
+      for (const r of parents) {
+        const dates = getMeetingOccurrencesInRange(r, rangeStart, rangeEnd);
+        for (const d of dates) {
+          const y = d.getFullYear();
+          const mo = d.getMonth();
+          const dom = d.getDate();
+          const eff = effectiveMeetingForOccurrence(r, d, list);
+          if (isOmitExceptionMeeting(eff)) continue;
+          if (shouldSkipSubstitutionPhantom(eff, d)) continue;
+          const arr = ensure(y, mo, dom);
+          const pk = getReunionPk(eff);
+          if (pk && arr.some((x) => getReunionPk(x) === pk)) continue;
+          arr.push(eff);
+        }
+      }
+    }
+
+    /** Añade excepciones según fecha civil de fechaHora (instancia efectiva). */
+    function applyExceptionsByFechaHora(map, list, rangeStart, rangeEnd, ensure) {
+      for (const ex of list.filter((r) => r.esExcepcion === true)) {
+        if (isOmitExceptionMeeting(ex)) continue;
+        const raw = ex?.fechaHora ?? ex?.fecha_hora;
+        if (raw == null || raw === "") continue;
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) continue;
+        if (d < rangeStart || d > rangeEnd) continue;
+        const y = d.getFullYear();
+        const mo = d.getMonth();
+        const dom = d.getDate();
+        const arr = ensure(y, mo, dom);
+        const pk = getReunionPk(ex);
+        if (pk && arr.some((x) => getReunionPk(x) === pk)) continue;
+        arr.push(ex);
+      }
+    }
+
+    function buildLobbyCalendarDayMap(rangeStart, rangeEnd, meetings) {
+      const map = new Map();
+      const keyAt = (y, mo, dom) => `${y}-${mo}-${dom}`;
+      const ensure = (y, mo, dom) => {
+        const k = keyAt(y, mo, dom);
+        if (!map.has(k)) map.set(k, []);
+        return map.get(k);
+      };
+      const list = (meetings || []).filter(
+        (r) => (r?.fechaHora ?? r?.fecha_hora) && r?.estado !== "finalizada"
+      );
+      filterOriginalOccurrencesIntoMap(map, list, rangeStart, rangeEnd, ensure);
+      applyExceptionsByFechaHora(map, list, rangeStart, rangeEnd, ensure);
+      return map;
+    }
+
+    /** Clave estable de serie para agrupar con la fila maestra (padre). */
+    function getSeriesMasterKey(r) {
+      const pk = getReunionPk(r);
+      if (!pk) return "";
+      if (r.esExcepcion === true) {
+        const p = r.parentReunionId ?? r.parent_reunion_id;
+        return p != null && String(p).trim() !== "" ? String(p).trim() : pk;
+      }
+      return pk;
+    }
+
+    /** Agrupa reuniones para Acciones rápidas: una tarjeta por serie; las excepciones no son filas propias. */
+    function buildQuickActionSeriesGroups(meetings) {
+      const list = (meetings || []).filter(
+        (r) =>
+          (r?.fechaHora ?? r?.fecha_hora) &&
+          r?.estado !== "finalizada" &&
+          !isOmitExceptionMeeting(r)
+      );
+      const byKey = new Map();
+      for (const r of list) {
+        const key = getSeriesMasterKey(r);
+        if (!key) continue;
+        if (!byKey.has(key)) {
+          byKey.set(key, { masterKey: key, master: null, exceptions: [], members: [] });
+        }
+        const g = byKey.get(key);
+        g.members.push(r);
+        if (r.esExcepcion === true) {
+          g.exceptions.push(r);
+        } else {
+          if (!g.master) {
+            g.master = r;
+          } else {
+            const prevRec = parseMeetingRecurrence(g.master.recurrencia);
+            const curRec = parseMeetingRecurrence(r.recurrencia);
+            if (!prevRec && curRec) g.master = r;
+          }
+        }
+      }
+      const out = [];
+      const fromCount = new Date(Date.now() - 10 * 60_000);
+      const horizonCount = new Date(fromCount.getTime() + 180 * 86400000);
+      for (const g of byKey.values()) {
+        const representative = g.master || g.exceptions[0];
+        if (!representative) continue;
+        const Y = g.exceptions.length;
+        const masterForCount = g.master || representative;
+        let X = 0;
+        if (masterForCount && masterForCount.esExcepcion !== true) {
+          const rec = parseMeetingRecurrence(masterForCount.recurrencia);
+          if (rec) {
+            X = getMeetingOccurrencesInRange(masterForCount, fromCount, horizonCount).length;
+          } else {
+            const fh = masterForCount.fechaHora ? new Date(masterForCount.fechaHora) : null;
+            X =
+              fh &&
+              !Number.isNaN(fh.getTime()) &&
+              fh >= fromCount &&
+              fh <= horizonCount
+                ? 1
+                : 0;
+          }
+        }
+        console.log(
+          `[Agrupación] Serie ${g.masterKey} detectada con ${X} ocurrencias normales y ${Y} excepciones`
+        );
+        out.push({
+          masterKey: g.masterKey,
+          master: g.master,
+          exceptions: g.exceptions,
+          representative,
+        });
+      }
+      return out;
+    }
+
+    function getQuickActionGroupNextOccurrence(group, fromDate) {
+      const times = [];
+      const master = group.master;
+      if (master && master.esExcepcion !== true) {
+        const n = getNextMeetingOccurrence(master, fromDate);
+        if (n && !Number.isNaN(n.getTime())) times.push(n.getTime());
+      }
+      for (const ex of group.exceptions) {
+        const fh = ex.fechaHora ? new Date(ex.fechaHora) : null;
+        if (fh && !Number.isNaN(fh.getTime()) && fh >= fromDate) times.push(fh.getTime());
+      }
+      if (!times.length) return null;
+      return new Date(Math.min(...times));
+    }
+
+    /** PK del padre para calendario/selección; si solo hay excepciones, usa parentReunionId. */
+    function getQuickActionCalendarSelectionPk(g) {
+      if (g.master) return getReunionPk(g.master);
+      const ex = g.exceptions[0];
+      if (ex) {
+        const p = ex.parentReunionId ?? ex.parent_reunion_id;
+        if (p != null && String(p).trim() !== "") return String(p).trim();
+      }
+      return getReunionPk(g.representative);
+    }
+
+    /** Instante de sesión en el día civil del lobby (serie RRULE o fecha puntual / excepción). */
+    function lobbyCalendarSessionInstant(rm, year, monthIndex, dayDom) {
+      if (!rm) return null;
+      if (parseMeetingRecurrence(rm.recurrencia)) {
+        const inst = getMeetingOccurrenceInstantOnCalendarDay(rm, year, monthIndex, dayDom);
+        if (inst) return inst;
+      }
+      const raw = rm.fechaHora ?? rm.fecha_hora;
+      if (raw == null || raw === "") return null;
+      const fd = new Date(raw);
+      if (
+        Number.isNaN(fd.getTime()) ||
+        fd.getFullYear() !== year ||
+        fd.getMonth() !== monthIndex ||
+        fd.getDate() !== dayDom
+      ) {
+        return null;
+      }
+      return fd;
+    }
+
+    function closeLobbyCalendarDayDetailModal() {
+      $("calendarDayDetailModal")?.classList.add("hidden");
+    }
+
+    function clearCalendarAgendaRedoStack() {
+      if (!Array.isArray(calendarAgendaRedoStack)) calendarAgendaRedoStack = [];
+      calendarAgendaRedoStack.length = 0;
+      updateCalendarUndoRedoButtons();
+    }
+
+    function updateCalendarUndoRedoButtons() {
+      const btnU = $("btnCalendarAgendaUndo");
+      const btnR = $("btnCalendarAgendaRedo");
+      if (!Array.isArray(calendarAgendaUndoStack)) calendarAgendaUndoStack = [];
+      if (!Array.isArray(calendarAgendaRedoStack)) calendarAgendaRedoStack = [];
+      if (btnU) btnU.disabled = calendarAgendaUndoStack.length === 0;
+      if (btnR) btnR.disabled = calendarAgendaRedoStack.length === 0;
+    }
+
+    async function calendarAgendaUndoLast() {
+      if (!Array.isArray(calendarAgendaUndoStack)) calendarAgendaUndoStack = [];
+      const item = calendarAgendaUndoStack.pop();
+      if (!item) {
+        updateCalendarUndoRedoButtons();
+        return;
+      }
+      try {
+        if (item.type === "omitException") {
+          await api("/api/reuniones/" + encodeURIComponent(item.reunionId), { method: "DELETE" });
+          if (item.redoPayload?.parentPk && item.redoPayload?.occurrenceDayKey != null) {
+            calendarAgendaRedoStack.push({
+              type: "redoOmit",
+              parentPk: item.redoPayload.parentPk,
+              occurrenceDayKey: item.redoPayload.occurrenceDayKey,
+            });
+          }
+        } else if (item.type === "exceptionCreated") {
+          await api("/api/reuniones/" + encodeURIComponent(item.reunionId), { method: "DELETE" });
+          if (item.redoPayload?.parentPk && item.redoPayload?.body) {
+            calendarAgendaRedoStack.push({
+              type: "redoExceptionCreate",
+              parentPk: item.redoPayload.parentPk,
+              body: item.redoPayload.body,
+            });
+          }
+        } else if (item.type === "exceptionPatched") {
+          const s = item.snapshot;
+          await api("/api/reuniones/" + encodeURIComponent(item.reunionId), {
+            method: "PATCH",
+            body: JSON.stringify({
+              titulo: s.titulo,
+              fechaHora: s.fechaHora,
+              fechaHoraFin: s.fechaHoraFin,
+              zonaHoraria: s.zonaHoraria || "",
+            }),
+          });
+          if (item.forwardSnapshot) {
+            calendarAgendaRedoStack.push({
+              type: "redoExceptionPatch",
+              reunionId: item.reunionId,
+              forwardSnapshot: item.forwardSnapshot,
+              backwardSnapshot: item.snapshot,
+            });
+          }
+        }
+        const el = $("crearResult");
+        if (el) el.textContent = "Acción deshecha.";
+        await loadHomeMeetings();
+      } catch (e) {
+        calendarAgendaUndoStack.push(item);
+        log("Deshacer: " + (e?.message || e));
+      } finally {
+        updateCalendarUndoRedoButtons();
+      }
+    }
+
+    async function calendarAgendaRedoLast() {
+      if (!Array.isArray(calendarAgendaRedoStack)) calendarAgendaRedoStack = [];
+      const item = calendarAgendaRedoStack.pop();
+      if (!item) {
+        updateCalendarUndoRedoButtons();
+        return;
+      }
+      try {
+        if (item.type === "redoOmit") {
+          const data = await api(
+            "/api/reuniones/" + encodeURIComponent(item.parentPk) + "/omitir-ocurrencia",
+            {
+              method: "POST",
+              body: JSON.stringify({ occurrenceDayKey: item.occurrenceDayKey }),
+            }
+          );
+          const oid = data?.reunion ? getReunionPk(data.reunion) : "";
+          if (oid) {
+            calendarAgendaUndoStack.push({
+              type: "omitException",
+              reunionId: oid,
+              redoPayload: {
+                parentPk: item.parentPk,
+                occurrenceDayKey: item.occurrenceDayKey,
+              },
+            });
+          }
+        } else if (item.type === "redoExceptionCreate") {
+          const data = await api(
+            "/api/reuniones/" + encodeURIComponent(item.parentPk) + "/excepcion-ocurrencia",
+            {
+              method: "POST",
+              body: JSON.stringify(item.body),
+            }
+          );
+          const pk = data?.reunion ? getReunionPk(data.reunion) : "";
+          if (pk) {
+            calendarAgendaUndoStack.push({
+              type: "exceptionCreated",
+              reunionId: pk,
+              redoPayload: {
+                parentPk: item.parentPk,
+                body: { ...item.body },
+              },
+            });
+          }
+        } else if (item.type === "redoExceptionPatch") {
+          const fs = item.forwardSnapshot;
+          await api("/api/reuniones/" + encodeURIComponent(item.reunionId), {
+            method: "PATCH",
+            body: JSON.stringify({
+              titulo: fs.titulo,
+              fechaHora: fs.fechaHora,
+              fechaHoraFin: fs.fechaHoraFin,
+              zonaHoraria: fs.zonaHoraria || "",
+            }),
+          });
+          calendarAgendaUndoStack.push({
+            type: "exceptionPatched",
+            reunionId: item.reunionId,
+            snapshot: item.backwardSnapshot,
+            forwardSnapshot: item.forwardSnapshot,
+          });
+        }
+        const el = $("crearResult");
+        if (el) el.textContent = "Acción rehecha.";
+        await loadHomeMeetings();
+      } catch (e) {
+        calendarAgendaRedoStack.push(item);
+        log("Rehacer: " + (e?.message || e));
+      } finally {
+        updateCalendarUndoRedoButtons();
+      }
+    }
+
+    function calendarDayDetailOpenEdit(m, year, monthIndex, dayDom) {
+      const inst = lobbyCalendarSessionInstant(m, year, monthIndex, dayDom);
+      const occKey = inst
+        ? formatOccurrenceDayKey(inst)
+        : formatOccurrenceDayKey(new Date(year, monthIndex, dayDom));
+      closeLobbyCalendarDayDetailModal();
+      if (m.esExcepcion === true) {
+        openScheduleModal(m);
+        return;
+      }
+      if (parseMeetingRecurrence(m.recurrencia)) {
+        openScheduleModal(m, { occurrenceDayKey: occKey });
+        return;
+      }
+      openScheduleModal(m);
+    }
+
+    async function calendarDayDetailDeleteSession(m, year, monthIndex, dayDom) {
+      /**
+       * No usar DELETE sobre el reunion_id del padre recurrente para «quitar un día»: el API finaliza toda la serie.
+       * Para omitir una sola instancia se usa POST …/omitir-ocurrencia con (padre + occurrenceDayKey).
+       */
+      const inst = lobbyCalendarSessionInstant(m, year, monthIndex, dayDom);
+      const occKey = inst
+        ? formatOccurrenceDayKey(inst)
+        : formatOccurrenceDayKey(new Date(year, monthIndex, dayDom));
+      if (isOmitExceptionMeeting(m)) return;
+
+      if (m.esExcepcion === true) {
+        if (
+          !confirm(
+            "¿Quitar la excepción de este día? La serie volverá a usar el horario habitual en esa fecha."
+          )
+        )
+          return;
+        try {
+          await api("/api/reuniones/" + encodeURIComponent(getReunionPk(m)), { method: "DELETE" });
+          const el = $("crearResult");
+          if (el) el.textContent = "Excepción eliminada.";
+          await loadHomeMeetings();
+          closeLobbyCalendarDayDetailModal();
+        } catch (err) {
+          log("Eliminar excepción: " + err.message);
+        }
+        return;
+      }
+
+      if (parseMeetingRecurrence(m.recurrencia)) {
+        if (
+          !confirm(
+            `¿Omitir solo esta fecha de "${m.titulo || "la clase"}"? La serie seguirá en los demás días.`
+          )
+        )
+          return;
+        try {
+          const data = await api(
+            "/api/reuniones/" + encodeURIComponent(getReunionPk(m)) + "/omitir-ocurrencia",
+            {
+              method: "POST",
+              body: JSON.stringify({ occurrenceDayKey: occKey }),
+            }
+          );
+          if (data?.reunion && !data?.idempotent) {
+            const oid = getReunionPk(data.reunion);
+            if (oid) {
+              clearCalendarAgendaRedoStack();
+              calendarAgendaUndoStack.push({
+                type: "omitException",
+                reunionId: oid,
+                redoPayload: {
+                  parentPk: getReunionPk(m),
+                  occurrenceDayKey: occKey,
+                },
+              });
+              updateCalendarUndoRedoButtons();
+            }
+          }
+          const el = $("crearResult");
+          if (el)
+            el.textContent = data?.idempotent ? "Este día ya estaba omitido." : "Día omitido en la serie.";
+          await loadHomeMeetings();
+          closeLobbyCalendarDayDetailModal();
+        } catch (err) {
+          log("Omitir ocurrencia: " + err.message);
+        }
+        return;
+      }
+
+      if (!confirm(`¿Dar por finalizada la reunión "${m.titulo || "sin título"}"?`)) return;
+      try {
+        await api("/api/reuniones/" + encodeURIComponent(getReunionPk(m)), { method: "DELETE" });
+        const el = $("crearResult");
+        if (el) el.textContent = "Actualizado.";
+        await loadHomeMeetings();
+        closeLobbyCalendarDayDetailModal();
+      } catch (err) {
+        log("Eliminar reunión: " + err.message);
+      }
+    }
+
+    function renderLobbyCalendarDayDetailList(listHost, { year, monthIndex, dayDom, meetings }) {
+      listHost.innerHTML = "";
+      const canAgenda = canEditAgendaRole(currentUser?.rol);
+      const dayRef = new Date(year, monthIndex, dayDom);
+      const rows = (meetings || [])
+        .map((m) => {
+          let inst = lobbyCalendarSessionInstant(m, year, monthIndex, dayDom);
+          if (
+            (!inst || Number.isNaN(inst.getTime())) &&
+            m?.fechaHora
+          ) {
+            const fd = new Date(m.fechaHora);
+            if (!Number.isNaN(fd.getTime()) && sameLocalCalendarDay(fd, dayRef)) inst = fd;
+          }
+          return { m, inst };
+        })
+        .filter((x) => x.inst && !Number.isNaN(x.inst.getTime()));
+      rows.sort((a, b) => a.inst.getTime() - b.inst.getTime());
+
+      for (const { m, inst } of rows) {
+        const row = document.createElement("div");
+        row.className = "calendar-day-detail-row";
+
+        const head = document.createElement("div");
+        head.style.display = "flex";
+        head.style.flexWrap = "wrap";
+        head.style.gap = "0.35rem";
+        head.style.alignItems = "baseline";
+
+        const tEl = document.createElement("div");
+        tEl.className = "calendar-day-detail-row__time";
+        tEl.textContent = inst.toLocaleTimeString("es-CO", { timeStyle: "short" });
+
+        const titEl = document.createElement("div");
+        titEl.className = "calendar-day-detail-row__title";
+        titEl.style.flex = "1";
+        titEl.style.minWidth = "0";
+        titEl.textContent = m.titulo || "Reunión";
+
+        head.appendChild(tEl);
+        head.appendChild(titEl);
+        row.appendChild(head);
+
+        const actions = document.createElement("div");
+        actions.className = "calendar-day-detail-row__actions";
+
+        const btnEnter = document.createElement("button");
+        btnEnter.type = "button";
+        btnEnter.className = "btn-primary";
+        btnEnter.textContent = "Entrar";
+        btnEnter.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          const rid = resolveRoomIdForEntry(m);
+          if (!rid) {
+            log("No hay sala (roomId) para esta sesión.");
+            return;
+          }
+          closeLobbyCalendarDayDetailModal();
+          void enterRoom(rid).catch(() => {});
+        });
+        actions.appendChild(btnEnter);
+
+        if (canAgenda) {
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn-ghost";
+          btnEdit.textContent = "Editar";
+          btnEdit.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            calendarDayDetailOpenEdit(m, year, monthIndex, dayDom);
+          });
+          actions.appendChild(btnEdit);
+
+          const btnDel = document.createElement("button");
+          btnDel.type = "button";
+          btnDel.className = "btn-ghost";
+          btnDel.textContent = "Eliminar";
+          btnDel.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            void calendarDayDetailDeleteSession(m, year, monthIndex, dayDom);
+          });
+          actions.appendChild(btnDel);
+        }
+
+        row.appendChild(actions);
+        listHost.appendChild(row);
+      }
+    }
+
+    function openLobbyCalendarDayDetailModal(year, monthIndex, dayDom, meetings) {
+      const modal = $("calendarDayDetailModal");
+      const tit = $("calendarDayDetailTitle");
+      const sub = $("calendarDayDetailSubtitle");
+      const listHost = $("calendarDayDetailList");
+      if (!modal || !listHost) return;
+      const dateLabel = new Date(year, monthIndex, dayDom).toLocaleDateString("es-CO", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      if (tit) tit.textContent = `Reuniones del día · ${dateLabel}`;
+      if (sub) sub.textContent = dateLabel;
+      renderLobbyCalendarDayDetailList(listHost, { year, monthIndex, dayDom, meetings });
+      modal.classList.remove("hidden");
     }
 
     function setRecurrenceDaysSelected(days = []) {
@@ -8305,13 +9200,60 @@
       return pk != null && String(pk).trim() !== "" ? String(pk).trim() : "";
     }
 
+    function getMeetingRoomId(meeting) {
+      if (!meeting || typeof meeting !== "object") return "";
+      const rid = meeting.roomId ?? meeting.room_id;
+      return rid != null && String(rid).trim() !== "" ? String(rid).trim() : "";
+    }
+
+    /** Sala efectiva para entrar (normaliza snake_case y hereda room del padre en excepciones huérfanas). */
+    function resolveRoomIdForEntry(meeting) {
+      let rid = getMeetingRoomId(meeting);
+      if (rid) return rid;
+      if (meeting?.esExcepcion === true) {
+        const pid = meeting.parentReunionId ?? meeting.parent_reunion_id;
+        if (pid != null && String(pid).trim() !== "") {
+          const parent = (homeMeetings || []).find((x) => getReunionPk(x) === String(pid).trim());
+          if (parent) rid = getMeetingRoomId(parent);
+        }
+      }
+      return rid;
+    }
+
     function getScheduleModalCard() {
       return document.querySelector("#scheduleModal .profile-modal__card");
     }
 
-    function openScheduleModal(meeting = null) {
+    /** ID de la serie maestra (padre no excepción) para rutas que exigen el padre en la URL. */
+    function getSeriesMasterReunionPk(meeting) {
+      if (!meeting || typeof meeting !== "object") return "";
+      if (meeting.esExcepcion === true) {
+        const p = meeting.parentReunionId ?? meeting.parent_reunion_id;
+        return p != null && String(p).trim() !== "" ? String(p).trim() : "";
+      }
+      return getReunionPk(meeting);
+    }
+
+    /** Resuelve el PK del padre serie para POST /excepcion-ocurrencia si el cliente envió ID de excepción por error. */
+    function resolveSeriesMasterPkForExcepcionPost() {
+      const ctxPid =
+        scheduleExceptionContext?.parentReunionId != null
+          ? String(scheduleExceptionContext.parentReunionId).trim()
+          : "";
+      if (ctxPid) return ctxPid;
+      const sid = scheduleEditingReunionId != null ? String(scheduleEditingReunionId).trim() : "";
+      const row = sid ? (homeMeetings || []).find((r) => getReunionPk(r) === sid) : null;
+      if (row?.esExcepcion === true) {
+        const p = row.parentReunionId ?? row.parent_reunion_id;
+        if (p != null && String(p).trim() !== "") return String(p).trim();
+      }
+      return sid;
+    }
+
+    function openScheduleModal(meeting = null, exceptionCtx = null) {
       const modal = $("scheduleModal");
       const modalTitle = $("scheduleModalTitle");
+      const modalHint = $("scheduleModalHint");
       const saveBtn = $("btnScheduleModalSave");
       const err = $("scheduleModalError");
       const title = $("scheduleTitleInput");
@@ -8326,14 +9268,76 @@
       const recInterval = $("scheduleRecurrenceInterval");
       if (!modal || !title || !start || !duration || !tz || !err || !linkInput || !recMode || !recEndMode || !recUntil || !recCustomBase || !recInterval) return;
       err.textContent = "";
+      scheduleExceptionContext = null;
       scheduleEditingReunionId = meeting ? getReunionPk(meeting) || null : null;
+      if (
+        meeting &&
+        meeting.esExcepcion !== true &&
+        exceptionCtx &&
+        exceptionCtx.occurrenceDayKey &&
+        parseMeetingRecurrence(meeting.recurrencia)
+      ) {
+        scheduleExceptionContext = {
+          occurrenceDayKey: String(exceptionCtx.occurrenceDayKey).trim(),
+          parentReunionId: getSeriesMasterReunionPk(meeting),
+        };
+      }
+      const hideRecurrence =
+        !!scheduleExceptionContext || !!(meeting && meeting.esExcepcion === true);
+      const recBlock = $("scheduleRecurrenceBlock");
+      if (recBlock) recBlock.classList.toggle("hidden", hideRecurrence);
       if (!meeting) scheduleModalScrollTop = 0;
-      if (modalTitle) modalTitle.textContent = meeting ? "Editar reunión" : "Agendar reunión";
+      if (modalTitle) {
+        if (!meeting) modalTitle.textContent = "Agendar reunión";
+        else if (scheduleExceptionContext) modalTitle.textContent = "Editar reunión (solo esta fecha)";
+        else if (meeting.esExcepcion === true) modalTitle.textContent = "Editar esta clase (excepción)";
+        else modalTitle.textContent = "Editar reunión";
+      }
+      if (modalHint) {
+        if (meeting && scheduleExceptionContext) {
+          modalHint.textContent =
+            "Los cambios aplican solo a esta fecha; la serie maestra no se modifica.";
+        } else if (meeting && meeting.esExcepcion === true) {
+          modalHint.textContent =
+            "Cambia fecha u hora de esta clase; la serie maestra no se modifica.";
+        } else {
+          modalHint.textContent =
+            "Configura título, fecha y duración. Se guardará en tu calendario.";
+        }
+      }
       if (saveBtn) saveBtn.textContent = meeting ? "Guardar cambios" : "Guardar agenda";
       if (meeting) {
         title.value = meeting.titulo || "";
-        const startDate = meeting.fechaHora ? new Date(meeting.fechaHora) : null;
-        const endDate = meeting.fechaHoraFin ? new Date(meeting.fechaHoraFin) : null;
+        let startDate = meeting.fechaHora ? new Date(meeting.fechaHora) : null;
+        let endDate = meeting.fechaHoraFin ? new Date(meeting.fechaHoraFin) : null;
+        if (
+          scheduleExceptionContext &&
+          parseMeetingRecurrence(meeting.recurrencia) &&
+          meeting.esExcepcion !== true
+        ) {
+          const dk = String(scheduleExceptionContext.occurrenceDayKey || "").trim();
+          const mkt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dk);
+          if (mkt) {
+            const y = Number(mkt[1]);
+            const mo = Number(mkt[2]) - 1;
+            const dom = Number(mkt[3]);
+            const instOcc = getMeetingOccurrenceInstantOnCalendarDay(meeting, y, mo, dom);
+            if (instOcc && !Number.isNaN(instOcc.getTime())) {
+              startDate = instOcc;
+              const rawS = meeting.fechaHora ? new Date(meeting.fechaHora) : null;
+              const rawE = meeting.fechaHoraFin ? new Date(meeting.fechaHoraFin) : null;
+              const durMs =
+                rawS &&
+                rawE &&
+                Number.isFinite(rawS.getTime()) &&
+                Number.isFinite(rawE.getTime()) &&
+                rawE > rawS
+                  ? rawE.getTime() - rawS.getTime()
+                  : 60 * 60 * 1000;
+              endDate = new Date(instOcc.getTime() + durMs);
+            }
+          }
+        }
         start.value = startDate ? toLocalDateTimeInputValue(startDate) : "";
         const durMinutes =
           startDate && endDate && Number.isFinite(endDate.getTime()) && Number.isFinite(startDate.getTime())
@@ -8382,10 +9386,16 @@
       if (card) scheduleModalScrollTop = card.scrollTop;
       $("scheduleModal")?.classList.add("hidden");
       scheduleEditingReunionId = null;
+      scheduleExceptionContext = null;
+      const recBlock = $("scheduleRecurrenceBlock");
+      if (recBlock) recBlock.classList.remove("hidden");
       const title = $("scheduleModalTitle");
       const saveBtn = $("btnScheduleModalSave");
+      const modalHint = $("scheduleModalHint");
       if (title) title.textContent = "Agendar reunión";
       if (saveBtn) saveBtn.textContent = "Guardar agenda";
+      if (modalHint)
+        modalHint.textContent = "Configura título, fecha y duración. Se guardará en tu calendario.";
     }
 
     async function copyTextToClipboard(text) {
@@ -8433,12 +9443,21 @@
     function renderScheduledMeetings() {
       const host = $("scheduledList");
       if (!host) return;
+      const canEditAgenda = canEditAgendaRole(currentUser?.rol);
       const now = Date.now();
-      const upcoming = (homeMeetings || [])
-        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
-        .map((r) => {
-          const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
-          return { ...r, _next: next, _ts: next?.getTime?.() || NaN };
+      const fromDate = new Date(now - 10 * 60_000);
+      const groups = buildQuickActionSeriesGroups(homeMeetings);
+      const upcoming = groups
+        .map((g) => {
+          const next = getQuickActionGroupNextOccurrence(g, fromDate);
+          const rep = g.representative;
+          const selectionPk = getQuickActionCalendarSelectionPk(g);
+          return {
+            ...rep,
+            _next: next,
+            _ts: next?.getTime?.() ?? NaN,
+            _quickActionSelectionPk: selectionPk,
+          };
         })
         .filter((r) => Number.isFinite(r._ts))
         .sort((a, b) => a._ts - b._ts)
@@ -8454,6 +9473,10 @@
       upcoming.forEach((r) => {
         const item = document.createElement("div");
         item.className = "scheduled-item";
+        const selPk = r._quickActionSelectionPk || getReunionPk(r);
+        if (selPk && homeLobbySelectedReunionPk && selPk === homeLobbySelectedReunionPk) {
+          item.classList.add("scheduled-item--selected");
+        }
         const main = document.createElement("div");
         main.className = "scheduled-item__main";
         const title = document.createElement("div");
@@ -8462,54 +9485,79 @@
         const meta = document.createElement("div");
         meta.className = "scheduled-item__meta";
         const when = r._next.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-        meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
+        const roomDisp = resolveRoomIdForEntry(r) || "—";
+        meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${roomDisp}`;
         main.appendChild(title);
         main.appendChild(meta);
+        main.addEventListener("click", () => {
+          const pk = r._quickActionSelectionPk || getReunionPk(r);
+          homeLobbySelectedReunionPk = pk && homeLobbySelectedReunionPk === pk ? null : pk || null;
+          renderHomeCalendar();
+          renderScheduledMeetings();
+        });
         const actions = document.createElement("div");
         actions.className = "scheduled-item__actions";
         const btnEnter = document.createElement("button");
         btnEnter.type = "button";
         btnEnter.className = "btn-primary";
         btnEnter.textContent = "Entrar";
-        btnEnter.addEventListener("click", () => {
-          void enterRoom(r.roomId).catch(() => {});
+        btnEnter.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const rid = resolveRoomIdForEntry(r);
+          if (!rid) {
+            log("No hay sala (roomId) asociada a esta reunión.");
+            return;
+          }
+          void enterRoom(rid).catch(() => {});
         });
         actions.appendChild(btnEnter);
-        const btnEdit = document.createElement("button");
-        btnEdit.type = "button";
-        btnEdit.className = "btn-ghost";
-        btnEdit.textContent = "Editar";
-        btnEdit.addEventListener("click", () => openScheduleModal(r));
-        actions.appendChild(btnEdit);
+        if (canEditAgenda) {
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn-ghost";
+          btnEdit.textContent = "Editar";
+          btnEdit.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openScheduleModal(r);
+          });
+          actions.appendChild(btnEdit);
+        }
         const btnCupo = document.createElement("button");
         btnCupo.type = "button";
         btnCupo.className = "btn-ghost";
         btnCupo.textContent = "Cupo";
-        btnCupo.addEventListener("click", () => {
-          void showCupoByRoomId(r.roomId);
+        btnCupo.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const rid = resolveRoomIdForEntry(r);
+          if (rid) void showCupoByRoomId(rid);
         });
         actions.appendChild(btnCupo);
-        const btnDelete = document.createElement("button");
-        btnDelete.type = "button";
-        btnDelete.className = "btn-ghost";
-        btnDelete.textContent = "Eliminar";
-        btnDelete.addEventListener("click", async () => {
-          if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
-          try {
-            await api("/api/reuniones/" + encodeURIComponent(r.reunionId), { method: "DELETE" });
-            $("crearResult").textContent = "Reunión eliminada.";
-            void loadHomeMeetings();
-          } catch (e) {
-            log("Eliminar reunión: " + e.message);
-          }
-        });
-        actions.appendChild(btnDelete);
+        if (canEditAgenda) {
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn-ghost";
+          btnDelete.textContent = "Eliminar";
+          btnDelete.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
+            try {
+              await api("/api/reuniones/" + encodeURIComponent(getReunionPk(r)), { method: "DELETE" });
+              $("crearResult").textContent = "Reunión eliminada.";
+              void loadHomeMeetings();
+            } catch (e) {
+              log("Eliminar reunión: " + e.message);
+            }
+          });
+          actions.appendChild(btnDelete);
+        }
         const btnLink = document.createElement("button");
         btnLink.type = "button";
         btnLink.className = "btn-ghost";
         btnLink.textContent = "Copiar link";
-        btnLink.addEventListener("click", async () => {
-          const ok = await copyTextToClipboard(buildMeetingJoinLink(r.roomId));
+        btnLink.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const rid = resolveRoomIdForEntry(r);
+          const ok = rid ? await copyTextToClipboard(buildMeetingJoinLink(rid)) : false;
           $("crearResult").textContent = ok ? "Link copiado al portapapeles." : "No se pudo copiar el link.";
         });
         actions.appendChild(btnLink);
@@ -8521,7 +9569,7 @@
 
     function updateLobbyRoleUi() {
       const role = currentUser?.rol || "";
-      const isTeacher = isTeacherRole(role);
+      const canSchedule = canEditAgendaRole(role);
       const createBtn = $("btnCrearReunion");
       const roleBadge = $("homeRoleBadge");
       const hint = $("scheduleHint");
@@ -8529,69 +9577,225 @@
       const homeName = $("homeUserName");
       if (homeName) homeName.textContent = getCurrentDisplayName() || "usuario";
       if (roleBadge) roleBadge.textContent = getUserRoleLabel(role);
-      if (roleHint) roleHint.textContent = isTeacher ? "Modo profesor (agenda editable)" : "Modo estudiante (solo lectura)";
+      if (roleHint)
+        roleHint.textContent = canSchedule
+          ? "Modo profesor (agenda editable)"
+          : "Modo estudiante (solo lectura)";
       if (createBtn) {
-        createBtn.classList.toggle("hidden", !isTeacher);
-        createBtn.disabled = !isTeacher;
+        createBtn.classList.toggle("hidden", !canSchedule);
+        createBtn.disabled = !canSchedule;
       }
-      if (hint) hint.classList.toggle("hidden", isTeacher);
+      if (hint) hint.classList.toggle("hidden", canSchedule);
     }
 
     function renderHomeCalendar(baseDate = new Date()) {
-      const grid = $("homeCalendarGrid");
+      const host = $("homeCalendarMonths");
       const monthLabel = $("homeCalendarMonth");
-      if (!grid || !monthLabel) return;
-      const year = baseDate.getFullYear();
-      const month = baseDate.getMonth();
-      const firstDay = new Date(year, month, 1);
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const offset = (firstDay.getDay() + 6) % 7;
-      monthLabel.textContent = firstDay.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
-      grid.innerHTML = "";
-      const today = new Date();
-      const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
-      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
-      const eventDays = new Set();
-      (homeMeetings || [])
-        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
-        .forEach((r) => {
-          const dates = getMeetingOccurrencesInRange(r, monthStart, monthEnd);
-          dates.forEach((d) => {
-            if (d.getMonth() === month && d.getFullYear() === year) eventDays.add(d.getDate());
+      if (!host || !monthLabel) return;
+      console.log("[UI] Renderizando calendario con marcas de tiempo para impresión.");
+
+      const y0 = baseDate.getFullYear();
+      const m0 = baseDate.getMonth();
+      const y1 = m0 === 11 ? y0 + 1 : y0;
+      const m1 = m0 === 11 ? 0 : m0 + 1;
+
+      const rangeStart = new Date(y0, m0, 1, 0, 0, 0, 0);
+      const rangeEnd = new Date(y1, m1 + 1, 0, 23, 59, 59, 999);
+      const meetingsList = homeMeetings || [];
+      const dayMap = buildLobbyCalendarDayMap(rangeStart, rangeEnd, meetingsList);
+      const pkSel = homeLobbySelectedReunionPk != null ? String(homeLobbySelectedReunionPk) : null;
+      const seriesFocus = Boolean(pkSel);
+      let dayMapForRender = dayMap;
+      if (pkSel) {
+        dayMapForRender = new Map();
+        for (const [k, arr] of dayMap) {
+          const filtered = arr.filter((r) => getSeriesMasterKey(r) === pkSel);
+          if (filtered.length) dayMapForRender.set(k, filtered);
+        }
+      }
+      $("homeCalendarPrintArea")?.classList.toggle("home-calendar-print-area--series-focus", seriesFocus);
+
+      const label0raw = new Date(y0, m0, 1).toLocaleDateString("es-CO", { month: "long" });
+      const label1raw = new Date(y1, m1, 1).toLocaleDateString("es-CO", { month: "long" });
+      const cap0 = label0raw.charAt(0).toUpperCase() + label0raw.slice(1);
+      const cap1 = label1raw.charAt(0).toUpperCase() + label1raw.slice(1);
+      console.log(`Generando vista multimes: ${cap0}–${cap1}`);
+      monthLabel.textContent = y0 === y1 ? `${cap0} – ${cap1} ${y0}` : `${cap0} ${y0} – ${cap1} ${y1}`;
+
+      const agendaEditable = canEditAgendaRole(currentUser?.rol);
+
+      const selectedSeriesKeys = new Set();
+      if (pkSel) {
+        const sel = meetingsList.find((r) => getReunionPk(r) === pkSel);
+        if (sel && !sel.esExcepcion) {
+          const sdates = getMeetingOccurrencesInRange(sel, rangeStart, rangeEnd);
+          sdates.forEach((d) => {
+            selectedSeriesKeys.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
           });
+        }
+        for (const r of meetingsList) {
+          if (r.esExcepcion !== true) continue;
+          const p = r.parentReunionId ?? r.parent_reunion_id;
+          if (p == null || String(p) !== pkSel) continue;
+          const fh = r.fechaHora ? new Date(r.fechaHora) : null;
+          if (!fh || Number.isNaN(fh.getTime())) continue;
+          if (fh < rangeStart || fh > rangeEnd) continue;
+          selectedSeriesKeys.add(`${fh.getFullYear()}-${fh.getMonth()}-${fh.getDate()}`);
+        }
+      }
+
+      host.innerHTML = "";
+
+      function dayMapKey(y, mo, dom) {
+        return `${y}-${mo}-${dom}`;
+      }
+
+      function renderLobbyCalendarDayDots(container, list, year, month, dayDom) {
+        const n = list && list.length ? list.length : 0;
+        const pad = (x) => String(x).padStart(2, "0");
+        const dateStr = `${year}-${pad(month + 1)}-${pad(dayDom)}`;
+        console.log(`[UI] Renderizando ${n} puntos para el día ${dateStr}`);
+        for (let i = 0; i < n; i++) {
+          const dot = document.createElement("span");
+          dot.className = "calendar-day__dot";
+          dot.setAttribute("aria-hidden", "true");
+          container.appendChild(dot);
+        }
+      }
+
+      function attachMonthPanel(year, month) {
+        const panel = document.createElement("div");
+        panel.className = "home-calendar-month-panel";
+        const pTitle = document.createElement("div");
+        pTitle.className = "home-calendar-month-panel__title";
+        pTitle.textContent = new Date(year, month, 1).toLocaleDateString("es-CO", {
+          month: "long",
+          year: "numeric",
         });
-      for (let i = 0; i < offset; i++) {
-        const cell = document.createElement("div");
-        cell.className = "calendar-day calendar-day--empty";
-        grid.appendChild(cell);
+        panel.appendChild(pTitle);
+
+        const weekRow = document.createElement("div");
+        weekRow.className = "calendar-grid calendar-grid--week";
+        ["Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"].forEach((t) => {
+          const s = document.createElement("span");
+          s.textContent = t;
+          weekRow.appendChild(s);
+        });
+        panel.appendChild(weekRow);
+
+        const grid = document.createElement("div");
+        grid.className = "calendar-grid";
+
+        const firstDay = new Date(year, month, 1);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const offset = (firstDay.getDay() + 6) % 7;
+        const today = new Date();
+
+        /** @type {Map<number, object[]>} */
+        const dayToMeetings = new Map();
+        for (let dom = 1; dom <= daysInMonth; dom++) {
+          const arr = dayMapForRender.get(dayMapKey(year, month, dom)) || [];
+          if (arr.length) dayToMeetings.set(dom, arr);
+        }
+
+        const eventDays = new Set(dayToMeetings.keys());
+
+        for (let i = 0; i < offset; i++) {
+          const cell = document.createElement("div");
+          cell.className = "calendar-day calendar-day--empty";
+          grid.appendChild(cell);
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const cell = document.createElement("div");
+          const isToday =
+            day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+          const hasEvent = eventDays.has(day);
+          const inSelectedSeries = seriesFocus ? hasEvent : selectedSeriesKeys.has(dayMapKey(year, month, day));
+          cell.className = "calendar-day";
+          if (isToday) cell.classList.add("calendar-day--today");
+          if (hasEvent) cell.classList.add("calendar-day--event");
+          if (inSelectedSeries) cell.classList.add("calendar-day--selected-series");
+
+          const stack = document.createElement("div");
+          stack.className = "calendar-day__stack";
+          const num = document.createElement("span");
+          num.className = "calendar-day__num";
+          num.textContent = String(day);
+          stack.appendChild(num);
+          if (hasEvent) {
+            const list = dayToMeetings.get(day) || [];
+            if (seriesFocus) {
+              const timeParts = [];
+              for (const rm of list) {
+                const inst = lobbyCalendarSessionInstant(rm, year, month, day);
+                if (!inst || Number.isNaN(inst.getTime())) continue;
+                timeParts.push(
+                  inst.toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" })
+                );
+              }
+              const uniq = [...new Set(timeParts)];
+              if (uniq.length) {
+                const timeEl = document.createElement("span");
+                timeEl.className = "calendar-day__time";
+                timeEl.textContent = uniq.join(", ");
+                stack.appendChild(timeEl);
+              }
+            } else {
+              const dotsWrap = document.createElement("div");
+              dotsWrap.className = "calendar-day__dots";
+              renderLobbyCalendarDayDots(dotsWrap, list, year, month, day);
+              stack.appendChild(dotsWrap);
+            }
+          }
+          cell.appendChild(stack);
+          if (hasEvent && !seriesFocus) {
+            const listForModal = dayToMeetings.get(day) || [];
+            const btnVer = document.createElement("button");
+            btnVer.type = "button";
+            btnVer.className = "calendar-day__ver-btn";
+            btnVer.textContent = "Ver";
+            btnVer.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              ev.preventDefault();
+              openLobbyCalendarDayDetailModal(year, month, day, listForModal);
+            });
+            cell.appendChild(btnVer);
+          }
+
+          if (hasEvent) {
+            if (!agendaEditable) cell.classList.add("calendar-day--student-view");
+          }
+
+          grid.appendChild(cell);
+        }
+
+        panel.appendChild(grid);
+        host.appendChild(panel);
       }
-      for (let day = 1; day <= daysInMonth; day++) {
-        const cell = document.createElement("div");
-        const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-        const hasEvent = eventDays.has(day);
-        cell.className = "calendar-day";
-        if (isToday) cell.classList.add("calendar-day--today");
-        if (hasEvent) cell.classList.add("calendar-day--event");
-        cell.textContent = String(day);
-        grid.appendChild(cell);
-      }
+
+      attachMonthPanel(y0, m0);
+      attachMonthPanel(y1, m1);
     }
 
     async function loadHomeMeetings() {
       homeMeetings = [];
+      homeLobbySelectedReunionPk = null;
       if (!getToken()) {
         renderHomeCalendar();
+        renderScheduledMeetings();
         return;
       }
       try {
         const data = await api("/api/reuniones/mis");
-        homeMeetings = Array.isArray(data?.reuniones) ? data.reuniones : [];
+        const raw = Array.isArray(data?.reuniones) ? data.reuniones : [];
+        homeMeetings = raw.map((row) => normalizeReunionFromApi(row)).filter(Boolean);
       } catch (_) {
         homeMeetings = [];
       } finally {
         const roleHint = $("homeCalendarRoleHint");
         if (roleHint) {
-          const count = homeMeetings.filter((r) => r?.fechaHora).length;
+          const count = homeMeetings.filter((r) => r?.fechaHora ?? r?.fecha_hora).length;
           roleHint.textContent = `${getUserRoleLabel(currentUser?.rol)} · ${count} evento(s) con fecha`;
         }
         renderHomeCalendar();
@@ -11951,7 +13155,7 @@
     });
 
     $("btnCrearReunion").addEventListener("click", async () => {
-      if (!isTeacherRole(currentUser?.rol)) {
+      if (!canEditAgendaRole(currentUser?.rol)) {
         log("Solo los profesores pueden agendar reuniones.");
         const r = $("crearResult");
         if (r) r.textContent = "No autorizado: solo profesores.";
@@ -11960,8 +13164,20 @@
       openScheduleModal();
     });
 
+    $("btnImprimirAgendamiento")?.addEventListener("click", () => {
+      void exportHomeCalendarToPdf();
+    });
+    $("btnCalendarAgendaUndo")?.addEventListener("click", () => {
+      void calendarAgendaUndoLast();
+    });
+    $("btnCalendarAgendaRedo")?.addEventListener("click", () => {
+      void calendarAgendaRedoLast();
+    });
+
     $("btnScheduleModalCancel")?.addEventListener("click", () => closeScheduleModal());
     $("scheduleModalBackdrop")?.addEventListener("click", () => closeScheduleModal());
+    $("calendarDayDetailBackdrop")?.addEventListener("click", () => closeLobbyCalendarDayDetailModal());
+    $("btnCalendarDayDetailClose")?.addEventListener("click", () => closeLobbyCalendarDayDetailModal());
     $("btnScheduleCopyLink")?.addEventListener("click", async () => {
       const input = $("scheduleShareLinkInput");
       const ok = await copyTextToClipboard(input?.value || "");
@@ -11988,6 +13204,12 @@
       const tz = $("scheduleTimezoneInput");
       const linkInput = $("scheduleShareLinkInput");
       const err = $("scheduleModalError");
+      if (!canEditAgendaRole(currentUser?.rol)) {
+        if (err)
+          err.textContent =
+            "Solo profesores y administradores pueden guardar cambios en la agenda.";
+        return;
+      }
       const rawTitle = String(title?.value || "").trim();
       const rawStart = String(start?.value || "").trim();
       const dur = Number(duration?.value);
@@ -12013,59 +13235,157 @@
         return;
       }
       const endDate = new Date(startDate.getTime() + dur * 60_000);
-      const recurrence = collectRecurrenceFromModal(startDate);
+      const isEditing = !!scheduleEditingReunionId;
+      const editingRow =
+        isEditing && (homeMeetings || []).find((r) => getReunionPk(r) === scheduleEditingReunionId);
+      const isExceptionRow = editingRow?.esExcepcion === true;
+      let exceptionPatchUndoSnapshot = null;
+      if (isExceptionRow && editingRow) {
+        exceptionPatchUndoSnapshot = {
+          titulo: editingRow.titulo,
+          fechaHora: editingRow.fechaHora,
+          fechaHoraFin: editingRow.fechaHoraFin,
+          zonaHoraria: editingRow.zonaHoraria || "",
+        };
+      }
+      const recurrence =
+        scheduleExceptionContext || isExceptionRow ? null : collectRecurrenceFromModal(startDate);
       const endMode = String($("scheduleRecurrenceEndMode")?.value || "never").toLowerCase();
       const recUntil = String($("scheduleRecurrenceUntil")?.value || "").trim();
-      if (recurrence && endMode === "until" && !recUntil) {
-        if (err) err.textContent = "Debes seleccionar una fecha para el fin de la secuencia.";
-        $("scheduleRecurrenceUntil")?.focus({ preventScroll: true });
-        return;
-      }
-      if (recurrence && endMode === "until" && recUntil) {
-        const untilDate = new Date(`${recUntil}T23:59:59`);
-        if (Number.isNaN(untilDate.getTime()) || untilDate < startDate) {
-          if (err) err.textContent = "La fecha de fin debe ser igual o posterior al inicio.";
+      if (!scheduleExceptionContext && !isExceptionRow) {
+        if (recurrence && endMode === "until" && !recUntil) {
+          if (err) err.textContent = "Debes seleccionar una fecha para el fin de la secuencia.";
           $("scheduleRecurrenceUntil")?.focus({ preventScroll: true });
           return;
+        }
+        if (recurrence && endMode === "until" && recUntil) {
+          const untilDate = new Date(`${recUntil}T23:59:59`);
+          if (Number.isNaN(untilDate.getTime()) || untilDate < startDate) {
+            if (err) err.textContent = "La fecha de fin debe ser igual o posterior al inicio.";
+            $("scheduleRecurrenceUntil")?.focus({ preventScroll: true });
+            return;
+          }
         }
       }
       if (err) err.textContent = "";
       try {
-        const isEditing = !!scheduleEditingReunionId;
-        const endpoint = isEditing
-          ? "/api/reuniones/" + encodeURIComponent(scheduleEditingReunionId)
-          : "/api/reuniones";
-        const data = await api(endpoint, {
-          method: isEditing ? "PATCH" : "POST",
-          body: JSON.stringify({
+        let data;
+        let capturedExceptionParentPk = null;
+        let capturedExceptionBody = null;
+        if (scheduleExceptionContext && scheduleEditingReunionId && !isExceptionRow) {
+          const parentSeriesPk = resolveSeriesMasterPkForExcepcionPost();
+          capturedExceptionParentPk = parentSeriesPk;
+          capturedExceptionBody = {
             titulo: rawTitle,
             fechaHora: startDate.toISOString(),
             fechaHoraFin: endDate.toISOString(),
             zonaHoraria: zone,
-            recurrencia: recurrence,
-          }),
-        });
+            occurrenceDayKey: scheduleExceptionContext.occurrenceDayKey,
+          };
+          console.log(`Detectada edición de instancia individual para la serie ${parentSeriesPk}`);
+          data = await api(
+            "/api/reuniones/" + encodeURIComponent(parentSeriesPk) + "/excepcion-ocurrencia",
+            {
+              method: "POST",
+              body: JSON.stringify(capturedExceptionBody),
+            }
+          );
+        } else {
+          const endpoint = isEditing
+            ? "/api/reuniones/" + encodeURIComponent(scheduleEditingReunionId)
+            : "/api/reuniones";
+          const body = {
+            titulo: rawTitle,
+            fechaHora: startDate.toISOString(),
+            fechaHoraFin: endDate.toISOString(),
+            zonaHoraria: zone,
+          };
+          if (!isExceptionRow) body.recurrencia = recurrence;
+          data = await api(endpoint, {
+            method: isEditing ? "PATCH" : "POST",
+            body: JSON.stringify(body),
+          });
+        }
         const reunionRow = data?.reunion;
         const rid = reunionRow?.roomId ?? reunionRow?.room_id ?? "";
         const pk = getReunionPk(reunionRow);
         if (pk) scheduleEditingReunionId = pk;
         const shareUrl = buildMeetingJoinLink(rid);
         if (linkInput) linkInput.value = shareUrl;
-        $("crearResult").textContent = isEditing
-          ? `Reunión actualizada. Enlace: ${shareUrl}`
-          : `Reunión agendada. Enlace: ${shareUrl}`;
-        log(isEditing ? "Reunión actualizada correctamente." : "Reunión agendada correctamente.");
+        const didException = !!(scheduleExceptionContext && !isExceptionRow);
+        $("crearResult").textContent =
+          didException || isEditing
+            ? `Reunión actualizada. Enlace: ${shareUrl}`
+            : `Reunión agendada. Enlace: ${shareUrl}`;
+        log(
+          didException
+            ? "Excepción de serie guardada."
+            : isExceptionRow && isEditing
+              ? "Excepción actualizada correctamente."
+              : isEditing
+                ? "Reunión actualizada correctamente."
+                : "Reunión agendada correctamente."
+        );
+        if (didException && pk && capturedExceptionParentPk && capturedExceptionBody) {
+          clearCalendarAgendaRedoStack();
+          calendarAgendaUndoStack.push({
+            type: "exceptionCreated",
+            reunionId: pk,
+            redoPayload: {
+              parentPk: capturedExceptionParentPk,
+              body: { ...capturedExceptionBody },
+            },
+          });
+          updateCalendarUndoRedoButtons();
+        } else if (isExceptionRow && isEditing && exceptionPatchUndoSnapshot && pk) {
+          clearCalendarAgendaRedoStack();
+          calendarAgendaUndoStack.push({
+            type: "exceptionPatched",
+            reunionId: pk,
+            snapshot: exceptionPatchUndoSnapshot,
+            forwardSnapshot: {
+              titulo: rawTitle,
+              fechaHora: startDate.toISOString(),
+              fechaHoraFin: endDate.toISOString(),
+              zonaHoraria: zone,
+            },
+          });
+          updateCalendarUndoRedoButtons();
+        }
         if (err) err.textContent = "";
         void loadHomeMeetings();
         closeScheduleModal();
       } catch (e) {
-        const msg =
+        const status = typeof e?.status === "number" ? e.status : null;
+        const apiErr = e?.data?.error;
+        const detail = e?.data?.detail;
+        let msg =
+          apiErr ||
           e?.message ||
-          e?.data?.error ||
-          (typeof e?.status === "number" ? `Error ${e.status}` : "") ||
+          (status != null ? `Error ${status}` : "") ||
           "No se pudo agendar la reunión.";
+        if (status === 403) {
+          msg =
+            apiErr ||
+            "No tienes permiso para crear o editar reuniones. Solo los profesores pueden agendar.";
+        }
+        if (status === 409) {
+          const d = e?.data || {};
+          const optionalPieces =
+            typeof d.conflictingTitulo === "string" && d.conflictingTitulo.trim()
+              ? `Conflicto de horario: Este espacio ya está ocupado por la clase "${d.conflictingTitulo.trim()}" que termina a las ${d.conflictingEnd || "—"}`
+              : "";
+          msg =
+            (typeof apiErr === "string" && apiErr.trim() ? apiErr : "") ||
+            optionalPieces ||
+            (typeof e?.message === "string" && e.message.trim() ? e.message : "") ||
+            msg;
+        }
+        if (status === 500 && detail) {
+          msg = `${msg} (${detail})`;
+        }
         if (err) err.textContent = msg;
-        log("Agendar reunión: " + msg);
+        log(status === 409 ? "Conflicto de agenda: " + msg : "Agendar reunión: " + msg);
       }
     });
 
@@ -13376,6 +14696,57 @@
       } catch (e) {
         console.error(e);
         log("Error exportando PDF: " + (e?.message || e));
+      }
+    }
+
+    async function exportHomeCalendarToPdf() {
+      try {
+        const { jsPDF } = window.jspdf || {};
+        const html2canvas = window.html2canvas;
+        if (!jsPDF || !html2canvas) {
+          log("No se pudo cargar jsPDF o html2canvas. Revisa tu conexión a internet.");
+          return;
+        }
+        const area = $("homeCalendarPrintArea");
+        if (!area) {
+          log("Calendario no disponible.");
+          return;
+        }
+        area.classList.add("home-calendar-print-area--capturing");
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        let canvas;
+        try {
+          canvas = await html2canvas(area, {
+            scale: 2,
+            backgroundColor: "#0f172a",
+            useCORS: true,
+            logging: false,
+          });
+        } finally {
+          area.classList.remove("home-calendar-print-area--capturing");
+        }
+        const imageData = canvas.toDataURL("image/png");
+        const orientation = canvas.width >= canvas.height ? "landscape" : "portrait";
+        const pdf = new jsPDF({ orientation, unit: "mm", format: "a4", compress: true });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const margin = 10;
+        const drawW = pageW - margin * 2;
+        const drawH = pageH - margin * 2 - 12;
+        const scale = Math.min(drawW / canvas.width, drawH / canvas.height);
+        const imgW = canvas.width * scale;
+        const imgH = canvas.height * scale;
+        const x = (pageW - imgW) / 2;
+        const y = margin + 10;
+        pdf.setFontSize(11);
+        pdf.text("Agendamiento", margin, margin + 4);
+        pdf.addImage(imageData, "PNG", x, y, imgW, imgH, undefined, "FAST");
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        pdf.save(`agendamiento-${stamp}.pdf`);
+        log("PDF del calendario exportado.");
+      } catch (e) {
+        console.error(e);
+        log("Error exportando calendario a PDF: " + (e?.message || e));
       }
     }
 

@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { Sequelize } = require('sequelize');
 const { Participa, Reunion, Mensaje, MensajeReaccion, Tablero, Usuario } = require('../models');
 const { adjuntoAbsoluteOrNull, MAX_BYTES } = require('../services/chatAdjuntos');
+const { findReunionByRoomKey } = require('../services/reunionByRoom');
 
 const boardSaveTimers = new Map();
 /** roomId (string) → true cuando el docente activó «la audiencia sigue mi vista» */
@@ -99,9 +100,7 @@ async function usuarioEnReunion(usuarioId, reunionId) {
 async function obtenerReunionPorRoom(roomId) {
   const key = normRoomId(roomId);
   if (!key) return null;
-  return Reunion.findOne({
-    where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), key),
-  });
+  return findReunionByRoomKey(key);
 }
 
 /** Compara UUID (JWT vs Sequelize pueden diferir en mayúsculas). */

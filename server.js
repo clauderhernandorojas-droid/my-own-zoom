@@ -10,6 +10,7 @@ const apiRoutes = require('./src/routes');
 const { sequelize } = require('./src/models');
 const { attachSocketIO } = require('./src/socket');
 const { ensureChatAdjRoot } = require('./src/services/chatAdjuntos');
+const { repairSqliteReunionGhostReferences } = require('./src/services/sqliteReunionSchemaRepair');
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -59,7 +60,11 @@ app.get('/', (_req, res) => {
 
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({ error: 'Error interno del servidor' });
+  const payload = { error: 'Error interno del servidor' };
+  if (process.env.NODE_ENV !== 'production' && err && typeof err.message === 'string' && err.message) {
+    payload.detail = err.message;
+  }
+  res.status(500).json(payload);
 });
 
 const server = http.createServer(app);
@@ -70,6 +75,52 @@ const io = new Server(server, {
 
 attachSocketIO(io);
 app.set('io', io);
+
+async function ensureReunionExceptionColumns() {
+  const qi = sequelize.getQueryInterface();
+  const tryAdd = async (col, def) => {
+    try {
+      await qi.addColumn('reuniones', col, def);
+    } catch (e) {
+      const m = String(e?.message || e?.parent?.message || '');
+      if (!/duplicate|already exists|Duplicate column/i.test(m)) {
+        console.warn('ensureReunionExceptionColumns:', col, m);
+      }
+    }
+  };
+  await tryAdd('parent_reunion_id', { type: DataTypes.UUID, allowNull: true });
+  await tryAdd('es_excepcion', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false });
+  await tryAdd('occurrence_day_key', { type: DataTypes.STRING(12), allowNull: true });
+
+  if (sequelize.getDialect() === 'sqlite') {
+    try {
+      const quoteIdx = (name) => `"${String(name).replace(/"/g, '""')}"`;
+      const [idxRows] = await sequelize.query(
+        `SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='reuniones'`
+      );
+      for (const row of idxRows || []) {
+        const sql = String(row.sql || '');
+        if (!/unique/i.test(sql) || !/room_id/i.test(sql)) continue;
+        const iname = String(row.name || '').replace(/"/g, '""');
+        await sequelize.query(`DROP INDEX IF EXISTS "${iname}"`);
+      }
+      const [idxList] = await sequelize.query(`PRAGMA index_list('reuniones')`);
+      for (const ix of idxList || []) {
+        if (!Number(ix.unique)) continue;
+        const nm = ix.name;
+        if (!nm) continue;
+        const [cols] = await sequelize.query(`PRAGMA index_info(${quoteIdx(nm)})`);
+        const hasRoom = (cols || []).some((c) => String(c.name || '').toLowerCase() === 'room_id');
+        if (hasRoom) {
+          await sequelize.query(`DROP INDEX IF EXISTS ${quoteIdx(nm)}`);
+          console.log('[migrate] Eliminado índice único en room_id:', nm);
+        }
+      }
+    } catch (e) {
+      console.warn('ensureReunionExceptionColumns: índice room_id', e?.message || e);
+    }
+  }
+}
 
 async function ensureMensajeAdjuntoColumns() {
   const qi = sequelize.getQueryInterface();
@@ -91,8 +142,22 @@ async function ensureMensajeAdjuntoColumns() {
 
 async function main() {
   ensureChatAdjRoot();
+  await repairSqliteReunionGhostReferences(sequelize);
+  await ensureReunionExceptionColumns();
   await sequelize.sync();
   await ensureMensajeAdjuntoColumns();
+
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(
+        `Puerto ${PORT} en uso. Cierra el otro proceso (PowerShell: netstat -ano | findstr :${PORT}) o usa otro puerto: $env:PORT=3001; npm start`
+      );
+      process.exit(1);
+      return;
+    }
+    throw err;
+  });
+
   server.listen(PORT, () => {
     console.log(`Servidor en http://localhost:${PORT}`);
     console.log(`API: http://localhost:${PORT}/api`);

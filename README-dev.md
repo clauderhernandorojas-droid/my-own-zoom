@@ -8,9 +8,10 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 
 ### Backend (`server.js`)
 
+- Tras `sequelize.sync()`, arranque **SQLite / excepciones de agenda**: `ensureReunionExceptionColumns()` añade si faltan `parent_reunion_id`, `es_excepcion`, `occurrence_day_key`; en SQLite elimina índices únicos conflictivos sobre `room_id` y ejecuta **`repairSqliteReunionGhostReferences()`** (`src/services/sqliteReunionSchemaRepair.js`) para limpiar referencias huérfanas tras migraciones manuales.
 - **Express** en el mismo proceso HTTP que **Socket.io** (mismo puerto; por defecto `3000`).
 - **CORS** abierto para desarrollo; **JSON** body parser.
-- Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`).
+- Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`). Resolución de reunión por sala: **`findReunionByRoomKey`** en `src/services/reunionByRoom.js` (uso en rutas de reunión, adjuntos de chat y socket).
 - **Health**: `GET /health`.
 - **WebRTC / ICE**: `GET /api/rtc/config` — STUN desde `STUN_URLS` o por defecto Google; TURN opcional vía `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
 - **Estáticos**: `public/`; la raíz sirve `public/index.html`.
@@ -55,7 +56,12 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Grabación de la reunión (docente)**: solo el **dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles; el servidor rechaza `recording:state` para otros. Un único botón **grabar vídeo** con `MediaRecorder` sobre canvas compuesto (1280×720 @ ~24 fps) + mezcla Web Audio. Se retiró la casilla “incluir tablero”; la composición prioriza **pantalla compartida** cuando está activa y usa cámaras como franja contextual (arriba o a la derecha según layout). **IndexedDB** y `recording:state` / `recording:notify`.
 - **Tablero**: cuadrícula punteada sutil y vista sin borde final visible (experiencia “infinita” práctica). El minimapa pasó a marco dinámico basado en contenido + viewport en lugar de límites fijos.
 - **Home/Lobby rediseñado**: estilo unificado negro/blanco/azul, acciones rápidas, calendario y lista de próximas reuniones. Se removió el flujo manual de `Room ID` y la entrada se hace por acciones directas por reunión (`Entrar`, `Editar`, `Cupo`, `Eliminar`, `Copiar link`).
+- **Calendario del lobby (serie seleccionada e impresión)**:
+  - Con una serie elegida en la lista (`homeLobbySelectedReunionPk`), el mapa de días se **filtra** por `getSeriesMasterKey`: solo se muestran ocurrencias y excepciones de esa reunión; el resto de celdas quedan vacías.
+  - En ese modo **foco**, la celda muestra la **hora** (`lobbyCalendarSessionInstant` + `toLocaleTimeString` `es-CO`) y **no** se pintan puntitos ni el botón «Ver»; sin selección se mantiene la vista global docente (puntitos + «Ver» + modal del día).
+  - `#homeCalendarPrintArea` usa la clase `home-calendar-print-area--series-focus` cuando aplica; en `@media print` se ocultan acciones del encabezado del calendario, «Ver» y puntitos; las celdas `calendar-day--selected-series` usan fondo gris claro y texto oscuro con `print-color-adjust: exact` para PDF legible.
 - **Agendamiento en modal**: creación y edición con título, inicio, duración, zona horaria, link compartible y copia al portapapeles. Modal con scroll interno + acciones sticky para mantener botones visibles en pantallas pequeñas.
+- **Solapamiento de agenda (docente)**: el servidor valida intervalos `[fechaHora, fechaHoraFin]` frente al resto de reuniones no finalizadas del mismo docente (`src/services/reunionHorarioSolapamiento.js`): una query carga la agenda, se construyen intervalos ocupados (padres, expansión RRULE alineada al cliente, excepciones; se omiten `omitInstance` y la reunión bajo edición vía `excludeReunionId`). **`POST /api/reuniones`** y **`PATCH`** del padre (no excepción) llaman a la validación de serie; conflicto → **409** con mensaje en español (título y hora de fin del bloqueo). El modal de agenda muestra el `error` del API en **409**. Excepciones de ocurrencia ya validaban con `validateNoOverlapForDocente`.
 - **Recurrencia en UI**: `No repetir`, `Diario`, `Semanal`, `Mensual`, `Personalizado` (base diaria/semanal/mensual, intervalo y selección de días con chips). Fin de secuencia con modo `Nunca` o `Hasta fecha`, resumen legible de la regla y validación visual/funcional cuando la fecha fin queda antes del inicio.
 - **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
 - **Auth (login/registro) — UX actualizada**:
@@ -124,14 +130,17 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
-| Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) en modelo | `src/models/reunion.js` |
+| **Sin solape de horarios** del docente al crear/editar reunión o serie; mensaje 409 descriptivo | `src/services/reunionHorarioSolapamiento.js`, `POST`/`PATCH` en `src/routes/reuniones.js`, UI en `public/index.html` |
+| Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) y **excepciones de serie** (`parentReunionId`, `esExcepcion`, `occurrenceDayKey`) | `src/models/reunion.js` |
+| Búsqueda de reunión por `room_id` (case-insensitive) centralizada | `src/services/reunionByRoom.js` |
+| Reparación opcional de integridad SQLite en `reuniones` tras cambios de esquema | `src/services/sqliteReunionSchemaRepair.js`, llamado desde `server.js` |
 
 ---
 
 ## 3. Próximas etapas visibles en el esquema / producto
 
 - **Chat**: pulir UX según feedback (flujo copiar/cortar, toasts, consistencia del borrado y reacciones en todos los clientes).
-- **Recurrencia avanzada de serie**: actualmente se guarda/lee regla y se proyectan ocurrencias en cliente para calendario/lista; falta expansión persistida de instancias, excepciones por ocurrencia y edición granular de serie.
+- **Recurrencia avanzada de serie**: regla en JSON, proyección en cliente y **excepciones/omisiones** por ocurrencia con filas `esExcepcion` y `occurrenceDayKey`; pendiente si se desea expansión persistida de cada instancia o edición más granular.
 - **Migraciones explícitas**: pasar de `sync()` a **sequelize-cli** (o similar) para entornos compartidos y despliegues.
 - **Mejoras opcionales**: endurecer reglas de cupo si entraran roles mixtos; export PDF también desde servidor; TURN en producción; tests automatizados.
 
@@ -179,4 +188,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — anotaciones en pantalla compartida (sync Socket + RAM), selección múltiple con bbox unión/redimensionado/arrastre y nudge con flechas; tablero con marco de unión y flechas sobre multiselección y trazos.*
+*Última actualización de este documento: mayo 2026 — validación de solapamiento de agenda docente (intervalos + RRULE) con 409 y mensaje rico; calendario del lobby con filtrado estricto por serie seleccionada, hora en celda y estilos de impresión; servicios `reunionByRoom`, `reunionHorarioSolapamiento`, `sqliteReunionSchemaRepair` y arranque de columnas de excepción en `server.js`.*
