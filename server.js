@@ -23,7 +23,11 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'my-own-zoom' });
+  const body = { ok: true, service: 'my-own-zoom' };
+  if (process.env.NODE_ENV !== 'production') {
+    body.copresenciaUmbralMs = require('./src/services/copresencia').getUmbralMs();
+  }
+  res.json(body);
 });
 
 app.get('/api/rtc/config', (_req, res) => {
@@ -51,6 +55,10 @@ app.get('/api/rtc/config', (_req, res) => {
 });
 
 app.use('/api', apiRoutes);
+
+app.get('/js/historialAcciones.js', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'src', 'services', 'historialAcciones.js'));
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (_req, res) => {
@@ -89,8 +97,108 @@ async function ensureMensajeAdjuntoColumns() {
   await tryAdd('adjunto_bytes', { type: DataTypes.INTEGER, allowNull: true });
 }
 
+function tableDescHasColumn(desc, colName) {
+  const n = String(colName).toLowerCase();
+  return Object.keys(desc || {}).some((k) => String(k).toLowerCase() === n);
+}
+
+/** SQLite: tablas creadas antes con otro esquema; `sync()` intenta índices sobre columnas que aún no existen. */
+async function ensureReunionInvitadosColumns() {
+  const qi = sequelize.getQueryInterface();
+  const tables = await qi.showAllTables();
+  const has = tables.some((t) => String(t).toLowerCase() === 'reunion_invitados');
+  if (!has) return;
+  const desc = await qi.describeTable('reunion_invitados');
+  const tryAdd = async (col, def) => {
+    if (tableDescHasColumn(desc, col)) return;
+    try {
+      await qi.addColumn('reunion_invitados', col, def);
+      desc[col] = {};
+    } catch (e) {
+      const m = String(e?.message || e?.parent?.message || '');
+      if (!/duplicate|already exists|Duplicate column/i.test(m)) {
+        console.warn('ensureReunionInvitadosColumns:', col, m);
+      }
+    }
+  };
+  await tryAdd('reunion_id', { type: DataTypes.UUID, allowNull: true });
+  await tryAdd('email', { type: DataTypes.STRING(320), allowNull: true });
+  await tryAdd('token_invitacion', { type: DataTypes.STRING(128), allowNull: true });
+  await tryAdd('invitado_por_usuario_id', { type: DataTypes.UUID, allowNull: true });
+  await tryAdd('estado', {
+    type: DataTypes.STRING(32),
+    allowNull: true,
+    defaultValue: 'pendiente',
+  });
+  await tryAdd('creado_en', { type: DataTypes.DATE, allowNull: true });
+}
+
+async function ensureReunionSolicitudesAccesoColumns() {
+  const qi = sequelize.getQueryInterface();
+  const tables = await qi.showAllTables();
+  const has = tables.some((t) => String(t).toLowerCase() === 'reunion_solicitudes_acceso');
+  if (!has) return;
+  const desc = await qi.describeTable('reunion_solicitudes_acceso');
+  const tryAdd = async (col, def) => {
+    if (tableDescHasColumn(desc, col)) return;
+    try {
+      await qi.addColumn('reunion_solicitudes_acceso', col, def);
+      desc[col] = {};
+    } catch (e) {
+      const m = String(e?.message || e?.parent?.message || '');
+      if (!/duplicate|already exists|Duplicate column/i.test(m)) {
+        console.warn('ensureReunionSolicitudesAccesoColumns:', col, m);
+      }
+    }
+  };
+  await tryAdd('reunion_id', { type: DataTypes.UUID, allowNull: true });
+  await tryAdd('usuario_id', { type: DataTypes.UUID, allowNull: true });
+  await tryAdd('estado', {
+    type: DataTypes.STRING(32),
+    allowNull: true,
+    defaultValue: 'pendiente',
+  });
+  await tryAdd('respondido_por_usuario_id', { type: DataTypes.UUID, allowNull: true });
+  await tryAdd('creado_en', { type: DataTypes.DATE, allowNull: true });
+}
+
+/** Si quedó un esquema viejo de asistencias, eliminar para que `sync()` recree la tabla. */
+async function ensureReunionAsistenciasSchema() {
+  const qi = sequelize.getQueryInterface();
+  const tables = await qi.showAllTables();
+  const has = tables.some((t) => String(t).toLowerCase() === 'reunion_asistencias');
+  if (!has) return;
+  let desc;
+  try {
+    desc = await qi.describeTable('reunion_asistencias');
+  } catch {
+    return;
+  }
+  const needed = [
+    'reunion_asistencia_id',
+    'reunion_id',
+    'usuario_id',
+    'inicio_sesion',
+    'entrada_at',
+    'salida_at',
+    'presente',
+    'asistio',
+  ];
+  const ok = needed.every((c) => tableDescHasColumn(desc, c));
+  if (ok) return;
+  try {
+    await qi.dropTable('reunion_asistencias');
+    console.warn('ensureReunionAsistenciasSchema: esquema incompleto; tabla eliminada para recrearla en sync.');
+  } catch (e) {
+    console.warn('ensureReunionAsistenciasSchema:', e?.message || e);
+  }
+}
+
 async function main() {
   ensureChatAdjRoot();
+  await ensureReunionInvitadosColumns();
+  await ensureReunionSolicitudesAccesoColumns();
+  await ensureReunionAsistenciasSchema();
   await sequelize.sync();
   await ensureMensajeAdjuntoColumns();
   server.listen(PORT, () => {

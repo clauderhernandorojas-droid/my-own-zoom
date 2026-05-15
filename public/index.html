@@ -6,6 +6,7 @@
   <title>My Own Zoom — Cliente</title>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="/js/historialAcciones.js"></script>
   <style>
     :root {
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -1481,6 +1482,135 @@
       align-items: center;
       margin-bottom: 0.45rem;
     }
+    .calendar-head--range {
+      flex-wrap: wrap;
+    }
+    .calendar-head__nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .calendar-head__tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      flex: 1;
+      justify-content: center;
+    }
+    .btn-calendar-tool {
+      font-size: 0.78rem;
+      padding: 0.28rem 0.55rem;
+      min-height: 2rem;
+    }
+    .btn-calendar-tool:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .home-calendar-range-label {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      min-width: 8rem;
+      text-align: center;
+    }
+    .btn-calendar-nav {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: #93c5fd;
+      font-size: 1.25rem;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-calendar-nav:hover {
+      border-color: #60a5fa;
+      color: #e0f2fe;
+    }
+    .home-calendar-panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+    .home-calendar-month-wrap .calendar-month-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin: 0 0 0.35rem;
+    }
+    #scheduleModalDayOverview {
+      margin: 0 0 0.65rem;
+      padding: 0.45rem 0.5rem;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0b1220;
+    }
+    #scheduleModalDayOverview .schedule-day-roster__hint {
+      font-size: 0.76rem;
+      color: #94a3b8;
+      margin: 0 0 0.4rem;
+    }
+    #scheduleModalDayOverview .schedule-day-roster__btns {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .schedule-day-roster__row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+    .schedule-day-roster__row .schedule-day-roster__btn {
+      flex: 1 1 140px;
+      min-width: 0;
+    }
+    .schedule-day-roster__del {
+      flex: 0 0 auto;
+      font-size: 0.68rem;
+      padding: 0.22rem 0.45rem;
+      border-radius: 6px;
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      background: rgba(127, 29, 29, 0.25);
+      color: #fecaca;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .schedule-day-roster__del:hover {
+      background: rgba(185, 28, 28, 0.35);
+    }
+    .schedule-day-roster__btn {
+      font-size: 0.76rem;
+      padding: 0.25rem 0.45rem;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #e2e8f0;
+      cursor: pointer;
+      text-align: left;
+      max-width: 100%;
+    }
+    .schedule-day-roster__btn--active {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+    }
+    .calendar-day__dots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      justify-content: center;
+      align-items: center;
+      max-width: 100%;
+    }
     .calendar-grid {
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1504,6 +1634,47 @@
       justify-content: center;
       font-size: 0.82rem;
     }
+    .calendar-day:not(.calendar-day--empty) {
+      min-height: 56px;
+      padding: 3px 2px 4px;
+    }
+    .calendar-day__inner {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 3px;
+      width: 100%;
+      min-height: 100%;
+    }
+    .calendar-day__num {
+      font-size: 0.78rem;
+      font-weight: 600;
+      line-height: 1.1;
+    }
+    .calendar-day__dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #60a5fa;
+      flex-shrink: 0;
+    }
+    .btn-calendar-ver {
+      font-size: 0.62rem;
+      line-height: 1.1;
+      padding: 0.12rem 0.28rem;
+      border-radius: 5px;
+      border: 1px solid rgba(96, 165, 250, 0.55);
+      background: rgba(37, 99, 235, 0.35);
+      color: #e0f2fe;
+      cursor: pointer;
+      width: 100%;
+      max-width: 100%;
+    }
+    .btn-calendar-ver:hover {
+      background: rgba(59, 130, 246, 0.45);
+    }
     .calendar-day--empty {
       opacity: 0.35;
     }
@@ -1513,9 +1684,43 @@
       color: #ffffff;
       font-weight: 700;
     }
-    .calendar-day--event {
-      background: rgba(37, 99, 235, 0.2);
+    .calendar-day--general-mark {
+      background: rgba(37, 99, 235, 0.22);
       color: #dbeafe;
+    }
+    .calendar-day--session-future {
+      background: rgba(37, 99, 235, 0.22);
+      color: #dbeafe;
+    }
+    .calendar-day--session-ok {
+      background: rgba(22, 163, 74, 0.22);
+      color: #bbf7d0;
+      border-color: rgba(34, 197, 94, 0.45);
+    }
+    .calendar-day--session-miss {
+      background: rgba(185, 28, 28, 0.2);
+      color: #fecaca;
+      border-color: rgba(248, 113, 113, 0.45);
+    }
+    /** Solo indicador (flecha curva blanca); el color del día sigue azul/verde/rojo. */
+    .calendar-day--reag-marker .calendar-day__num::after {
+      content: "\21BB";
+      margin-left: 2px;
+      font-size: 0.72rem;
+      vertical-align: super;
+      color: #ffffff;
+      opacity: 0.92;
+      text-shadow: 0 0 3px rgba(0, 0, 0, 0.85), 0 0 1px rgba(15, 23, 42, 0.9);
+    }
+    /** Aviso de reagenda solo dentro del modal de agenda. */
+    .schedule-reagenda-notice {
+      margin: 0.35rem 0 0;
+      padding: 0.35rem 0.45rem;
+      border-radius: 6px;
+      background: rgba(120, 53, 15, 0.35);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #ffedd5;
+      font-size: 0.82rem;
     }
     .profile-modal {
       position: fixed;
@@ -1624,6 +1829,10 @@
       justify-content: space-between;
       gap: 0.5rem 0.65rem;
       overflow: hidden;
+    }
+    .scheduled-item--cal-selected {
+      border-color: rgba(59, 130, 246, 0.75);
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.28) inset;
     }
     .scheduled-item__main {
       flex: 1 1 200px;
@@ -2089,6 +2298,26 @@
         <section class="home-card">
           <h3>Acciones rápidas</h3>
           <p class="home-muted">Cupo por sala: <strong>1 profesor</strong> + <strong>5 estudiantes</strong>.</p>
+          <div id="homeJoinByCodeWrap" class="home-join-by-code hidden" style="margin-top: 0.65rem">
+            <h4 style="margin: 0 0 0.35rem; font-size: 1rem; font-weight: 600">Unirse con código</h4>
+            <p class="home-muted" style="margin: 0 0 0.45rem">
+              Pega el <strong>código de sala</strong> que te compartió el profesor (es el mismo valor que él copia al agendar).
+            </p>
+            <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: flex-end">
+              <label style="flex: 1 1 220px; margin: 0">
+                Código
+                <input
+                  id="homeJoinCodeInput"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="Pega aquí el código"
+                />
+              </label>
+              <button type="button" id="btnHomeJoinWithCode" class="btn-primary">Unirse</button>
+            </div>
+            <p id="homeJoinCodeStatus" class="home-muted" style="min-height: 1.1em; margin-top: 0.45rem"></p>
+          </div>
           <div class="home-actions">
             <button type="button" id="btnCrearReunion" class="btn-primary">Agendar reunión</button>
           </div>
@@ -2100,14 +2329,29 @@
 
         <section class="home-card">
           <h3>Calendario</h3>
-          <div class="calendar-head">
-            <strong id="homeCalendarMonth">Mes</strong>
+          <div class="calendar-head calendar-head--range">
+            <div class="calendar-head__nav">
+              <button type="button" id="btnHomeCalendarPrev" class="btn-calendar-nav" aria-label="Mes anterior">‹</button>
+              <strong id="homeCalendarRangeLabel" class="home-calendar-range-label">Meses</strong>
+              <button type="button" id="btnHomeCalendarNext" class="btn-calendar-nav" aria-label="Mes siguiente">›</button>
+            </div>
+            <div class="calendar-head__tools" role="toolbar" aria-label="Acciones del calendario">
+              <button type="button" id="btnCalendarUndo" class="btn-ghost btn-calendar-tool hidden" disabled>
+                Deshacer
+              </button>
+              <button type="button" id="btnCalendarRedo" class="btn-ghost btn-calendar-tool hidden" disabled>
+                Rehacer
+              </button>
+              <button type="button" id="btnCalendarPrintAgendamiento" class="btn-ghost btn-calendar-tool">
+                Imprimir agendamiento
+              </button>
+              <button type="button" id="btnCalendarPrintAsistencia" class="btn-ghost btn-calendar-tool">
+                Imprimir asistencia
+              </button>
+            </div>
             <span id="homeCalendarRoleHint" class="home-muted">Vista</span>
           </div>
-          <div class="calendar-grid calendar-grid--week">
-            <span>Lu</span><span>Ma</span><span>Mi</span><span>Ju</span><span>Vi</span><span>Sá</span><span>Do</span>
-          </div>
-          <div id="homeCalendarGrid" class="calendar-grid"></div>
+          <div id="homeCalendarPanels" class="home-calendar-panels"></div>
         </section>
 
         <section class="home-card home-card--wide">
@@ -2176,6 +2420,7 @@
           <input id="scheduleDurationInput" type="number" min="15" step="5" value="60" />
         </label>
       </div>
+      <p id="scheduleReagendaNotice" class="schedule-reagenda-notice hidden" role="status" aria-live="polite"></p>
       <label>Zona horaria
         <input id="scheduleTimezoneInput" type="text" />
       </label>
@@ -2227,10 +2472,10 @@
       </div>
       <p id="scheduleRecurrenceSummary" class="home-muted" style="margin:0.45rem 0 0.2rem"></p>
       <div class="row" style="margin-top:0.35rem;align-items:flex-end">
-        <label style="flex:1 1 auto;margin:0">Link compartible
+        <label style="flex:1 1 auto;margin:0">Código para compartir
           <input id="scheduleShareLinkInput" type="text" readonly placeholder="Se generará al guardar" />
         </label>
-        <button type="button" id="btnScheduleCopyLink" class="btn-ghost">Copiar link</button>
+        <button type="button" id="btnScheduleCopyLink" class="btn-ghost">Copiar código</button>
       </div>
       <p id="scheduleModalError" class="home-muted" style="color:#fecaca;min-height:1.1em;margin-top:0.45rem"></p>
       <div class="profile-modal__actions" style="justify-content:space-between">
@@ -2308,9 +2553,9 @@
                   type="button"
                   id="btnCopyRoomLink"
                   class="room-video-strip__copy-link-btn"
-                  title="Copiar enlace de la reunión"
+                  title="Copiar código de la reunión"
                 >
-                  Copiar enlace
+                  Copiar código
                 </button>
               </div>
               <div class="room-video-strip__stage">
@@ -2989,8 +3234,28 @@
     let roomBoardLayout = "top";
     let chatPanelHidden = false;
     let homeMeetings = [];
+    let homeCalendarViewDate = new Date();
+    let homeQuickSelectedReunionId = null;
+    let homeAsistenciaPayload = null;
+    let homeAgendamientoReunionId = null;
     let scheduleEditingReunionId = null;
+    /** Edición de una instancia concreta de una serie (no la regla global): relaja validación until vs inicio del modal. */
+    let scheduleEditingSeriesOccurrence = false;
+    /** `occurrenceId` para POST /reagendar: UUID de fila o `t_<epochMs>` ancla al segundo. */
+    let scheduleOccurrenceId = null;
+    /** ISO de la fecha/hora efectiva al abrir el modal (para saber si hubo cambio al guardar). */
+    let scheduleOccurrenceEffectiveIsoAtOpen = null;
+    /** Ancla de serie + recurrencia a preservar en PATCH tras reagendar una ocurrencia. */
+    let scheduleOccurrencePreserve = null;
+    /** Último día local elegido en el calendario (p. ej. al abrir el roster); usado al crear reunión nueva. */
+    let homeCalendarSelectedDate = null;
     let scheduleModalScrollTop = 0;
+    /** Instantánea al abrir el modal (para deshacer editar/reagendar). */
+    let scheduleUndoSnapshot = null;
+    const calendarioHistorial =
+      typeof HistorialAcciones !== "undefined" && HistorialAcciones.createHistorialAcciones
+        ? HistorialAcciones.createHistorialAcciones()
+        : null;
     let boardSideMenuOpen = "";
     const chatAdjuntoPreviewCache = new Map();
     /** @type {{ mensajeId: string, mensaje: object } | null} */
@@ -4495,7 +4760,12 @@
       const endMode = String($("scheduleRecurrenceEndMode")?.value || "never").toLowerCase();
       const until = String($("scheduleRecurrenceUntil")?.value || "").trim();
       const startRaw = String($("scheduleStartInput")?.value || "").trim();
-      if (endMode === "until" && until && startRaw) {
+      if (
+        !scheduleEditingSeriesOccurrence &&
+        endMode === "until" &&
+        until &&
+        startRaw
+      ) {
         const startDate = new Date(startRaw);
         const untilDate = new Date(`${until}T23:59:59`);
         if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(untilDate.getTime()) && untilDate < startDate) {
@@ -4530,7 +4800,37 @@
       return d;
     }
 
-    function getMeetingOccurrencesInRange(reunion, rangeStart, rangeEnd) {
+    const _EX_OCC_MATCH_MS = 90000;
+
+    function listOcurrenciaExcepciones(reunion) {
+      const x = reunion?.ocurrenciaExcepciones ?? reunion?.OcurrenciaExcepciones;
+      if (!Array.isArray(x)) return [];
+      return x;
+    }
+
+    /** Si `occStart` coincide con una excepción (fecha sustituta), devuelve la fila. */
+    function findExcepcionMatchingOverride(reunion, occStart) {
+      if (!reunion || !occStart || Number.isNaN(occStart.getTime())) return null;
+      for (const row of listOcurrenciaExcepciones(reunion)) {
+        const ov = new Date(row.fechaOcurrenciaOverride ?? row.nuevaFecha ?? row.fecha_ocurrencia_override);
+        if (Number.isNaN(ov.getTime())) continue;
+        if (Math.abs(ov.getTime() - occStart.getTime()) <= _EX_OCC_MATCH_MS) return row;
+      }
+      return null;
+    }
+
+    /** Si `occStart` coincide con `fechaOcurrenciaOriginal` de una excepción, devuelve la fila. */
+    function findExcepcionByOriginal(reunion, occStart) {
+      if (!reunion || !occStart || Number.isNaN(occStart.getTime())) return null;
+      for (const row of listOcurrenciaExcepciones(reunion)) {
+        const oldT = new Date(row.fechaOcurrenciaOriginal ?? row.fecha_ocurrencia_original);
+        if (Number.isNaN(oldT.getTime())) continue;
+        if (Math.abs(oldT.getTime() - occStart.getTime()) <= _EX_OCC_MATCH_MS) return row;
+      }
+      return null;
+    }
+
+    function getMeetingOccurrencesBaseInRange(reunion, rangeStart, rangeEnd) {
       if (!reunion?.fechaHora) return [];
       const start = new Date(reunion.fechaHora);
       if (Number.isNaN(start.getTime())) return [];
@@ -4582,6 +4882,50 @@
         cur.setDate(cur.getDate() + 1);
       }
       return out;
+    }
+
+    function getMeetingOccurrencesInRange(reunion, rangeStart, rangeEnd) {
+      const base = getMeetingOccurrencesBaseInRange(reunion, rangeStart, rangeEnd);
+      const exRows = listOcurrenciaExcepciones(reunion);
+      if (!exRows.length) return base;
+      const merged = base.filter((d) => {
+        for (const row of exRows) {
+          const oldT = new Date(row.fechaOcurrenciaOriginal ?? row.fecha_ocurrencia_original);
+          if (Number.isNaN(oldT.getTime())) continue;
+          if (Math.abs(d.getTime() - oldT.getTime()) <= _EX_OCC_MATCH_MS) return false;
+        }
+        return true;
+      });
+      for (const row of exRows) {
+        const nd = new Date(row.fechaOcurrenciaOverride ?? row.fecha_ocurrencia_override);
+        if (Number.isNaN(nd.getTime())) continue;
+        if (nd >= rangeStart && nd <= rangeEnd) merged.push(new Date(nd));
+      }
+      merged.sort((a, b) => a.getTime() - b.getTime());
+      return merged;
+    }
+
+    function getRescheduledExceptionDayNumbersForReunion(reunion, year, month) {
+      const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const set = new Set();
+      if (!reunion) return set;
+      for (const row of listOcurrenciaExcepciones(reunion)) {
+        const nd = new Date(row.fechaOcurrenciaOverride ?? row.fecha_ocurrencia_override);
+        if (Number.isNaN(nd.getTime())) continue;
+        if (nd >= monthStart && nd <= monthEnd && nd.getFullYear() === year && nd.getMonth() === month) {
+          set.add(nd.getDate());
+        }
+      }
+      return set;
+    }
+
+    function getRescheduledExceptionDayNumbersAll(year, month) {
+      const set = new Set();
+      for (const r of homeMeetings || []) {
+        for (const d of getRescheduledExceptionDayNumbersForReunion(r, year, month)) set.add(d);
+      }
+      return set;
     }
 
     function getNextMeetingOccurrence(reunion, fromDate = new Date()) {
@@ -4648,10 +4992,38 @@
       };
     }
 
-    function buildMeetingJoinLink(roomId) {
+    function getMeetingShareCode(roomId) {
       const rid = String(roomId || "").trim();
       if (!rid) return "";
-      return `${location.origin}${location.pathname}#/meet/${encodeURIComponent(rid)}/wait`;
+      return normRoomKey(rid);
+    }
+
+    /**
+     * Acepta código de sala, PK de reunión o enlaces antiguos con `#/meet/<sala>/…`; devuelve texto normalizado para el API.
+     */
+    function parseJoinInviteFromClipboard(raw) {
+      const s = String(raw || "")
+        .trim()
+        .split(/\r?\n/)[0]
+        .trim();
+      if (!s) return "";
+      const hashMeet = s.match(/#\/?meet\/([^/?#]+)\//i);
+      if (hashMeet && hashMeet[1]) {
+        try {
+          return normRoomKey(decodeURIComponent(hashMeet[1]).trim());
+        } catch {
+          return normRoomKey(String(hashMeet[1]).trim());
+        }
+      }
+      const pathMeet = s.match(/\/meet\/([^/?#]+)\//i);
+      if (pathMeet && pathMeet[1]) {
+        try {
+          return normRoomKey(decodeURIComponent(pathMeet[1]).trim());
+        } catch {
+          return normRoomKey(String(pathMeet[1]).trim());
+        }
+      }
+      return normRoomKey(s);
     }
 
     /** PK interna de BD (no confundir con `roomId`). Sequelize puede exponer `reunionId` o `reunion_id` según serialización. */
@@ -4661,11 +5033,174 @@
       return pk != null && String(pk).trim() !== "" ? String(pk).trim() : "";
     }
 
+    function updateCalendarHistoryButtons() {
+      const btnU = $("btnCalendarUndo");
+      const btnR = $("btnCalendarRedo");
+      if (!calendarioHistorial) {
+        if (btnU) btnU.disabled = true;
+        if (btnR) btnR.disabled = true;
+        return;
+      }
+      if (btnU) btnU.disabled = !calendarioHistorial.canUndo();
+      if (btnR) btnR.disabled = !calendarioHistorial.canRedo();
+    }
+
+    function cloneAgendaPayload(payload) {
+      return JSON.parse(JSON.stringify(payload));
+    }
+
+    function snapshotReunionAgenda(reunion) {
+      if (!reunion) return null;
+      const pk = getReunionPk(reunion);
+      if (!pk) return null;
+      let rec = reunion.recurrencia;
+      if (typeof rec === "string") {
+        try {
+          rec = JSON.parse(rec);
+        } catch {
+          rec = null;
+        }
+      }
+      return {
+        reunionId: pk,
+        titulo: reunion.titulo || "",
+        fechaHora: reunion.fechaHora || null,
+        fechaHoraFin: reunion.fechaHoraFin || null,
+        zonaHoraria: reunion.zonaHoraria || null,
+        recurrencia: rec,
+      };
+    }
+
+    function buildAgendaPayloadFromForm(rawTitle, startDate, endDate, zone, recurrence) {
+      return {
+        titulo: rawTitle,
+        fechaHora: startDate.toISOString(),
+        fechaHoraFin: endDate.toISOString(),
+        zonaHoraria: zone,
+        recurrencia: recurrence,
+      };
+    }
+
+    async function applyAgendaPatch(reunionId, snap) {
+      await api(`/api/reuniones/${encodeURIComponent(reunionId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          titulo: snap.titulo,
+          fechaHora: snap.fechaHora,
+          fechaHoraFin: snap.fechaHoraFin,
+          zonaHoraria: snap.zonaHoraria,
+          recurrencia: snap.recurrencia,
+        }),
+      });
+    }
+
+    async function applyAgendaCreate(snap) {
+      return api("/api/reuniones", {
+        method: "POST",
+        body: JSON.stringify({
+          titulo: snap.titulo,
+          fechaHora: snap.fechaHora,
+          fechaHoraFin: snap.fechaHoraFin,
+          zonaHoraria: snap.zonaHoraria,
+          recurrencia: snap.recurrencia,
+        }),
+      });
+    }
+
+    function pushHistorialAgendar(reunionId, payload) {
+      if (!calendarioHistorial || !reunionId) return;
+      const snap = cloneAgendaPayload(payload);
+      const pk = String(reunionId);
+      calendarioHistorial.push({
+        type: "agendar",
+        label: snap.titulo || "Reunión",
+        undo: async () => {
+          await api(`/api/reuniones/${encodeURIComponent(pk)}`, { method: "DELETE" });
+          await loadHomeMeetings();
+        },
+        redo: async () => {
+          await applyAgendaCreate(snap);
+          await loadHomeMeetings();
+        },
+      });
+    }
+
+    function pushHistorialEditar(reunionId, beforeSnap, afterSnap) {
+      if (!calendarioHistorial || !reunionId || !beforeSnap || !afterSnap) return;
+      const pk = String(reunionId);
+      const b = cloneAgendaPayload(beforeSnap);
+      const a = cloneAgendaPayload(afterSnap);
+      calendarioHistorial.push({
+        type: "editar",
+        label: a.titulo || b.titulo || "Reunión",
+        undo: async () => {
+          await applyAgendaPatch(pk, b);
+          await loadHomeMeetings();
+        },
+        redo: async () => {
+          await applyAgendaPatch(pk, a);
+          await loadHomeMeetings();
+        },
+      });
+    }
+
+    function pushHistorialReagendar(reunionId, occurrenceId, fromIso, toIso, patchBefore, patchAfter) {
+      if (!calendarioHistorial || !reunionId || !occurrenceId || !fromIso || !toIso) return;
+      const pk = String(reunionId);
+      const occId = String(occurrenceId);
+      const bPatch = patchBefore ? cloneAgendaPayload(patchBefore) : null;
+      const aPatch = patchAfter ? cloneAgendaPayload(patchAfter) : null;
+      calendarioHistorial.push({
+        type: "reagendar",
+        label: "Reagendar ocurrencia",
+        undo: async () => {
+          await api(`/api/reuniones/${encodeURIComponent(pk)}/reagendar`, {
+            method: "POST",
+            body: JSON.stringify({ occurrenceId: occId, newDate: fromIso }),
+          });
+          if (bPatch) await applyAgendaPatch(pk, bPatch);
+          await loadHomeMeetings();
+        },
+        redo: async () => {
+          await api(`/api/reuniones/${encodeURIComponent(pk)}/reagendar`, {
+            method: "POST",
+            body: JSON.stringify({ occurrenceId: occId, newDate: toIso }),
+          });
+          if (aPatch) await applyAgendaPatch(pk, aPatch);
+          await loadHomeMeetings();
+        },
+      });
+    }
+
+    function pushHistorialCancelar(beforeSnap, reunionId) {
+      if (!calendarioHistorial || !beforeSnap || !reunionId) return;
+      const pk = String(reunionId);
+      const snap = cloneAgendaPayload(beforeSnap);
+      calendarioHistorial.push({
+        type: "cancelar",
+        label: snap.titulo || "Reunión eliminada",
+        undo: async () => {
+          await applyAgendaCreate(snap);
+          await loadHomeMeetings();
+        },
+        redo: async () => {
+          await api(`/api/reuniones/${encodeURIComponent(pk)}`, { method: "DELETE" });
+          await loadHomeMeetings();
+        },
+      });
+    }
+
+    if (calendarioHistorial) {
+      calendarioHistorial.onChange(updateCalendarHistoryButtons);
+      updateCalendarHistoryButtons();
+    }
+
     function getScheduleModalCard() {
       return document.querySelector("#scheduleModal .profile-modal__card");
     }
 
     function openScheduleModal(meeting = null) {
+      document.getElementById("scheduleModalDayOverview")?.remove();
       const modal = $("scheduleModal");
       const modalTitle = $("scheduleModalTitle");
       const saveBtn = $("btnScheduleModalSave");
@@ -4682,32 +5217,117 @@
       const recInterval = $("scheduleRecurrenceInterval");
       if (!modal || !title || !start || !duration || !tz || !err || !linkInput || !recMode || !recEndMode || !recUntil || !recCustomBase || !recInterval) return;
       err.textContent = "";
-      scheduleEditingReunionId = meeting ? getReunionPk(meeting) || null : null;
+      scheduleEditingSeriesOccurrence = false;
+      let scheduleModalOccStartForNotice = null;
+      let roster = null;
+      let mWork = meeting;
+      if (isScheduleModalDayRoster(meeting)) {
+        roster = meeting._calendarDayMeetings;
+        const wantPk = meeting._calendarDayActive ? String(getReunionPk(meeting._calendarDayActive) || "") : "";
+        mWork =
+          (wantPk &&
+            roster.find((x) => String(getReunionPk(x) || "") === wantPk)) ||
+          roster[0];
+      }
+      scheduleEditingReunionId = mWork ? getReunionPk(mWork) || null : null;
+      scheduleUndoSnapshot = mWork ? snapshotReunionAgenda(mWork) : null;
       if (!meeting) scheduleModalScrollTop = 0;
-      if (modalTitle) modalTitle.textContent = meeting ? "Editar reunión" : "Agendar reunión";
-      if (saveBtn) saveBtn.textContent = meeting ? "Guardar cambios" : "Guardar agenda";
-      if (meeting) {
-        title.value = meeting.titulo || "";
-        const startDate = meeting.fechaHora ? new Date(meeting.fechaHora) : null;
-        const endDate = meeting.fechaHoraFin ? new Date(meeting.fechaHoraFin) : null;
-        start.value = startDate ? toLocalDateTimeInputValue(startDate) : "";
+      if (modalTitle) {
+        modalTitle.textContent = roster
+          ? `Reuniones · ${meeting._calendarDayLabel || "este día"}`
+          : mWork
+            ? "Editar reunión"
+            : "Agendar reunión";
+      }
+      if (saveBtn) saveBtn.textContent = mWork ? "Guardar cambios" : "Guardar agenda";
+      if (mWork) {
+        title.value = mWork.titulo || "";
+        const ymdPick = meeting?._calendarDayYMD ?? null;
+        let startDateEff = null;
+        if (meeting?.occurrenceDate) {
+          const od = new Date(meeting.occurrenceDate);
+          if (!Number.isNaN(od.getTime())) startDateEff = od;
+        }
+        if (!startDateEff && ymdPick && mWork.fechaHora) {
+          const occ = getOccurrenceOnLocalDay(mWork, ymdPick.y, ymdPick.m, ymdPick.d);
+          if (occ && !Number.isNaN(occ.getTime())) startDateEff = new Date(occ);
+        }
+        if (!startDateEff && mWork.fechaHora) startDateEff = new Date(mWork.fechaHora);
+        const seriesAnchor = mWork.fechaHora ? new Date(mWork.fechaHora) : null;
+        const recParsed = parseMeetingRecurrence(mWork.recurrencia);
+        if (recParsed && seriesAnchor && startDateEff) {
+          if (meeting?.occurrenceDate && !Number.isNaN(new Date(meeting.occurrenceDate).getTime())) {
+            scheduleEditingSeriesOccurrence = true;
+          } else if (meeting?._scheduleEditOccurrence) {
+            scheduleEditingSeriesOccurrence = true;
+          } else if (ymdPick) {
+            // Celda del calendario (día concreto): siempre instancia de serie, aunque coincida con el ancla
+            scheduleEditingSeriesOccurrence = true;
+          } else if (Math.abs(startDateEff.getTime() - seriesAnchor.getTime()) > 60_000) {
+            scheduleEditingSeriesOccurrence = true;
+          }
+        }
+        start.value =
+          startDateEff && !Number.isNaN(startDateEff.getTime())
+            ? toLocalDateTimeInputValue(startDateEff)
+            : "";
+        scheduleModalOccStartForNotice =
+          startDateEff && !Number.isNaN(startDateEff.getTime()) ? new Date(startDateEff) : null;
+        const endDate = mWork.fechaHoraFin ? new Date(mWork.fechaHoraFin) : null;
         const durMinutes =
-          startDate && endDate && Number.isFinite(endDate.getTime()) && Number.isFinite(startDate.getTime())
-            ? Math.max(15, Math.round((endDate.getTime() - startDate.getTime()) / 60000))
+          seriesAnchor && endDate && Number.isFinite(endDate.getTime()) && Number.isFinite(seriesAnchor.getTime())
+            ? Math.max(15, Math.round((endDate.getTime() - seriesAnchor.getTime()) / 60000))
             : 60;
         duration.value = String(durMinutes);
-        tz.value = meeting.zonaHoraria || "";
-        linkInput.value = buildMeetingJoinLink(meeting.roomId ?? meeting.room_id);
-        const rec = parseMeetingRecurrence(meeting.recurrencia);
+        tz.value = mWork.zonaHoraria || "";
+        linkInput.value = getMeetingShareCode(mWork.roomId ?? mWork.room_id);
+        const rec = parseMeetingRecurrence(mWork.recurrencia);
         recMode.value = rec?.mode || "none";
         recEndMode.value = rec?.until ? "until" : "never";
         recUntil.value = rec?.until || "";
         recCustomBase.value = rec?.base || "weekly";
         recInterval.value = String(rec?.interval || 1);
-        setRecurrenceDaysSelected(rec?.weekDays?.length ? rec.weekDays : [weekdayIdFromDate(startDate || new Date())]);
+        if (scheduleEditingSeriesOccurrence && startDateEff && seriesAnchor) {
+          scheduleOccurrenceEffectiveIsoAtOpen = startDateEff.toISOString();
+          const exHit =
+            findExcepcionMatchingOverride(mWork, startDateEff) ||
+            findExcepcionByOriginal(mWork, startDateEff);
+          if (exHit) {
+            const rid = exHit.reunionOcurrenciaId ?? exHit.reunion_ocurrencia_id;
+            scheduleOccurrenceId =
+              rid != null && String(rid).trim() !== ""
+                ? String(rid)
+                : `t_${Math.floor(startDateEff.getTime() / 1000) * 1000}`;
+          } else {
+            scheduleOccurrenceId = `t_${Math.floor(startDateEff.getTime() / 1000) * 1000}`;
+          }
+          scheduleOccurrencePreserve = {
+            anchorStart: seriesAnchor.toISOString(),
+            anchorEnd: mWork.fechaHoraFin ? new Date(mWork.fechaHoraFin).toISOString() : null,
+            recurrencia: mWork.recurrencia,
+          };
+        } else {
+          scheduleOccurrenceId = null;
+          scheduleOccurrenceEffectiveIsoAtOpen = null;
+          scheduleOccurrencePreserve = null;
+        }
+        setRecurrenceDaysSelected(
+          rec?.weekDays?.length ? rec.weekDays : [weekdayIdFromDate(seriesAnchor || startDateEff || new Date())]
+        );
       } else {
         title.value = "";
-        const base = new Date();
+        let base = new Date();
+        if (homeCalendarSelectedDate instanceof Date && !Number.isNaN(homeCalendarSelectedDate.getTime())) {
+          base = new Date(
+            homeCalendarSelectedDate.getFullYear(),
+            homeCalendarSelectedDate.getMonth(),
+            homeCalendarSelectedDate.getDate(),
+            base.getHours(),
+            base.getMinutes(),
+            0,
+            0
+          );
+        }
         base.setMinutes(Math.ceil((base.getMinutes() + 10) / 5) * 5, 0, 0);
         start.value = toLocalDateTimeInputValue(base);
         duration.value = "60";
@@ -4718,6 +5338,32 @@
         recCustomBase.value = "weekly";
         recInterval.value = "1";
         setRecurrenceDaysSelected([weekdayIdFromDate(base)]);
+        scheduleOccurrenceId = null;
+        scheduleOccurrenceEffectiveIsoAtOpen = null;
+        scheduleOccurrencePreserve = null;
+        scheduleModalOccStartForNotice = null;
+      }
+      const noticeRe = $("scheduleReagendaNotice");
+      if (noticeRe) {
+        const exHit =
+          mWork && scheduleModalOccStartForNotice
+            ? findExcepcionMatchingOverride(mWork, scheduleModalOccStartForNotice)
+            : null;
+        if (exHit) {
+          const fo = new Date(
+            exHit.fechaOcurrenciaOriginal ?? exHit.fechaOriginal ?? exHit.fecha_ocurrencia_original
+          );
+          if (!Number.isNaN(fo.getTime())) {
+            noticeRe.textContent = `Reagendada desde ${fo.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}`;
+            noticeRe.classList.remove("hidden");
+          } else {
+            noticeRe.textContent = "";
+            noticeRe.classList.add("hidden");
+          }
+        } else {
+          noticeRe.textContent = "";
+          noticeRe.classList.add("hidden");
+        }
       }
       try {
         tz.value = tz.value || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -4725,6 +5371,115 @@
         tz.value = tz.value || "UTC";
       }
       updateScheduleRecurrenceUi();
+      if (roster && roster.length > 1) {
+        const card = getScheduleModalCard();
+        if (card) {
+          const strip = document.createElement("div");
+          strip.id = "scheduleModalDayOverview";
+          const hint = document.createElement("p");
+          hint.className = "schedule-day-roster__hint";
+          hint.textContent = "Reuniones agendadas este día (elige una para ver o editar en el formulario).";
+          const row = document.createElement("div");
+          row.className = "schedule-day-roster__btns";
+          roster.forEach((rev) => {
+            const rowItem = document.createElement("div");
+            rowItem.className = "schedule-day-roster__row";
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "schedule-day-roster__btn";
+            const pkB = String(getReunionPk(rev) || "");
+            const pkCur = String(getReunionPk(mWork) || "");
+            if (pkB && pkCur && pkB === pkCur) b.classList.add("schedule-day-roster__btn--active");
+            const st = rev.fechaHora ? new Date(rev.fechaHora) : null;
+            const ymd = meeting._calendarDayYMD;
+            const occLocal = ymd ? getOccurrenceOnLocalDay(rev, ymd.y, ymd.m, ymd.d) : null;
+            const timePart =
+              occLocal && !Number.isNaN(occLocal.getTime())
+                ? occLocal.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })
+                : st && !Number.isNaN(st.getTime())
+                  ? st.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })
+                  : "";
+            b.textContent = timePart ? `${rev.titulo || "Reunión"} · ${timePart}` : rev.titulo || "Reunión";
+            b.addEventListener("click", () => {
+              const c = getScheduleModalCard();
+              if (c) scheduleModalScrollTop = c.scrollTop;
+              openScheduleModal({
+                _calendarDayMeetings: roster,
+                _calendarDayActive: rev,
+                _calendarDayLabel: meeting._calendarDayLabel,
+                _calendarDayYMD: meeting._calendarDayYMD,
+              });
+            });
+            rowItem.appendChild(b);
+            const del = document.createElement("button");
+            del.type = "button";
+            del.className = "schedule-day-roster__del";
+            del.textContent = "Eliminar";
+            del.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (!confirm("¿Seguro que deseas eliminar esta reunión?")) return;
+              const pkDel = getReunionPk(rev);
+              if (!pkDel) return;
+              try {
+                const snapDel = snapshotReunionAgenda(rev);
+                await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+                if (snapDel) pushHistorialCancelar(snapDel, pkDel);
+                err.textContent = "";
+                const cr = $("crearResult");
+                if (cr) cr.textContent = "Reunión eliminada.";
+                homeMeetings = (homeMeetings || []).filter((x) => String(getReunionPk(x)) !== String(pkDel));
+                if (String(homeQuickSelectedReunionId || "") === String(pkDel)) {
+                  homeQuickSelectedReunionId = null;
+                  homeAsistenciaPayload = null;
+                }
+                if (String(homeAgendamientoReunionId || "") === String(pkDel)) {
+                  homeAgendamientoReunionId = null;
+                }
+                renderHomeCalendar();
+                renderScheduledMeetings();
+                const ymdDel = meeting._calendarDayYMD;
+                const labelDel = meeting._calendarDayLabel;
+                const cardEl = getScheduleModalCard();
+                if (cardEl) scheduleModalScrollTop = cardEl.scrollTop;
+                const nextList =
+                  ymdDel && listMeetingsOnCalendarDay(ymdDel.y, ymdDel.m, ymdDel.d).filter(Boolean);
+                if (!nextList || nextList.length === 0) {
+                  closeScheduleModal();
+                  return;
+                }
+                if (nextList.length === 1) {
+                  openScheduleModal(
+                    Object.assign({}, nextList[0], {
+                      _calendarDayYMD: ymdDel,
+                      _calendarDayLabel: labelDel,
+                    })
+                  );
+                  return;
+                }
+                const wasPk = String(getReunionPk(mWork) || "");
+                const nextActive =
+                  nextList.find((x) => String(getReunionPk(x)) === wasPk) || nextList[0];
+                openScheduleModal({
+                  _calendarDayMeetings: nextList,
+                  _calendarDayActive: nextActive,
+                  _calendarDayLabel: labelDel,
+                  _calendarDayYMD: ymdDel,
+                });
+              } catch (ex) {
+                err.textContent = ex?.message || ex?.data?.error || "No se pudo eliminar la reunión.";
+              }
+            });
+            rowItem.appendChild(del);
+            row.appendChild(rowItem);
+          });
+          strip.appendChild(hint);
+          strip.appendChild(row);
+          const firstLabel = card.querySelector("label");
+          if (firstLabel) card.insertBefore(strip, firstLabel);
+          else card.insertBefore(strip, card.firstChild);
+        }
+      }
       modal.classList.remove("hidden");
       requestAnimationFrame(() => {
         const card = getScheduleModalCard();
@@ -4736,12 +5491,23 @@
     function closeScheduleModal() {
       const card = getScheduleModalCard();
       if (card) scheduleModalScrollTop = card.scrollTop;
+      document.getElementById("scheduleModalDayOverview")?.remove();
       $("scheduleModal")?.classList.add("hidden");
       scheduleEditingReunionId = null;
+      scheduleEditingSeriesOccurrence = false;
+      scheduleOccurrenceId = null;
+      scheduleOccurrenceEffectiveIsoAtOpen = null;
+      scheduleOccurrencePreserve = null;
+      scheduleUndoSnapshot = null;
       const title = $("scheduleModalTitle");
       const saveBtn = $("btnScheduleModalSave");
       if (title) title.textContent = "Agendar reunión";
       if (saveBtn) saveBtn.textContent = "Guardar agenda";
+      const noticeRe = $("scheduleReagendaNotice");
+      if (noticeRe) {
+        noticeRe.textContent = "";
+        noticeRe.classList.add("hidden");
+      }
     }
 
     async function copyTextToClipboard(text) {
@@ -4800,6 +5566,31 @@
         .sort((a, b) => a._ts - b._ts)
         .slice(0, 10);
       host.innerHTML = "";
+      if (homeQuickSelectedReunionId != null || homeAgendamientoReunionId != null) {
+        const banner = document.createElement("div");
+        banner.style.cssText =
+          "display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-bottom:0.45rem";
+        const lab = document.createElement("span");
+        lab.className = "home-muted";
+        lab.textContent =
+          homeQuickSelectedReunionId != null
+            ? "Calendario en modo asistencia de la reunión seleccionada."
+            : "Calendario en modo agendamiento de la reunión seleccionada.";
+        const btnClr = document.createElement("button");
+        btnClr.type = "button";
+        btnClr.className = "btn-ghost";
+        btnClr.textContent = "Vista general";
+        btnClr.addEventListener("click", () => {
+          homeQuickSelectedReunionId = null;
+          homeAsistenciaPayload = null;
+          homeAgendamientoReunionId = null;
+          renderScheduledMeetings();
+          renderHomeCalendar();
+        });
+        banner.appendChild(lab);
+        banner.appendChild(btnClr);
+        host.appendChild(banner);
+      }
       if (upcoming.length === 0) {
         const empty = document.createElement("p");
         empty.className = "home-muted";
@@ -4808,8 +5599,16 @@
         return;
       }
       upcoming.forEach((r) => {
+        const rid = getReunionPk(r);
         const item = document.createElement("div");
         item.className = "scheduled-item";
+        const inAsistenciaFocus =
+          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId);
+        const inAgendamientoFocus =
+          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId);
+        if (inAsistenciaFocus || inAgendamientoFocus) {
+          item.classList.add("scheduled-item--cal-selected");
+        }
         const main = document.createElement("div");
         main.className = "scheduled-item__main";
         const title = document.createElement("div");
@@ -4831,48 +5630,332 @@
           void enterRoom(r.roomId).catch(() => {});
         });
         actions.appendChild(btnEnter);
-        const btnEdit = document.createElement("button");
-        btnEdit.type = "button";
-        btnEdit.className = "btn-ghost";
-        btnEdit.textContent = "Editar";
-        btnEdit.addEventListener("click", () => openScheduleModal(r));
-        actions.appendChild(btnEdit);
-        const btnCupo = document.createElement("button");
-        btnCupo.type = "button";
-        btnCupo.className = "btn-ghost";
-        btnCupo.textContent = "Cupo";
-        btnCupo.addEventListener("click", () => {
-          void showCupoByRoomId(r.roomId);
-        });
-        actions.appendChild(btnCupo);
-        const btnDelete = document.createElement("button");
-        btnDelete.type = "button";
-        btnDelete.className = "btn-ghost";
-        btnDelete.textContent = "Eliminar";
-        btnDelete.addEventListener("click", async () => {
-          if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
-          try {
-            await api("/api/reuniones/" + encodeURIComponent(r.reunionId), { method: "DELETE" });
-            $("crearResult").textContent = "Reunión eliminada.";
-            void loadHomeMeetings();
-          } catch (e) {
-            log("Eliminar reunión: " + e.message);
+        const btnAsist = document.createElement("button");
+        btnAsist.type = "button";
+        btnAsist.className = "btn-ghost";
+        btnAsist.textContent =
+          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId)
+            ? "Quitar vista"
+            : "Asistencia";
+        btnAsist.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const id = getReunionPk(r);
+          if (id == null) return;
+          if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(id)) {
+            homeQuickSelectedReunionId = null;
+            homeAsistenciaPayload = null;
+            renderScheduledMeetings();
+            renderHomeCalendar();
+            return;
           }
+          homeAgendamientoReunionId = null;
+          homeQuickSelectedReunionId = id;
+          renderScheduledMeetings();
+          await loadAsistenciaForCalendar(id);
+          renderScheduledMeetings();
         });
-        actions.appendChild(btnDelete);
-        const btnLink = document.createElement("button");
-        btnLink.type = "button";
-        btnLink.className = "btn-ghost";
-        btnLink.textContent = "Copiar link";
-        btnLink.addEventListener("click", async () => {
-          const ok = await copyTextToClipboard(buildMeetingJoinLink(r.roomId));
-          $("crearResult").textContent = ok ? "Link copiado al portapapeles." : "No se pudo copiar el link.";
+        actions.appendChild(btnAsist);
+        const btnAgend = document.createElement("button");
+        btnAgend.type = "button";
+        btnAgend.className = "btn-ghost";
+        btnAgend.textContent =
+          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId)
+            ? "Quitar vista"
+            : "Agendamiento";
+        btnAgend.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const id = getReunionPk(r);
+          if (id == null) return;
+          if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(id)) {
+            homeAgendamientoReunionId = null;
+            renderScheduledMeetings();
+            renderHomeCalendar();
+            return;
+          }
+          homeQuickSelectedReunionId = null;
+          homeAsistenciaPayload = null;
+          homeAgendamientoReunionId = id;
+          renderScheduledMeetings();
+          renderHomeCalendar();
         });
-        actions.appendChild(btnLink);
+        actions.appendChild(btnAgend);
+        const canManageSchedule = isTeacherRole(currentUser?.rol);
+        if (canManageSchedule) {
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn-ghost";
+          btnEdit.textContent = "Editar";
+          btnEdit.addEventListener("click", () => openScheduleModal(r));
+          actions.appendChild(btnEdit);
+          const btnCupo = document.createElement("button");
+          btnCupo.type = "button";
+          btnCupo.className = "btn-ghost";
+          btnCupo.textContent = "Cupo";
+          btnCupo.addEventListener("click", () => {
+            void showCupoByRoomId(r.roomId);
+          });
+          actions.appendChild(btnCupo);
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn-ghost";
+          btnDelete.textContent = "Eliminar";
+          btnDelete.addEventListener("click", async () => {
+            if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
+            try {
+              const snapDel = snapshotReunionAgenda(r);
+              const pkDel = r.reunionId;
+              await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+              if (snapDel) pushHistorialCancelar(snapDel, pkDel);
+              $("crearResult").textContent = "Reunión eliminada.";
+              void loadHomeMeetings();
+            } catch (e) {
+              log("Eliminar reunión: " + e.message);
+            }
+          });
+          actions.appendChild(btnDelete);
+          const btnLink = document.createElement("button");
+          btnLink.type = "button";
+          btnLink.className = "btn-ghost";
+          btnLink.textContent = "Copiar código";
+          btnLink.addEventListener("click", async () => {
+            const ok = await copyTextToClipboard(getMeetingShareCode(r.roomId));
+            $("crearResult").textContent = ok ? "Código copiado al portapapeles." : "No se pudo copiar el código.";
+          });
+          actions.appendChild(btnLink);
+        }
         item.appendChild(main);
         item.appendChild(actions);
         host.appendChild(item);
       });
+    }
+
+    function getReunionDurationMinutesFromData(reunion) {
+      const start = reunion?.fechaHora ? new Date(reunion.fechaHora) : null;
+      const end = reunion?.fechaHoraFin ? new Date(reunion.fechaHoraFin) : null;
+      if (start && end && Number.isFinite(end.getTime()) && Number.isFinite(start.getTime())) {
+        return Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
+      }
+      return 60;
+    }
+
+    function parseDateFieldFromRecord(o) {
+      if (!o || typeof o !== "object") return null;
+      const keys = ["fechaHora", "inicioSesion", "sesionInicio", "inicio", "fechaInicio", "slotInicio", "programadoPara"];
+      for (const k of keys) {
+        const raw = o[k];
+        if (!raw) continue;
+        if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
+        const d = new Date(raw);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      const nested = o.sesion || o.Sesion || o.reunion || o.Reunion;
+      if (nested && typeof nested === "object") {
+        for (const k of keys) {
+          const raw = nested[k];
+          if (!raw) continue;
+          const d = new Date(raw);
+          if (!Number.isNaN(d.getTime())) return d;
+        }
+      }
+      return null;
+    }
+
+    function recordIndicatesAsistio(o) {
+      if (!o || typeof o !== "object") return false;
+      if (o.asistio === true || o.presente === true || o.tieneEntrada === true) return true;
+      const ent = o.entradaAt ?? o.registroEntrada ?? o.marcadoEntrada ?? o.horaEntrada;
+      if (ent) {
+        const d = new Date(ent);
+        if (!Number.isNaN(d.getTime())) return true;
+      }
+      return false;
+    }
+
+    function parseAsistenciaRowsFromApi(data) {
+      const selfId = currentUser?.usuarioId != null ? String(currentUser.usuarioId) : "";
+      const rows = [];
+      const seen = new Set();
+      const push = (o) => {
+        if (!o || typeof o !== "object") return;
+        const rowUid = o.usuarioId != null ? String(o.usuarioId) : "";
+        if (selfId && rowUid && rowUid !== selfId) return;
+        const start = parseDateFieldFromRecord(o);
+        if (!start) return;
+        const key = `${rowUid || "me"}|${start.getTime()}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        let entradaAt = null;
+        const entRaw =
+          o.entradaAt ??
+          o.entrada_at ??
+          o.registroEntrada ??
+          o.marcadoEntrada ??
+          o.horaEntrada;
+        if (entRaw) {
+          const ed = new Date(entRaw);
+          if (!Number.isNaN(ed.getTime())) entradaAt = ed;
+        }
+        let salidaAt = null;
+        const salRaw = o.salidaAt ?? o.salida_at;
+        if (salRaw) {
+          const sd = new Date(salRaw);
+          if (!Number.isNaN(sd.getTime())) salidaAt = sd;
+        }
+        const asistioFlag = o.asistio === true || recordIndicatesAsistio(o);
+        rows.push({ start, asistio: asistioFlag, entradaAt, salidaAt });
+      };
+      if (data && typeof data === "object") {
+        if (Array.isArray(data.asistencia)) data.asistencia.forEach(push);
+        if (Array.isArray(data.resumen?.filas)) data.resumen.filas.forEach(push);
+      }
+      return rows;
+    }
+
+    /**
+     * Devuelve si hubo fila de asistencia para ese instante: true/false, o null si no hubo candidato.
+     */
+    function rowAsistioForInstant(instant, rows) {
+      if (!instant || Number.isNaN(instant.getTime()) || !rows?.length) return null;
+      const t = instant.getTime();
+      for (const row of rows) {
+        if (Math.abs(row.start.getTime() - t) <= 180000) return !!row.asistio;
+      }
+      const sameLocalDay = (a, b) =>
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate();
+      let best = null;
+      let bestDelta = Infinity;
+      for (const row of rows) {
+        if (!sameLocalDay(row.start, instant)) continue;
+        const delta = Math.abs(row.start.getTime() - t);
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          best = row;
+        }
+      }
+      if (!best) return null;
+      return !!best.asistio;
+    }
+
+    /**
+     * @param {Date} occDate — instante efectivo de la ocurrencia en el calendario
+     * @param {Array<{start:Date, asistio:boolean}>} rows
+     * @param {object} [reunion] — opcional: enlaza override de reagenda con `inicioSesion` anclado al original
+     */
+    function sameLocalCalendarDay(a, b) {
+      return (
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate()
+      );
+    }
+
+    function occurrenceMatchesAsistio(occDate, rows, reunion) {
+      const direct = rowAsistioForInstant(occDate, rows);
+      if (direct !== null) return direct;
+
+      // Serie recurrente: inicioSesion = ancla (fechaHora); entrada/salida reales = día de la sesión.
+      for (const row of rows) {
+        if (!row.asistio) continue;
+        if (row.entradaAt && sameLocalCalendarDay(row.entradaAt, occDate)) return true;
+        if (row.salidaAt && sameLocalCalendarDay(row.salidaAt, occDate)) return true;
+      }
+
+      if (reunion) {
+        for (const ex of listOcurrenciaExcepciones(reunion)) {
+          const ov = new Date(ex.fechaOcurrenciaOverride ?? ex.nuevaFecha ?? ex.fecha_ocurrencia_override);
+          const orig = new Date(ex.fechaOcurrenciaOriginal ?? ex.fechaOriginal ?? ex.fecha_ocurrencia_original);
+          if (Number.isNaN(ov.getTime()) || Number.isNaN(orig.getTime())) continue;
+          if (Math.abs(ov.getTime() - occDate.getTime()) <= _EX_OCC_MATCH_MS) {
+            const bridged = rowAsistioForInstant(orig, rows);
+            if (bridged !== null) return bridged;
+          }
+        }
+      }
+      return false;
+    }
+
+    function sessionKindForOccurrence(occ, reunion, rows, now) {
+      const durMin = getReunionDurationMinutesFromData(reunion);
+      const end = new Date(occ.getTime() + durMin * 60000);
+      const occMs = occ.getTime();
+      const nowMs = now.getTime();
+      // Prioridad: si ya hay asistencia para esta ocurrencia, verde aunque el inicio nominal sea más tarde hoy.
+      if (occurrenceMatchesAsistio(occ, rows, reunion)) return "ok";
+      if (occMs > nowMs) return "future";
+      if (nowMs >= end.getTime()) return "miss";
+      return "future";
+    }
+
+    function aggregateDaySessionKind(kinds) {
+      if (!kinds.length) return null;
+      // Tras reagenda puede haber dos ocurrencias el mismo día (teórica + excepción); priorizar "ok" si alguna es asistida.
+      if (kinds.some((k) => k === "ok")) return "ok";
+      if (kinds.some((k) => k === "future")) return "future";
+      if (kinds.some((k) => k === "miss")) return "miss";
+      return "ok";
+    }
+
+    function getOccurrenceOnLocalDay(reunion, y, m, dayOfMonth) {
+      if (!reunion?.fechaHora) return null;
+      const monthStart = new Date(y, m, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(y, m + 1, 0, 23, 59, 59, 999);
+      const occs = getMeetingOccurrencesInRange(reunion, monthStart, monthEnd).filter(
+        (dt) => dt.getFullYear() === y && dt.getMonth() === m && dt.getDate() === dayOfMonth
+      );
+      return occs.length ? occs[0] : null;
+    }
+
+    /** Reuniones distintas (por PK) con ocurrencia ese día local, ordenadas por primera hora. */
+    function listMeetingsOnCalendarDay(y, m, dayOfMonth) {
+      const monthStart = new Date(y, m, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(y, m + 1, 0, 23, 59, 59, 999);
+      const byPk = new Map();
+      for (const rr of homeMeetings || []) {
+        if (!rr?.fechaHora || rr.estado === "finalizada") continue;
+        const dates = getMeetingOccurrencesInRange(rr, monthStart, monthEnd);
+        for (const ddt of dates) {
+          if (ddt.getFullYear() === y && ddt.getMonth() === m && ddt.getDate() === dayOfMonth) {
+            const pk = String(getReunionPk(rr) || "");
+            const key = pk || `room:${rr.roomId ?? rr.room_id ?? ""}`;
+            const t = ddt.getTime();
+            const cur = byPk.get(key);
+            if (!cur || t < cur.at) byPk.set(key, { reunion: rr, at: t });
+          }
+        }
+      }
+      return [...byPk.values()].sort((a, b) => a.at - b.at).map((x) => x.reunion);
+    }
+
+    function isScheduleModalDayRoster(arg) {
+      return (
+        arg &&
+        typeof arg === "object" &&
+        Array.isArray(arg._calendarDayMeetings) &&
+        arg._calendarDayMeetings.length > 0
+      );
+    }
+
+    async function loadAsistenciaForCalendar(reunionPk) {
+      if (!reunionPk || !getToken()) {
+        homeAsistenciaPayload = null;
+        renderHomeCalendar();
+        return;
+      }
+      const d = homeCalendarViewDate;
+      const y = d.getFullYear();
+      const mo = d.getMonth();
+      const desde = new Date(y, mo, 1, 0, 0, 0, 0).toISOString();
+      const hasta = new Date(y, mo + 2, 0, 23, 59, 59, 999).toISOString();
+      try {
+        homeAsistenciaPayload = await api(
+          `/api/reuniones/${encodeURIComponent(String(reunionPk))}/asistencia?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`
+        );
+      } catch (_) {
+        homeAsistenciaPayload = { asistencia: [], resumen: { filas: [] } };
+      }
+      renderHomeCalendar();
     }
 
     function updateLobbyRoleUi() {
@@ -4881,62 +5964,228 @@
       const createBtn = $("btnCrearReunion");
       const roleBadge = $("homeRoleBadge");
       const hint = $("scheduleHint");
-      const roleHint = $("homeCalendarRoleHint");
       const homeName = $("homeUserName");
       if (homeName) homeName.textContent = getCurrentDisplayName() || "usuario";
       if (roleBadge) roleBadge.textContent = getUserRoleLabel(role);
-      if (roleHint) roleHint.textContent = isTeacher ? "Modo profesor (agenda editable)" : "Modo estudiante (solo lectura)";
       if (createBtn) {
         createBtn.classList.toggle("hidden", !isTeacher);
         createBtn.disabled = !isTeacher;
       }
       if (hint) hint.classList.toggle("hidden", isTeacher);
+      const joinWrap = $("homeJoinByCodeWrap");
+      if (joinWrap) joinWrap.classList.toggle("hidden", isTeacher);
+      const btnUndo = $("btnCalendarUndo");
+      const btnRedo = $("btnCalendarRedo");
+      if (btnUndo) btnUndo.classList.toggle("hidden", !isTeacher);
+      if (btnRedo) btnRedo.classList.toggle("hidden", !isTeacher);
     }
 
-    function renderHomeCalendar(baseDate = new Date()) {
-      const grid = $("homeCalendarGrid");
-      const monthLabel = $("homeCalendarMonth");
-      if (!grid || !monthLabel) return;
-      const year = baseDate.getFullYear();
-      const month = baseDate.getMonth();
-      const firstDay = new Date(year, month, 1);
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const offset = (firstDay.getDay() + 6) % 7;
-      monthLabel.textContent = firstDay.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
-      grid.innerHTML = "";
-      const today = new Date();
-      const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
-      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
-      const eventDays = new Set();
-      (homeMeetings || [])
-        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
-        .forEach((r) => {
-          const dates = getMeetingOccurrencesInRange(r, monthStart, monthEnd);
-          dates.forEach((d) => {
-            if (d.getMonth() === month && d.getFullYear() === year) eventDays.add(d.getDate());
-          });
+    function renderHomeCalendar(baseDate) {
+      const panels = $("homeCalendarPanels");
+      const rangeLabel = $("homeCalendarRangeLabel");
+      const roleHint = $("homeCalendarRoleHint");
+      if (!panels) return;
+      if (baseDate instanceof Date && !Number.isNaN(baseDate.getTime())) {
+        homeCalendarViewDate = baseDate;
+      }
+      const ref = homeCalendarViewDate;
+      const y0 = ref.getFullYear();
+      const m0 = ref.getMonth();
+      const y1 = m0 === 11 ? y0 + 1 : y0;
+      const m1 = m0 === 11 ? 0 : m0 + 1;
+
+      if (rangeLabel) {
+        const lab0 = new Date(y0, m0, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+        const lab1 = new Date(y1, m1, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+        rangeLabel.textContent = `${lab0} – ${lab1}`;
+      }
+
+      const asistenciaPk = homeQuickSelectedReunionId != null ? String(homeQuickSelectedReunionId) : "";
+      const agendamientoPk = homeAgendamientoReunionId != null ? String(homeAgendamientoReunionId) : "";
+      const selectedReunion = asistenciaPk
+        ? (homeMeetings || []).find((x) => String(getReunionPk(x) ?? "") === asistenciaPk)
+        : null;
+      const agendamientoReunion = agendamientoPk
+        ? (homeMeetings || []).find((x) => String(getReunionPk(x) ?? "") === agendamientoPk)
+        : null;
+      const asistenciaRows = selectedReunion ? parseAsistenciaRowsFromApi(homeAsistenciaPayload || {}) : [];
+      const now = new Date();
+
+      if (roleHint) {
+        if (selectedReunion) {
+          roleHint.textContent = `Asistencia · ${selectedReunion.titulo || "Reunión"}`;
+        } else if (agendamientoReunion) {
+          roleHint.textContent = `Agendamiento · ${agendamientoReunion.titulo || "Reunión"}`;
+        } else {
+          const count = (homeMeetings || []).filter((r) => r?.fechaHora).length;
+          roleHint.textContent = `${getUserRoleLabel(currentUser?.rol)} · ${count} evento(s) con fecha`;
+        }
+      }
+
+      function openDayRosterFromCell(ev, y, mo, d) {
+        ev.stopPropagation();
+        homeCalendarSelectedDate = new Date(y, mo, d, 12, 0, 0, 0);
+        const dayList = listMeetingsOnCalendarDay(y, mo, d);
+        const dayLabel = new Date(y, mo, d).toLocaleDateString("es-CO", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
         });
-      for (let i = 0; i < offset; i++) {
-        const cell = document.createElement("div");
-        cell.className = "calendar-day calendar-day--empty";
-        grid.appendChild(cell);
+        if (dayList.length === 0) return;
+        const ymd = { y, m: mo, d };
+        if (dayList.length === 1) {
+          openScheduleModal(
+            Object.assign({}, dayList[0], {
+              _calendarDayYMD: ymd,
+              _calendarDayLabel: dayLabel,
+            })
+          );
+        } else {
+          openScheduleModal({
+            _calendarDayMeetings: dayList,
+            _calendarDayActive: dayList[0],
+            _calendarDayLabel: dayLabel,
+            _calendarDayYMD: ymd,
+          });
+        }
       }
-      for (let day = 1; day <= daysInMonth; day++) {
-        const cell = document.createElement("div");
-        const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-        const hasEvent = eventDays.has(day);
-        cell.className = "calendar-day";
-        if (isToday) cell.classList.add("calendar-day--today");
-        if (hasEvent) cell.classList.add("calendar-day--event");
-        cell.textContent = String(day);
-        grid.appendChild(cell);
+
+      function appendMonthBlock(year, month) {
+        const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
+        const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+        const eventDays = new Set();
+        (homeMeetings || [])
+          .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
+          .forEach((r) => {
+            const dates = getMeetingOccurrencesInRange(r, monthStart, monthEnd);
+            dates.forEach((d) => {
+              if (d.getMonth() === month && d.getFullYear() === year) eventDays.add(d.getDate());
+            });
+          });
+
+        const rescheduledDaysAll = getRescheduledExceptionDayNumbersAll(year, month);
+        const rescheduledAsist = getRescheduledExceptionDayNumbersForReunion(selectedReunion, year, month);
+        const rescheduledAgen = getRescheduledExceptionDayNumbersForReunion(agendamientoReunion, year, month);
+
+        const wrap = document.createElement("div");
+        wrap.className = "home-calendar-month-wrap";
+        const mt = document.createElement("div");
+        mt.className = "calendar-month-title";
+        mt.textContent = new Date(year, month, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+        const week = document.createElement("div");
+        week.className = "calendar-grid calendar-grid--week";
+        ["Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"].forEach((w) => {
+          const s = document.createElement("span");
+          s.textContent = w;
+          week.appendChild(s);
+        });
+        const grid = document.createElement("div");
+        grid.className = "calendar-grid";
+
+        const firstDay = new Date(year, month, 1);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const offset = (firstDay.getDay() + 6) % 7;
+        const today = new Date();
+
+        for (let i = 0; i < offset; i++) {
+          const cell = document.createElement("div");
+          cell.className = "calendar-day calendar-day--empty";
+          grid.appendChild(cell);
+        }
+        for (let day = 1; day <= daysInMonth; day++) {
+          const cell = document.createElement("div");
+          const isToday =
+            day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+          const hasEvent = eventDays.has(day);
+          cell.className = "calendar-day";
+          if (isToday) cell.classList.add("calendar-day--today");
+
+          const inner = document.createElement("div");
+          inner.className = "calendar-day__inner";
+          const num = document.createElement("span");
+          num.className = "calendar-day__num";
+          num.textContent = String(day);
+          inner.appendChild(num);
+
+          if (selectedReunion) {
+            const occs = getMeetingOccurrencesInRange(selectedReunion, monthStart, monthEnd).filter(
+              (d) => d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
+            );
+            if (occs.length) {
+              const kinds = occs.map((occ) => sessionKindForOccurrence(occ, selectedReunion, asistenciaRows, now));
+              const agg = aggregateDaySessionKind(kinds);
+              if (agg === "future") cell.classList.add("calendar-day--session-future");
+              else if (agg === "ok") cell.classList.add("calendar-day--session-ok");
+              else if (agg === "miss") cell.classList.add("calendar-day--session-miss");
+              if (rescheduledAsist.has(day)) cell.classList.add("calendar-day--reag-marker");
+            }
+          } else if (agendamientoReunion) {
+            const occs = getMeetingOccurrencesInRange(agendamientoReunion, monthStart, monthEnd).filter(
+              (d) => d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
+            );
+            if (occs.length) {
+              cell.classList.add("calendar-day--session-future");
+              if (rescheduledAgen.has(day)) cell.classList.add("calendar-day--reag-marker");
+              const dotsRow = document.createElement("div");
+              dotsRow.className = "calendar-day__dots";
+              for (let di = 0; di < occs.length; di++) {
+                const dot = document.createElement("span");
+                dot.className = "calendar-day__dot";
+                dotsRow.appendChild(dot);
+              }
+              inner.appendChild(dotsRow);
+              const ver = document.createElement("button");
+              ver.type = "button";
+              ver.className = "btn-calendar-ver";
+              ver.textContent = "Ver";
+              ver.addEventListener("click", (ev) => openDayRosterFromCell(ev, year, month, day));
+              inner.appendChild(ver);
+            }
+          } else if (hasEvent) {
+            cell.classList.add("calendar-day--general-mark");
+            if (rescheduledDaysAll.has(day)) cell.classList.add("calendar-day--reag-marker");
+            const meetingsForDay = listMeetingsOnCalendarDay(year, month, day);
+            const nDots = Math.max(1, meetingsForDay.length);
+            const dotsRow = document.createElement("div");
+            dotsRow.className = "calendar-day__dots";
+            for (let di = 0; di < nDots; di++) {
+              const dot = document.createElement("span");
+              dot.className = "calendar-day__dot";
+              dotsRow.appendChild(dot);
+            }
+            inner.appendChild(dotsRow);
+            const ver = document.createElement("button");
+            ver.type = "button";
+            ver.className = "btn-calendar-ver";
+            ver.textContent = "Ver";
+            ver.addEventListener("click", (ev) => openDayRosterFromCell(ev, year, month, day));
+            inner.appendChild(ver);
+          }
+
+          cell.appendChild(inner);
+          grid.appendChild(cell);
+        }
+
+        wrap.appendChild(mt);
+        wrap.appendChild(week);
+        wrap.appendChild(grid);
+        panels.appendChild(wrap);
       }
+
+      panels.innerHTML = "";
+      appendMonthBlock(y0, m0);
+      appendMonthBlock(y1, m1);
     }
 
     async function loadHomeMeetings() {
       homeMeetings = [];
       if (!getToken()) {
-        renderHomeCalendar();
+        homeQuickSelectedReunionId = null;
+        homeAsistenciaPayload = null;
+        homeAgendamientoReunionId = null;
+        homeCalendarViewDate = new Date();
+        renderHomeCalendar(homeCalendarViewDate);
         return;
       }
       try {
@@ -4945,12 +6194,27 @@
       } catch (_) {
         homeMeetings = [];
       } finally {
-        const roleHint = $("homeCalendarRoleHint");
-        if (roleHint) {
-          const count = homeMeetings.filter((r) => r?.fechaHora).length;
-          roleHint.textContent = `${getUserRoleLabel(currentUser?.rol)} · ${count} evento(s) con fecha`;
+        homeCalendarViewDate = new Date();
+        const selA = homeQuickSelectedReunionId;
+        const selG = homeAgendamientoReunionId;
+        const stillA =
+          selA != null &&
+          (homeMeetings || []).some((x) => String(getReunionPk(x) ?? "") === String(selA));
+        const stillG =
+          selG != null &&
+          (homeMeetings || []).some((x) => String(getReunionPk(x) ?? "") === String(selG));
+        if (!stillA) {
+          homeQuickSelectedReunionId = null;
+          homeAsistenciaPayload = null;
         }
-        renderHomeCalendar();
+        if (!stillG) {
+          homeAgendamientoReunionId = null;
+        }
+        if (homeQuickSelectedReunionId != null) {
+          await loadAsistenciaForCalendar(homeQuickSelectedReunionId);
+        } else {
+          renderHomeCalendar(homeCalendarViewDate);
+        }
         renderScheduledMeetings();
       }
     }
@@ -8127,6 +9391,7 @@
       const lc = $("localConnStatus");
       if (lc) lc.textContent = "";
       log("Saliste de la reunión. Cámara, micrófono y conexiones WebRTC liberados.");
+      await loadHomeMeetings();
     }
 
     $("chatThreadPicker").addEventListener("change", (e) => {
@@ -8306,13 +9571,101 @@
       openScheduleModal();
     });
 
+    $("btnCalendarUndo")?.addEventListener("click", async () => {
+      if (!calendarioHistorial) return;
+      try {
+        const accion = await calendarioHistorial.undo();
+        if (accion?.label) log(`Deshecho: ${accion.label}`);
+      } catch (e) {
+        log("Deshacer: " + (e?.message || e));
+      }
+    });
+    $("btnCalendarRedo")?.addEventListener("click", async () => {
+      if (!calendarioHistorial) return;
+      try {
+        const accion = await calendarioHistorial.redo();
+        if (accion?.label) log(`Rehecho: ${accion.label}`);
+      } catch (e) {
+        log("Rehacer: " + (e?.message || e));
+      }
+    });
+    $("btnCalendarPrintAgendamiento")?.addEventListener("click", () => {
+      log("Impresión de agendamiento (próximamente).");
+    });
+    $("btnCalendarPrintAsistencia")?.addEventListener("click", () => {
+      log("Impresión de asistencia (próximamente).");
+    });
+
+    $("btnHomeCalendarPrev")?.addEventListener("click", () => {
+      const d = new Date(homeCalendarViewDate);
+      d.setMonth(d.getMonth() - 1);
+      homeCalendarViewDate = d;
+      if (homeQuickSelectedReunionId != null) void loadAsistenciaForCalendar(homeQuickSelectedReunionId);
+      else renderHomeCalendar();
+    });
+    $("btnHomeCalendarNext")?.addEventListener("click", () => {
+      const d = new Date(homeCalendarViewDate);
+      d.setMonth(d.getMonth() + 1);
+      homeCalendarViewDate = d;
+      if (homeQuickSelectedReunionId != null) void loadAsistenciaForCalendar(homeQuickSelectedReunionId);
+      else renderHomeCalendar();
+    });
+
+    async function submitHomeJoinWithCode() {
+      const input = $("homeJoinCodeInput");
+      const st = $("homeJoinCodeStatus");
+      const raw = String(input?.value || "").trim();
+      if (!getToken()) {
+        if (st) st.textContent = "Inicia sesión para unirte con código.";
+        return;
+      }
+      if (!raw) {
+        if (st) st.textContent = "Escribe o pega un código.";
+        input?.focus({ preventScroll: true });
+        return;
+      }
+      if (st) st.textContent = "Uniendo…";
+      try {
+        const codigo = parseJoinInviteFromClipboard(raw);
+        if (!codigo) {
+          if (st) st.textContent = "Escribe o pega un código válido.";
+          return;
+        }
+        const data = await api("/api/reuniones/unirse-con-token", {
+          method: "POST",
+          body: JSON.stringify({ codigo }),
+        });
+        const rid = data?.roomId != null ? String(data.roomId).trim() : "";
+        if (!rid) throw new Error("Respuesta sin sala");
+        if (st) st.textContent = "";
+        await loadHomeMeetings();
+        if (input) input.value = "";
+        void enterRoom(rid).catch((e) => {
+          if (st) st.textContent = e?.message || "No se pudo entrar a la sala.";
+        });
+      } catch (e) {
+        if (st) st.textContent = e?.message || "No se pudo unir con ese código.";
+        log("Unirse con código: " + (e?.message || e));
+      }
+    }
+
+    $("btnHomeJoinWithCode")?.addEventListener("click", () => {
+      void submitHomeJoinWithCode();
+    });
+    $("homeJoinCodeInput")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void submitHomeJoinWithCode();
+      }
+    });
+
     $("btnScheduleModalCancel")?.addEventListener("click", () => closeScheduleModal());
     $("scheduleModalBackdrop")?.addEventListener("click", () => closeScheduleModal());
     $("btnScheduleCopyLink")?.addEventListener("click", async () => {
       const input = $("scheduleShareLinkInput");
       const ok = await copyTextToClipboard(input?.value || "");
       const err = $("scheduleModalError");
-      if (err) err.textContent = ok ? "Link copiado." : "No se pudo copiar el link.";
+      if (err) err.textContent = ok ? "Código copiado." : "No se pudo copiar el código.";
     });
     $("scheduleRecurrenceMode")?.addEventListener("change", () => updateScheduleRecurrenceUi());
     $("scheduleRecurrenceEndMode")?.addEventListener("change", () => updateScheduleRecurrenceUi());
@@ -8369,7 +9722,10 @@
       }
       if (recurrence && endMode === "until" && recUntil) {
         const untilDate = new Date(`${recUntil}T23:59:59`);
-        if (Number.isNaN(untilDate.getTime()) || untilDate < startDate) {
+        if (
+          !scheduleEditingSeriesOccurrence &&
+          (Number.isNaN(untilDate.getTime()) || untilDate < startDate)
+        ) {
           if (err) err.textContent = "La fecha de fin debe ser igual o posterior al inicio.";
           $("scheduleRecurrenceUntil")?.focus({ preventScroll: true });
           return;
@@ -8381,25 +9737,101 @@
         const endpoint = isEditing
           ? "/api/reuniones/" + encodeURIComponent(scheduleEditingReunionId)
           : "/api/reuniones";
-        const data = await api(endpoint, {
-          method: isEditing ? "PATCH" : "POST",
-          body: JSON.stringify({
-            titulo: rawTitle,
-            fechaHora: startDate.toISOString(),
-            fechaHoraFin: endDate.toISOString(),
-            zonaHoraria: zone,
-            recurrencia: recurrence,
-          }),
-        });
+        let data;
+        const occurrenceSave =
+          isEditing &&
+          scheduleEditingSeriesOccurrence &&
+          scheduleOccurrenceId &&
+          scheduleOccurrencePreserve?.anchorStart;
+        if (occurrenceSave) {
+          const pk = scheduleEditingReunionId;
+          const newIso = startDate.toISOString();
+          if (newIso !== scheduleOccurrenceEffectiveIsoAtOpen) {
+            await api(`/api/reuniones/${encodeURIComponent(pk)}/reagendar`, {
+              method: "POST",
+              body: JSON.stringify({
+                occurrenceId: scheduleOccurrenceId,
+                newDate: newIso,
+              }),
+            });
+          }
+          let recObj = scheduleOccurrencePreserve.recurrencia;
+          if (typeof recObj === "string") {
+            try {
+              recObj = JSON.parse(recObj);
+            } catch {
+              recObj = recurrence;
+            }
+          }
+          if (!recObj || typeof recObj !== "object") recObj = recurrence;
+          const anchor = new Date(scheduleOccurrencePreserve.anchorStart);
+          const endSlot = new Date(anchor.getTime() + dur * 60_000);
+          data = await api(endpoint, {
+            method: "PATCH",
+            body: JSON.stringify({
+              titulo: rawTitle,
+              fechaHora: scheduleOccurrencePreserve.anchorStart,
+              fechaHoraFin: endSlot.toISOString(),
+              zonaHoraria: zone,
+              recurrencia: recObj,
+            }),
+          });
+        } else {
+          data = await api(endpoint, {
+            method: isEditing ? "PATCH" : "POST",
+            body: JSON.stringify({
+              titulo: rawTitle,
+              fechaHora: startDate.toISOString(),
+              fechaHoraFin: endDate.toISOString(),
+              zonaHoraria: zone,
+              recurrencia: recurrence,
+            }),
+          });
+        }
         const reunionRow = data?.reunion;
         const rid = reunionRow?.roomId ?? reunionRow?.room_id ?? "";
         const pk = getReunionPk(reunionRow);
         if (pk) scheduleEditingReunionId = pk;
-        const shareUrl = buildMeetingJoinLink(rid);
-        if (linkInput) linkInput.value = shareUrl;
+        const payloadAfter = buildAgendaPayloadFromForm(rawTitle, startDate, endDate, zone, recurrence);
+        const beforeSnap = scheduleUndoSnapshot;
+        if (!isEditing && pk) {
+          pushHistorialAgendar(pk, payloadAfter);
+        } else if (occurrenceSave && pk && scheduleOccurrenceId && scheduleOccurrenceEffectiveIsoAtOpen) {
+          const newIso = startDate.toISOString();
+          if (newIso !== scheduleOccurrenceEffectiveIsoAtOpen) {
+            let recObjHist = scheduleOccurrencePreserve.recurrencia;
+            if (typeof recObjHist === "string") {
+              try {
+                recObjHist = JSON.parse(recObjHist);
+              } catch {
+                recObjHist = recurrence;
+              }
+            }
+            const anchorHist = new Date(scheduleOccurrencePreserve.anchorStart);
+            const patchAfter = {
+              titulo: rawTitle,
+              fechaHora: scheduleOccurrencePreserve.anchorStart,
+              fechaHoraFin: new Date(anchorHist.getTime() + dur * 60_000).toISOString(),
+              zonaHoraria: zone,
+              recurrencia: recObjHist || recurrence,
+            };
+            pushHistorialReagendar(
+              pk,
+              scheduleOccurrenceId,
+              scheduleOccurrenceEffectiveIsoAtOpen,
+              newIso,
+              beforeSnap,
+              patchAfter
+            );
+          }
+        } else if (isEditing && pk && beforeSnap) {
+          pushHistorialEditar(pk, beforeSnap, payloadAfter);
+        }
+        const shareCode = getMeetingShareCode(rid);
+        if (linkInput) linkInput.value = shareCode;
         $("crearResult").textContent = isEditing
-          ? `Reunión actualizada. Enlace: ${shareUrl}`
-          : `Reunión agendada. Enlace: ${shareUrl}`;
+          ? `Reunión actualizada. Código: ${shareCode}`
+          : `Reunión agendada. Código: ${shareCode}`;
         log(isEditing ? "Reunión actualizada correctamente." : "Reunión agendada correctamente.");
         if (err) err.textContent = "";
         void loadHomeMeetings();
@@ -8444,13 +9876,13 @@
       }
     });
     $("btnCopyRoomLink")?.addEventListener("click", async () => {
-      const url = buildMeetingJoinLink(activeRoomId);
-      if (!url) {
+      const code = getMeetingShareCode(activeRoomId);
+      if (!code) {
         log("No hay sala activa.");
         return;
       }
-      const ok = await copyTextToClipboard(url);
-      if (!ok) log("No se pudo copiar el enlace.");
+      const ok = await copyTextToClipboard(code);
+      if (!ok) log("No se pudo copiar el código.");
     });
 
     $("btnRoomViewToggle")?.addEventListener("click", () => {

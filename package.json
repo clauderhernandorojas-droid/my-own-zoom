@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test:copresencia": "node scripts/test-copresencia-socket.cjs"
   },
   "engines": {
     "node": ">=18"
@@ -22,7 +23,9 @@
     "sqlite3": "^5.1.7",
     "uuid": "^11.0.3"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/clauderhernandorojas-droid/my-own-zoom.git"

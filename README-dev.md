@@ -11,7 +11,8 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Express** en el mismo proceso HTTP que **Socket.io** (mismo puerto; por defecto `3000`).
 - **CORS** abierto para desarrollo; **JSON** body parser.
 - Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`).
-- **Health**: `GET /health`.
+- **Health**: `GET /health` (en desarrollo incluye `copresenciaUmbralMs` leído de `ASISTENCIA_COPRESENCIA_MS_MIN`).
+- **Historial de agenda (cliente)**: `GET /js/historialAcciones.js` sirve `src/services/historialAcciones.js` (pilas deshacer/rehacer en el navegador; sin persistencia en servidor).
 - **WebRTC / ICE**: `GET /api/rtc/config` — STUN desde `STUN_URLS` o por defecto Google; TURN opcional vía `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
 - **Estáticos**: `public/`; la raíz sirve `public/index.html`.
 - **Base de datos**: Sequelize. Sin `DATABASE_URL` → **SQLite** en `data/app.sqlite`. Con `DATABASE_URL` → **PostgreSQL**.
@@ -22,8 +23,10 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 
 ### Persistencia y esquema
 
-- Modelos en `src/models/`: `Usuario`, `Reunion`, `Participa`, `Mensaje`, `Tablero` y asociaciones en `src/models/index.js`.
-- **Importante:** el esquema base se aplica con **`sequelize.sync()`** al iniciar (`server.js`); las columnas nuevas de adjuntos en `mensajes` se completan con el helper anterior. **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
+- Modelos en `src/models/`: `Usuario`, `Reunion`, `Participa`, `Mensaje`, `Tablero`, **`ReunionAsistencia`**, **`ReunionOcurrencia`**, **`ReunionInvitado`**, **`ReunionSolicitudAcceso`** y asociaciones en `src/models/index.js`.
+- **Asistencia / copresencia**: filas en `reunion_asistencia` (entrada/salida por usuario y reunión); copresencia en memoria en `src/services/copresencia.js` (umbral configurable). Al `room:join` / `room:leave` el socket delega en `src/services/asistencia.js` (`registrarEntradaStub` / `registrarSalidaStub`) sin alterar la lógica interna de copresencia.
+- **Ocurrencias de serie**: overrides de fecha por instancia en `reunion_ocurrencia` (`occurrenceId` UUID o legacy `t_<epochMs>`); servicio `src/services/reuniones.js` (`reagendarOcurrencia`).
+- **Importante:** el esquema base se aplica con **`sequelize.sync()`** al iniciar (`server.js`); las columnas nuevas de adjuntos en `mensajes` se completan con el helper anterior. Si existía una tabla legacy `reunion_asistencias` incompatible, `server.js` la elimina antes del `sync()` para recrear el esquema actual. **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
 
 ### Cliente (`public/index.html`)
 
@@ -50,6 +53,12 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Grabación de la reunión (docente)**: solo el **dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles; el servidor rechaza `recording:state` para otros. Un único botón **grabar vídeo** con `MediaRecorder` sobre canvas compuesto (1280×720 @ ~24 fps) + mezcla Web Audio. Se retiró la casilla “incluir tablero”; la composición prioriza **pantalla compartida** cuando está activa y usa cámaras como franja contextual (arriba o a la derecha según layout). **IndexedDB** y `recording:state` / `recording:notify`.
 - **Tablero**: cuadrícula punteada sutil y vista sin borde final visible (experiencia “infinita” práctica). El minimapa pasó a marco dinámico basado en contenido + viewport en lugar de límites fijos.
 - **Home/Lobby rediseñado**: estilo unificado negro/blanco/azul, acciones rápidas, calendario y lista de próximas reuniones. Se removió el flujo manual de `Room ID` y la entrada se hace por acciones directas por reunión (`Entrar`, `Editar`, `Cupo`, `Eliminar`, `Copiar link`).
+- **Calendario (dos meses)**:
+  - Modos **Agendamiento** y **Asistencia** por reunión seleccionada; colores de día: azul (programado/futuro), verde (asistió / copresencia cumplida), rojo (no asistió / pasado sin registro).
+  - Datos de asistencia vía `GET /api/reuniones/:reunionId/asistencia` (filas + `resumen`); emparejamiento de ocurrencias con `entradaAt`/`salidaAt` en el mismo día local; soporte de **reagenda** (`fechaOcurrenciaOverride` vs `inicioSesion`).
+  - **Reagendar** una ocurrencia de serie: `POST /api/reuniones/:reunionId/reagendar` con `occurrenceId` + `newDate`; marcador ↻ en el día; aviso en modal «Reagendada desde…».
+  - Barra del calendario: **Deshacer** / **Rehacer** solo visibles para **profesor** (pilas en cliente para agendar, editar, reagendar, eliminar); **Imprimir agendamiento** / **Imprimir asistencia** son placeholders (log «próximamente»).
+  - Tras salir de sala, `loadHomeMeetings()` refresca el calendario para reflejar asistencia persistida.
 - **Agendamiento en modal**: creación y edición con título, inicio, duración, zona horaria, link compartible y copia al portapapeles. Modal con scroll interno + acciones sticky para mantener botones visibles en pantallas pequeñas.
 - **Recurrencia en UI**: `No repetir`, `Diario`, `Semanal`, `Mensual`, `Personalizado` (base diaria/semanal/mensual, intervalo y selección de días con chips). Fin de secuencia con modo `Nunca` o `Hasta fecha`, resumen legible de la regla y validación visual/funcional cuando la fecha fin queda antes del inicio.
 - **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
@@ -118,13 +127,18 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) en modelo | `src/models/reunion.js` |
+| **Asistencia en BD** + umbral de copresencia | `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, socket `src/socket/asistenciaSocket.js` + stubs en `room:join`/`room:leave` |
+| **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` |
+| **Deshacer/rehacer agenda** (solo UI profesor; pilas en memoria) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`) |
+| Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` (API según rutas en `reuniones.js`) |
 
 ---
 
 ## 3. Próximas etapas visibles en el esquema / producto
 
 - **Chat**: pulir UX según feedback (flujo copiar/cortar, toasts, consistencia del borrado y reacciones en todos los clientes).
-- **Recurrencia avanzada de serie**: actualmente se guarda/lee regla y se proyectan ocurrencias en cliente para calendario/lista; falta expansión persistida de instancias, excepciones por ocurrencia y edición granular de serie.
+- **Impresión** desde calendario (agendamiento y asistencia): placeholders en UI; falta vista imprimible o PDF.
+- **Recurrencia avanzada de serie**: regla JSON + overrides por ocurrencia vía `reunion_ocurrencia`; edición por día del calendario fuerza instancia de serie; falta cancelar ocurrencia suelta sin tocar la serie completa.
 - **Migraciones explícitas**: pasar de `sync()` a **sequelize-cli** (o similar) para entornos compartidos y despliegues.
 - **Mejoras opcionales**: endurecer reglas de cupo si entraran roles mixtos; export PDF también desde servidor; TURN en producción; tests automatizados.
 
@@ -138,8 +152,9 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 |---------|-----|
 | `npm start` | Arranca `node server.js` |
 | `npm run dev` | Mismo servidor con `node --watch` |
+| `npm run test:copresencia` | Script `scripts/test-copresencia-socket.cjs` (socket.io-client; prueba entrada/salida y umbral) |
 
-Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`.
+Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción).
 
 ---
 
@@ -172,4 +187,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — texto en tablero: editor `contenteditable`, alineación métrica con DPR/pixel ratio del canvas, handles solo en esquinas y README alineado al comportamiento actual.*
+*Última actualización de este documento: mayo 2026 — calendario con asistencia/copresencia en BD, reagendar ocurrencias, historial deshacer/rehacer (solo profesor), script `test:copresencia` y modelos `reunion_asistencia` / `reunion_ocurrencia`.*

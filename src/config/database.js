@@ -7,7 +7,7 @@ function createSequelize() {
   if (databaseUrl) {
     return new Sequelize(databaseUrl, {
       dialect: 'postgres',
-      logging: process.env.NODE_ENV === 'development' ? console.log : false,
+      logging: process.env.SQL_LOG === '1' ? console.log : false,
       define: {
         underscored: true,
         timestamps: true,
@@ -21,7 +21,7 @@ function createSequelize() {
   return new Sequelize({
     dialect: 'sqlite',
     storage,
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    logging: process.env.SQL_LOG === '1' ? console.log : false,
     define: {
       underscored: true,
       timestamps: true,

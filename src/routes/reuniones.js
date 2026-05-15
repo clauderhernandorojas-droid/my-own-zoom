@@ -3,7 +3,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
-const { Reunion, Participa, Tablero, Usuario } = require('../models');
+const { Reunion, Participa, Tablero, Usuario, ReunionOcurrencia } = require('../models');
 const { MAX_ESTUDIANTES, puedeUnirseParticipar } = require('../services/reunionParticipacion');
 const {
   MAX_BYTES,
@@ -12,6 +12,13 @@ const {
   multerFilename,
   posixRelPath,
 } = require('../services/chatAdjuntos');
+const {
+  listarAsistenciaPorReunion,
+  registrarEntradaStub,
+  registrarSalidaStub,
+  resumenAsistenciaStub,
+} = require('../services/asistencia');
+const { reagendarOcurrencia, occurrenceIdFromLegacyOldDate } = require('../services/reuniones');
 
 const router = express.Router();
 
@@ -53,6 +60,23 @@ function normalizeRecurrence(raw) {
     };
   }
   return null;
+}
+
+/** Enriquece JSON de reunión con `reagendada` y metadatos legibles en cada excepción. */
+function reunionJsonWithReagenda(reunion) {
+  if (!reunion) return null;
+  const j = typeof reunion.toJSON === 'function' ? reunion.toJSON() : { ...reunion };
+  const ex = Array.isArray(j.ocurrenciaExcepciones) ? j.ocurrenciaExcepciones : [];
+  j.reagendada = ex.length > 0;
+  j.ocurrenciaExcepciones = ex.map((row) => {
+    const o = { ...row };
+    o.reagendada = true;
+    o.fechaOriginal = o.fechaOcurrenciaOriginal ?? o.fecha_ocurrencia_original;
+    o.nuevaFecha = o.fechaOcurrenciaOverride ?? o.fecha_ocurrencia_override;
+    o.occurrenceId = o.reunionOcurrenciaId ?? o.reunion_ocurrencia_id ?? null;
+    return o;
+  });
+  return j;
 }
 
 const uploadChatAdjunto = multer({
@@ -98,10 +122,10 @@ router.post('/', async (req, res, next) => {
     const startDate = fechaHora ? new Date(fechaHora) : null;
     const endDate = fechaHoraFin ? new Date(fechaHoraFin) : null;
     if (startDate && Number.isNaN(startDate.getTime())) {
-      return res.status(400).json({ error: 'fechaHora inválida' });
+      return res.status(400).json({ error: 'fechaHora inv?lida' });
     }
     if (endDate && Number.isNaN(endDate.getTime())) {
-      return res.status(400).json({ error: 'fechaHoraFin inválida' });
+      return res.status(400).json({ error: 'fechaHoraFin inv?lida' });
     }
     if (startDate && endDate && endDate <= startDate) {
       return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
@@ -141,10 +165,76 @@ router.get('/mis', async (req, res, next) => {
   try {
     const participaciones = await Participa.findAll({
       where: { usuarioId: req.usuario.usuarioId },
-      include: [{ model: Reunion, required: true }],
+      include: [
+        {
+          model: Reunion,
+          required: true,
+          include: [
+            {
+              model: ReunionOcurrencia,
+              as: 'ocurrenciaExcepciones',
+              required: false,
+            },
+          ],
+        },
+      ],
     });
-    const reuniones = participaciones.map((p) => p.Reunion);
+    const reuniones = participaciones.map((p) => reunionJsonWithReagenda(p.Reunion));
     res.json({ reuniones });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Une por `room_id` (insensible a may?sculas) o por PK `reunion_id`; misma validaci?n de cupo que `POST /room/:roomId/unirse`. */
+router.post('/unirse-con-token', async (req, res, next) => {
+  try {
+    const codigo = String(req.body?.codigo ?? req.body?.token ?? '').trim();
+    if (!codigo) {
+      return res.status(400).json({ error: 'Indica el c?digo de invitaci?n' });
+    }
+    const roomKeyLower = codigo.toLowerCase();
+    let reunion = await Reunion.findOne({
+      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKeyLower),
+    });
+    if (!reunion) {
+      reunion = await Reunion.findByPk(codigo);
+    }
+    if (!reunion) {
+      return res.status(404).json({ error: 'C?digo no reconocido' });
+    }
+    const roomKey = reunion.roomId != null ? String(reunion.roomId).trim() : '';
+    if (!roomKey) {
+      return res.status(404).json({ error: 'C?digo no reconocido' });
+    }
+
+    const existente = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (existente) {
+      return res.status(200).json({
+        participa: existente,
+        reunionId: reunion.reunionId,
+        roomId: roomKey,
+      });
+    }
+
+    const cupo = await puedeUnirseParticipar(reunion, req.usuario.usuarioId);
+    if (!cupo.ok) {
+      return res.status(403).json({ error: cupo.error });
+    }
+
+    const row = await Participa.create({
+      usuarioId: req.usuario.usuarioId,
+      reunionId: reunion.reunionId,
+      rolEnReunion: req.usuario.rol === 'docente' ? 'docente' : 'estudiante',
+    });
+
+    return res.status(201).json({
+      participa: row,
+      reunionId: reunion.reunionId,
+      roomId: roomKey,
+    });
   } catch (e) {
     next(e);
   }
@@ -153,12 +243,12 @@ router.get('/mis', async (req, res, next) => {
 router.patch('/:reunionId', async (req, res, next) => {
   try {
     const reunion = await Reunion.findByPk(req.params.reunionId);
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
     const isAdmin = req.usuario.rol === 'admin';
     if (!isOwner && !isAdmin) {
-      return res.status(403).json({ error: 'Solo el docente creador puede editar esta reunión' });
+      return res.status(403).json({ error: 'Solo el docente creador puede editar esta reuni?n' });
     }
 
     const { titulo, fechaHora, fechaHoraFin, zonaHoraria, recurrencia } = req.body || {};
@@ -168,10 +258,10 @@ router.patch('/:reunionId', async (req, res, next) => {
     const startDate = fechaHora ? new Date(fechaHora) : null;
     const endDate = fechaHoraFin ? new Date(fechaHoraFin) : null;
     if (startDate && Number.isNaN(startDate.getTime())) {
-      return res.status(400).json({ error: 'fechaHora inválida' });
+      return res.status(400).json({ error: 'fechaHora inv?lida' });
     }
     if (endDate && Number.isNaN(endDate.getTime())) {
-      return res.status(400).json({ error: 'fechaHoraFin inválida' });
+      return res.status(400).json({ error: 'fechaHoraFin inv?lida' });
     }
     if (startDate && endDate && endDate <= startDate) {
       return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
@@ -187,7 +277,80 @@ router.patch('/:reunionId', async (req, res, next) => {
     reunion.estado = hasFutureSchedule ? 'programada' : 'activa';
     await reunion.save();
 
-    return res.json({ reunion });
+    const reloaded = await Reunion.findByPk(req.params.reunionId, {
+      include: [{ model: ReunionOcurrencia, as: 'ocurrenciaExcepciones', required: false }],
+    });
+    const lastEx = await ReunionOcurrencia.findOne({
+      where: { reunionId: reunion.reunionId },
+      order: [['actualizadoEn', 'DESC']],
+    });
+    const reunionOut = reunionJsonWithReagenda(reloaded);
+    if (lastEx) {
+      return res.json({
+        reunion: reunionOut,
+        reagendada: true,
+        fechaOriginal: new Date(lastEx.fechaOcurrenciaOriginal).toISOString(),
+        nuevaFecha: new Date(lastEx.fechaOcurrenciaOverride).toISOString(),
+      });
+    }
+    return res.json({
+      reunion: reunionOut,
+      reagendada: false,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/:reunionId/reagendar', async (req, res, next) => {
+  try {
+    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'Solo docentes pueden reagendar ocurrencias' });
+    }
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+
+    const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
+    const isAdmin = req.usuario.rol === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Solo el docente creador puede reagendar esta serie' });
+    }
+
+    let { occurrenceId, newDate, oldDate } = req.body || {};
+    if (newDate == null) {
+      return res.status(400).json({ error: 'Se requiere newDate (ISO)' });
+    }
+    if (occurrenceId == null || String(occurrenceId).trim() === '') {
+      if (oldDate == null) {
+        return res.status(400).json({
+          error:
+            'Se requieren occurrenceId y newDate (ISO). Si usas un cliente antiguo, envía oldDate y newDate.',
+        });
+      }
+      const leg = await occurrenceIdFromLegacyOldDate(reunion, oldDate);
+      if (!leg.ok) {
+        const st = leg.code === 'NOT_FOUND' ? 404 : 400;
+        return res.status(st).json({ error: leg.error, code: leg.code });
+      }
+      occurrenceId = leg.occurrenceId;
+    }
+
+    const result = await reagendarOcurrencia(req.params.reunionId, occurrenceId, newDate);
+    if (!result.ok) {
+      const status = result.code === 'NOT_FOUND' ? 404 : 400;
+      return res.status(status).json({ error: result.error, code: result.code });
+    }
+    const reloaded = await Reunion.findByPk(req.params.reunionId, {
+      include: [{ model: ReunionOcurrencia, as: 'ocurrenciaExcepciones', required: false }],
+    });
+    return res.status(200).json({
+      ok: true,
+      reagendada: true,
+      fechaOriginal: result.fechaOriginal,
+      nuevaFecha: result.nuevaFecha,
+      excepcion: result.excepcion,
+      reunion: reunionJsonWithReagenda(reloaded),
+    });
   } catch (e) {
     next(e);
   }
@@ -196,12 +359,12 @@ router.patch('/:reunionId', async (req, res, next) => {
 router.delete('/:reunionId', async (req, res, next) => {
   try {
     const reunion = await Reunion.findByPk(req.params.reunionId);
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
     const isAdmin = req.usuario.rol === 'admin';
     if (!isOwner && !isAdmin) {
-      return res.status(403).json({ error: 'Solo el docente creador puede eliminar esta reunión' });
+      return res.status(403).json({ error: 'Solo el docente creador puede eliminar esta reuni?n' });
     }
 
     reunion.estado = 'finalizada';
@@ -226,7 +389,7 @@ router.get('/room/:roomId', async (req, res, next) => {
         { model: Tablero, as: 'tablero', required: false },
       ],
     });
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const participantes = await Participa.count({
       where: { reunionId: reunion.reunionId },
@@ -260,13 +423,13 @@ router.get('/:reunionId', async (req, res, next) => {
         { model: Tablero, as: 'tablero', required: false },
       ],
     });
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const soyParticipante = await Participa.findOne({
       where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
     });
     if (!soyParticipante && req.usuario.rol !== 'admin') {
-      return res.status(403).json({ error: 'No participas en esta reunión' });
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
     }
     res.json({ reunion });
   } catch (e) {
@@ -277,13 +440,13 @@ router.get('/:reunionId', async (req, res, next) => {
 router.get('/:reunionId/participantes', async (req, res, next) => {
   try {
     const reunion = await Reunion.findByPk(req.params.reunionId);
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const soyParticipante = await Participa.findOne({
       where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
     });
     if (!soyParticipante && req.usuario.rol !== 'admin') {
-      return res.status(403).json({ error: 'No participas en esta reunión' });
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
     }
 
     const rows = await Participa.findAll({
@@ -309,10 +472,74 @@ router.get('/:reunionId/participantes', async (req, res, next) => {
   }
 });
 
+router.get('/:reunionId/asistencia', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+
+    const soyParticipante = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (!soyParticipante && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
+    }
+
+    const opts = {
+      desde: req.query.desde || undefined,
+      hasta: req.query.hasta || undefined,
+    };
+    const asistencia = await listarAsistenciaPorReunion(reunion.reunionId, opts);
+    const resumen = await resumenAsistenciaStub(reunion.reunionId, opts);
+    res.json({ asistencia, resumen });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/:reunionId/asistencia/entrada', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+
+    const soyParticipante = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (!soyParticipante && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
+    }
+
+    const meta = req.body && typeof req.body === 'object' ? req.body : {};
+    const registro = await registrarEntradaStub(reunion.reunionId, req.usuario.usuarioId, meta);
+    res.status(201).json({ ok: true, registro });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/:reunionId/asistencia/salida', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+
+    const soyParticipante = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (!soyParticipante && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
+    }
+
+    const meta = req.body && typeof req.body === 'object' ? req.body : {};
+    const registro = await registrarSalidaStub(reunion.reunionId, req.usuario.usuarioId, meta);
+    res.status(201).json({ ok: true, registro });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/:reunionId/unirse', async (req, res, next) => {
   try {
     const reunion = await Reunion.findByPk(req.params.reunionId);
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const existente = await Participa.findOne({
       where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
@@ -346,7 +573,7 @@ router.post('/room/:roomId/unirse', async (req, res, next) => {
     const reunion = await Reunion.findOne({
       where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
     });
-    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
 
     const existente = await Participa.findOne({
       where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
@@ -372,18 +599,18 @@ router.post('/room/:roomId/unirse', async (req, res, next) => {
   }
 });
 
-/** Sube un archivo al disco (sin crear fila en `mensajes`; el cliente envía el mensaje por Socket con los metadatos). */
+/** Sube un archivo al disco (sin crear fila en `mensajes`; el cliente env?a el mensaje por Socket con los metadatos). */
 router.post('/room/:roomId/chat-adjunto', (req, res, next) => {
   uploadChatAdjunto.single('file')(req, res, async (err) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'Archivo demasiado grande (máx. 20 MB)' });
+        return res.status(400).json({ error: 'Archivo demasiado grande (m?x. 20 MB)' });
       }
       return res.status(400).json({ error: err.message || 'Error al subir archivo' });
     }
     try {
       const file = req.file;
-      if (!file) return res.status(400).json({ error: 'No se recibió el archivo' });
+      if (!file) return res.status(400).json({ error: 'No se recibi? el archivo' });
 
       const roomKey = String(req.params.roomId || '')
         .trim()
@@ -395,7 +622,7 @@ router.post('/room/:roomId/chat-adjunto', (req, res, next) => {
         }));
       if (!reunion) {
         fs.unlink(file.path, () => {});
-        return res.status(404).json({ error: 'Reunión no encontrada' });
+        return res.status(404).json({ error: 'Reuni?n no encontrada' });
       }
 
       const participa = await Participa.findOne({
@@ -403,7 +630,7 @@ router.post('/room/:roomId/chat-adjunto', (req, res, next) => {
       });
       if (!participa && req.usuario.rol !== 'admin') {
         fs.unlink(file.path, () => {});
-        return res.status(403).json({ error: 'No participas en esta reunión' });
+        return res.status(403).json({ error: 'No participas en esta reuni?n' });
       }
 
       const rel = posixRelPath(reunion.reunionId, file.filename);

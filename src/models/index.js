@@ -5,6 +5,10 @@ const defineParticipa = require('./participa');
 const defineMensaje = require('./mensaje');
 const defineMensajeReaccion = require('./mensajeReaccion');
 const defineTablero = require('./tablero');
+const defineReunionInvitado = require('./reunionInvitado');
+const defineReunionSolicitudAcceso = require('./reunionSolicitudAcceso');
+const defineReunionAsistencia = require('./reunionAsistencia');
+const defineReunionOcurrencia = require('./reunionOcurrencia');
 
 const sequelize = createSequelize();
 
@@ -14,6 +18,10 @@ const Participa = defineParticipa(sequelize);
 const Mensaje = defineMensaje(sequelize);
 const MensajeReaccion = defineMensajeReaccion(sequelize);
 const Tablero = defineTablero(sequelize);
+const ReunionInvitado = defineReunionInvitado(sequelize);
+const ReunionSolicitudAcceso = defineReunionSolicitudAcceso(sequelize);
+const ReunionAsistencia = defineReunionAsistencia(sequelize);
+const ReunionOcurrencia = defineReunionOcurrencia(sequelize);
 
 // Usuarios ↔ Reuniones N:M
 Usuario.belongsToMany(Reunion, {
@@ -54,6 +62,33 @@ Tablero.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
 Usuario.hasMany(Reunion, { foreignKey: 'docenteUsuarioId', as: 'reunionesCreadas' });
 Reunion.belongsTo(Usuario, { foreignKey: 'docenteUsuarioId', as: 'docente' });
 
+// Invitaciones y solicitudes de acceso
+Reunion.hasMany(ReunionInvitado, { foreignKey: 'reunionId', as: 'invitados' });
+ReunionInvitado.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
+Usuario.hasMany(ReunionInvitado, { foreignKey: 'invitadoPorUsuarioId', as: 'invitacionesEnviadas' });
+ReunionInvitado.belongsTo(Usuario, { foreignKey: 'invitadoPorUsuarioId', as: 'invitadoPor' });
+
+Reunion.hasMany(ReunionSolicitudAcceso, { foreignKey: 'reunionId', as: 'solicitudesAcceso' });
+ReunionSolicitudAcceso.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
+Usuario.hasMany(ReunionSolicitudAcceso, { foreignKey: 'usuarioId', as: 'solicitudesAccesoUsuario' });
+ReunionSolicitudAcceso.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'solicitante' });
+Usuario.hasMany(ReunionSolicitudAcceso, {
+  foreignKey: 'respondidoPorUsuarioId',
+  as: 'solicitudesAccesoRespondidas',
+});
+ReunionSolicitudAcceso.belongsTo(Usuario, {
+  foreignKey: 'respondidoPorUsuarioId',
+  as: 'respondidoPor',
+});
+
+Reunion.hasMany(ReunionAsistencia, { foreignKey: 'reunionId', as: 'asistencias' });
+ReunionAsistencia.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
+Usuario.hasMany(ReunionAsistencia, { foreignKey: 'usuarioId', as: 'asistenciasReunion' });
+ReunionAsistencia.belongsTo(Usuario, { foreignKey: 'usuarioId', as: 'usuario' });
+
+Reunion.hasMany(ReunionOcurrencia, { foreignKey: 'reunionId', as: 'ocurrenciaExcepciones' });
+ReunionOcurrencia.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
+
 module.exports = {
   sequelize,
   Usuario,
@@ -62,4 +97,8 @@ module.exports = {
   Mensaje,
   MensajeReaccion,
   Tablero,
+  ReunionInvitado,
+  ReunionSolicitudAcceso,
+  ReunionAsistencia,
+  ReunionOcurrencia,
 };
