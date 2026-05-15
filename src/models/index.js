@@ -62,6 +62,9 @@ Tablero.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });
 Usuario.hasMany(Reunion, { foreignKey: 'docenteUsuarioId', as: 'reunionesCreadas' });
 Reunion.belongsTo(Usuario, { foreignKey: 'docenteUsuarioId', as: 'docente' });
 
+Reunion.belongsTo(Reunion, { foreignKey: 'parentReunionId', as: 'reunionPadre' });
+Reunion.hasMany(Reunion, { foreignKey: 'parentReunionId', as: 'reunionesExcepcion' });
+
 // Invitaciones y solicitudes de acceso
 Reunion.hasMany(ReunionInvitado, { foreignKey: 'reunionId', as: 'invitados' });
 ReunionInvitado.belongsTo(Reunion, { foreignKey: 'reunionId', as: 'reunion' });

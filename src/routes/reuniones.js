@@ -1,10 +1,28 @@
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
-const { Reunion, Participa, Tablero, Usuario, ReunionOcurrencia } = require('../models');
+const {
+  Reunion,
+  Participa,
+  Tablero,
+  Usuario,
+  Mensaje,
+  MensajeReaccion,
+  ReunionOcurrencia,
+} = require('../models');
 const { MAX_ESTUDIANTES, puedeUnirseParticipar } = require('../services/reunionParticipacion');
+const { findReunionByRoomKey } = require('../services/reunionByRoom');
+const {
+  validateNoOverlapForDocente,
+  validateSeriesOccurrencesNoOverlap,
+  CONFLICT_MESSAGE,
+  getMeetingOccurrencesInRange,
+  formatOccurrenceDayKey,
+  parseOmitInstance,
+} = require('../services/reunionHorarioSolapamiento');
 const {
   MAX_BYTES,
   isAllowedExtension,
@@ -62,6 +80,19 @@ function normalizeRecurrence(raw) {
   return null;
 }
 
+async function destroyReunionCascade(reunionId) {
+  const mids = (
+    await Mensaje.findAll({ where: { reunionId }, attributes: ['mensajeId'] })
+  ).map((m) => m.mensajeId);
+  if (mids.length) {
+    await MensajeReaccion.destroy({ where: { mensajeId: { [Op.in]: mids } } });
+    await Mensaje.destroy({ where: { reunionId } });
+  }
+  await Participa.destroy({ where: { reunionId } });
+  await Tablero.destroy({ where: { reunionId } });
+  await Reunion.destroy({ where: { reunionId } });
+}
+
 /** Enriquece JSON de reunión con `reagendada` y metadatos legibles en cada excepción. */
 function reunionJsonWithReagenda(reunion) {
   if (!reunion) return null;
@@ -85,9 +116,7 @@ const uploadChatAdjunto = multer({
       const roomKey = String(req.params.roomId || '')
         .trim()
         .toLowerCase();
-      Reunion.findOne({
-        where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
-      })
+      findReunionByRoomKey(roomKey)
         .then((reunion) => {
           if (!reunion) {
             cb(new Error('Sala no encontrada'));
@@ -133,6 +162,28 @@ router.post('/', async (req, res, next) => {
     const hasFutureSchedule = startDate && startDate.getTime() > Date.now() + 30_000;
     const recurrenceNorm = normalizeRecurrence(recurrencia);
 
+    if (
+      startDate &&
+      endDate &&
+      !Number.isNaN(startDate.getTime()) &&
+      !Number.isNaN(endDate.getTime()) &&
+      endDate > startDate
+    ) {
+      const overlapNew = await validateSeriesOccurrencesNoOverlap({
+        docenteUsuarioId: req.usuario.usuarioId,
+        reunionLike: {
+          fechaHora: startDate,
+          fechaHoraFin: endDate,
+          recurrencia: recurrenceNorm ? JSON.stringify(recurrenceNorm) : null,
+          titulo,
+        },
+        excludeReunionId: null,
+      });
+      if (overlapNew.conflict) {
+        return res.status(409).json({ error: overlapNew.message || CONFLICT_MESSAGE });
+      }
+    }
+
     const reunion = await Reunion.create({
       titulo,
       fechaHora: startDate || null,
@@ -157,6 +208,14 @@ router.post('/', async (req, res, next) => {
 
     return res.status(201).json({ reunion });
   } catch (e) {
+    const raw = String(e?.parent?.message || e?.original?.message || e?.message || '');
+    if (/unique|UNIQUE|constraint/i.test(raw) && /room/i.test(raw)) {
+      console.error('[POST /reuniones] Conflicto room_id:', raw);
+      return res.status(409).json({
+        error:
+          'No se pudo crear la reunión: conflicto en sala (room_id). Reinicia el servidor para aplicar la migración SQLite o revisa índices únicos en room_id.',
+      });
+    }
     next(e);
   }
 });
@@ -179,33 +238,37 @@ router.get('/mis', async (req, res, next) => {
         },
       ],
     });
-    const reuniones = participaciones.map((p) => reunionJsonWithReagenda(p.Reunion));
+    const seen = new Set();
+    const reuniones = [];
+    for (const p of participaciones) {
+      const row = p.Reunion ?? p.reunion;
+      if (!row) continue;
+      const id = row.reunionId != null ? String(row.reunionId) : '';
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      reuniones.push(reunionJsonWithReagenda(row));
+    }
     res.json({ reuniones });
   } catch (e) {
     next(e);
   }
 });
 
-/** Une por `room_id` (insensible a may?sculas) o por PK `reunion_id`; misma validaci?n de cupo que `POST /room/:roomId/unirse`. */
+/** Une por `room_id` (insensible a mayúsculas) o por PK `reunion_id`; misma validación de cupo que `POST /room/:roomId/unirse`. */
 router.post('/unirse-con-token', async (req, res, next) => {
   try {
     const codigo = String(req.body?.codigo ?? req.body?.token ?? '').trim();
     if (!codigo) {
-      return res.status(400).json({ error: 'Indica el c?digo de invitaci?n' });
+      return res.status(400).json({ error: 'Indica el código de invitación' });
     }
-    const roomKeyLower = codigo.toLowerCase();
-    let reunion = await Reunion.findOne({
-      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKeyLower),
-    });
+    let reunion = await findReunionByRoomKey(codigo);
+    if (!reunion) reunion = await Reunion.findByPk(codigo);
     if (!reunion) {
-      reunion = await Reunion.findByPk(codigo);
-    }
-    if (!reunion) {
-      return res.status(404).json({ error: 'C?digo no reconocido' });
+      return res.status(404).json({ error: 'Código no reconocido' });
     }
     const roomKey = reunion.roomId != null ? String(reunion.roomId).trim() : '';
     if (!roomKey) {
-      return res.status(404).json({ error: 'C?digo no reconocido' });
+      return res.status(404).json({ error: 'Código no reconocido' });
     }
 
     const existente = await Participa.findOne({
@@ -240,6 +303,250 @@ router.post('/unirse-con-token', async (req, res, next) => {
   }
 });
 
+router.post('/:reunionId/excepcion-ocurrencia', async (req, res, next) => {
+  try {
+    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'Solo docentes pueden editar excepciones' });
+    }
+    let parent = await Reunion.findByPk(req.params.reunionId);
+    if (!parent) return res.status(404).json({ error: 'Reunión no encontrada' });
+    const requestedId = req.params.reunionId;
+    if (parent.esExcepcion) {
+      const masterId = parent.parentReunionId;
+      if (!masterId) {
+        return res.status(400).json({ error: 'Excepción sin reunión padre asociada' });
+      }
+      const master = await Reunion.findByPk(masterId);
+      if (!master || master.esExcepcion) {
+        return res.status(400).json({ error: 'La reunión padre no puede ser una excepción' });
+      }
+      parent = master;
+      // #region agent log
+      try {
+        fs.appendFileSync(
+          path.join(__dirname, '..', '..', 'debug-4fb334.log'),
+          `${JSON.stringify({
+            sessionId: '4fb334',
+            hypothesisId: 'H3',
+            location: 'reuniones.js:excepcion-ocurrencia',
+            message: 'URL era fila excepción; resuelto a padre serie',
+            data: { requestedId, resolvedMasterId: parent.reunionId },
+            timestamp: Date.now(),
+          })}\n`
+        );
+      } catch (_) {}
+      // #endregion
+    }
+    if (!normalizeRecurrence(parent.recurrencia)) {
+      return res.status(400).json({ error: 'Solo series recurrentes admiten excepciones por día' });
+    }
+
+    const isOwner = String(parent.docenteUsuarioId) === String(req.usuario.usuarioId);
+    const isAdmin = req.usuario.rol === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Solo el docente creador puede crear excepciones' });
+    }
+
+    const { titulo, fechaHora, fechaHoraFin, zonaHoraria, occurrenceDayKey } = req.body || {};
+    const dayKey = occurrenceDayKey != null ? String(occurrenceDayKey).trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      return res.status(400).json({ error: 'occurrenceDayKey debe ser YYYY-MM-DD' });
+    }
+    const startDate = fechaHora ? new Date(fechaHora) : null;
+    const endDate = fechaHoraFin ? new Date(fechaHoraFin) : null;
+    if (!startDate || Number.isNaN(startDate.getTime())) {
+      return res.status(400).json({ error: 'fechaHora inválida' });
+    }
+    if (!endDate || Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'fechaHoraFin inválida' });
+    }
+    if (endDate <= startDate) {
+      return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
+    }
+
+    const hasFutureSchedule = startDate.getTime() > Date.now() + 30_000;
+    const serieKey = parent.serieId || parent.reunionId;
+
+    let reunion = await Reunion.findOne({
+      where: {
+        parentReunionId: parent.reunionId,
+        esExcepcion: true,
+        occurrenceDayKey: dayKey,
+      },
+    });
+
+    const overlapEx = await validateNoOverlapForDocente({
+      docenteUsuarioId: parent.docenteUsuarioId,
+      start: startDate,
+      end: endDate,
+      excludeReunionId: reunion ? reunion.reunionId : null,
+      serieLogId: parent.serieId || parent.reunionId,
+      mergeParentSubstitution: {
+        parentReunionId: parent.reunionId,
+        occurrenceDayKeys: [dayKey],
+      },
+    });
+    if (overlapEx.conflict) {
+      return res.status(409).json({ error: overlapEx.message || CONFLICT_MESSAGE });
+    }
+
+    console.log(`Detectada edición de instancia individual para la serie ${parent.reunionId}`);
+
+    if (reunion) {
+      reunion.titulo = titulo != null && String(titulo).trim() ? String(titulo).trim() : parent.titulo;
+      reunion.fechaHora = startDate;
+      reunion.fechaHoraFin = endDate;
+      reunion.zonaHoraria = zonaHoraria != null ? zonaHoraria : parent.zonaHoraria;
+      reunion.estado = hasFutureSchedule ? 'programada' : 'activa';
+      await reunion.save();
+      return res.json({ reunion });
+    }
+
+    reunion = await Reunion.create({
+      titulo: titulo != null && String(titulo).trim() ? String(titulo).trim() : parent.titulo,
+      fechaHora: startDate,
+      fechaHoraFin: endDate,
+      zonaHoraria: zonaHoraria != null ? zonaHoraria : parent.zonaHoraria,
+      roomId: parent.roomId,
+      docenteUsuarioId: parent.docenteUsuarioId,
+      estado: hasFutureSchedule ? 'programada' : 'activa',
+      recurrencia: null,
+      serieId: serieKey,
+      parentReunionId: parent.reunionId,
+      esExcepcion: true,
+      occurrenceDayKey: dayKey,
+    });
+
+    const participantesPadre = await Participa.findAll({ where: { reunionId: parent.reunionId } });
+    for (const p of participantesPadre) {
+      await Participa.create({
+        usuarioId: p.usuarioId,
+        reunionId: reunion.reunionId,
+        rolEnReunion: p.rolEnReunion,
+      });
+    }
+
+    await Tablero.create({
+      reunionId: reunion.reunionId,
+      contenido: { elementos: [] },
+      ultimaEdicion: new Date(),
+    });
+
+    return res.status(201).json({ reunion });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Omite una sola instancia de una serie recurrente (Opción B: fila excepción con recurrencia JSON
+ * {"omitInstance":true}). No usa DELETE del padre — ese flujo finaliza toda la serie (estado).
+ */
+router.post('/:reunionId/omitir-ocurrencia', async (req, res, next) => {
+  try {
+    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'Solo docentes pueden omitir ocurrencias' });
+    }
+    const parent = await Reunion.findByPk(req.params.reunionId);
+    if (!parent) return res.status(404).json({ error: 'Reunión no encontrada' });
+    if (parent.esExcepcion) {
+      return res.status(400).json({ error: 'Solo la reunión padre de una serie admite omisión por día' });
+    }
+    if (!normalizeRecurrence(parent.recurrencia)) {
+      return res.status(400).json({ error: 'Solo series recurrentes admiten omitir un día' });
+    }
+
+    const isOwner = String(parent.docenteUsuarioId) === String(req.usuario.usuarioId);
+    const isAdmin = req.usuario.rol === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Solo el docente creador puede omitir ocurrencias' });
+    }
+
+    const { occurrenceDayKey } = req.body || {};
+    const dayKey = occurrenceDayKey != null ? String(occurrenceDayKey).trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      return res.status(400).json({ error: 'occurrenceDayKey debe ser YYYY-MM-DD' });
+    }
+
+    const existing = await Reunion.findOne({
+      where: {
+        parentReunionId: parent.reunionId,
+        esExcepcion: true,
+        occurrenceDayKey: dayKey,
+      },
+    });
+    if (existing) {
+      if (parseOmitInstance(existing.recurrencia)) {
+        return res.json({ reunion: existing, idempotent: true });
+      }
+      return res.status(409).json({
+        error:
+          'Ya existe una excepción para esta fecha. Elimínala o edítala desde el calendario antes de omitir.',
+      });
+    }
+
+    const rangeStart = new Date(`${dayKey}T00:00:00`);
+    const rangeEnd = new Date(`${dayKey}T23:59:59.999`);
+    const occs = getMeetingOccurrencesInRange(parent, rangeStart, rangeEnd);
+    const occStart =
+      occs.find((o) => formatOccurrenceDayKey(o) === dayKey) ||
+      occs.find((o) => {
+        const k = formatOccurrenceDayKey(o);
+        return k === dayKey;
+      });
+    if (!occStart || Number.isNaN(occStart.getTime())) {
+      return res.status(400).json({ error: 'Esa fecha no corresponde a una ocurrencia de esta serie.' });
+    }
+
+    const durMs = (() => {
+      const s = parent.fechaHora ? new Date(parent.fechaHora) : null;
+      const e = parent.fechaHoraFin ? new Date(parent.fechaHoraFin) : null;
+      if (!s || !e || Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 60 * 60 * 1000;
+      const d = e.getTime() - s.getTime();
+      return d > 0 ? d : 60 * 60 * 1000;
+    })();
+    const startDate = new Date(occStart.getTime());
+    const endDate = new Date(occStart.getTime() + durMs);
+
+    const serieKey = parent.serieId || parent.reunionId;
+    const omitPayload = JSON.stringify({ omitInstance: true });
+
+    const reunion = await Reunion.create({
+      titulo: parent.titulo,
+      fechaHora: startDate,
+      fechaHoraFin: endDate,
+      zonaHoraria: parent.zonaHoraria,
+      roomId: parent.roomId,
+      docenteUsuarioId: parent.docenteUsuarioId,
+      estado: 'programada',
+      recurrencia: omitPayload,
+      serieId: serieKey,
+      parentReunionId: parent.reunionId,
+      esExcepcion: true,
+      occurrenceDayKey: dayKey,
+    });
+
+    const participantesPadre = await Participa.findAll({ where: { reunionId: parent.reunionId } });
+    for (const p of participantesPadre) {
+      await Participa.create({
+        usuarioId: p.usuarioId,
+        reunionId: reunion.reunionId,
+        rolEnReunion: p.rolEnReunion,
+      });
+    }
+
+    await Tablero.create({
+      reunionId: reunion.reunionId,
+      contenido: { elementos: [] },
+      ultimaEdicion: new Date(),
+    });
+
+    return res.status(201).json({ reunion });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.patch('/:reunionId', async (req, res, next) => {
   try {
     const reunion = await Reunion.findByPk(req.params.reunionId);
@@ -266,14 +573,77 @@ router.patch('/:reunionId', async (req, res, next) => {
     if (startDate && endDate && endDate <= startDate) {
       return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
     }
+    if (
+      reunion.esExcepcion &&
+      startDate &&
+      endDate &&
+      !Number.isNaN(startDate.getTime()) &&
+      !Number.isNaN(endDate.getTime())
+    ) {
+      const serieLogId = reunion.serieId || reunion.parentReunionId || reunion.reunionId;
+      const overlapPatch = await validateNoOverlapForDocente({
+        docenteUsuarioId: reunion.docenteUsuarioId,
+        start: startDate,
+        end: endDate,
+        excludeReunionId: reunion.reunionId,
+        serieLogId,
+      });
+      if (overlapPatch.conflict) {
+        return res.status(409).json({ error: overlapPatch.message || CONFLICT_MESSAGE });
+      }
+    }
+
+    if (!reunion.esExcepcion) {
+      const effectiveStart =
+        startDate && !Number.isNaN(startDate.getTime())
+          ? startDate
+          : reunion.fechaHora
+            ? new Date(reunion.fechaHora)
+            : null;
+      const effectiveEnd =
+        endDate && !Number.isNaN(endDate.getTime())
+          ? endDate
+          : reunion.fechaHoraFin
+            ? new Date(reunion.fechaHoraFin)
+            : null;
+      if (
+        effectiveStart &&
+        effectiveEnd &&
+        !Number.isNaN(effectiveStart.getTime()) &&
+        !Number.isNaN(effectiveEnd.getTime()) &&
+        effectiveEnd > effectiveStart
+      ) {
+        let effectiveRecStr = reunion.recurrencia;
+        if (recurrencia !== undefined) {
+          const nr = normalizeRecurrence(recurrencia);
+          effectiveRecStr = nr ? JSON.stringify(nr) : null;
+        }
+        const overlapParent = await validateSeriesOccurrencesNoOverlap({
+          docenteUsuarioId: reunion.docenteUsuarioId,
+          reunionLike: {
+            fechaHora: effectiveStart,
+            fechaHoraFin: effectiveEnd,
+            recurrencia: effectiveRecStr,
+            titulo: String(titulo).trim(),
+          },
+          excludeReunionId: reunion.reunionId,
+        });
+        if (overlapParent.conflict) {
+          return res.status(409).json({ error: overlapParent.message || CONFLICT_MESSAGE });
+        }
+      }
+    }
+
     const hasFutureSchedule = startDate && startDate.getTime() > Date.now() + 30_000;
-    const recurrenceNorm = normalizeRecurrence(recurrencia);
+    const recurrenceNorm = reunion.esExcepcion ? null : normalizeRecurrence(recurrencia);
 
     reunion.titulo = String(titulo).trim();
     reunion.fechaHora = startDate || null;
     reunion.fechaHoraFin = endDate || null;
     reunion.zonaHoraria = zonaHoraria || null;
-    reunion.recurrencia = recurrenceNorm ? JSON.stringify(recurrenceNorm) : null;
+    if (!reunion.esExcepcion) {
+      reunion.recurrencia = recurrenceNorm ? JSON.stringify(recurrenceNorm) : null;
+    }
     reunion.estado = hasFutureSchedule ? 'programada' : 'activa';
     await reunion.save();
 
@@ -367,6 +737,11 @@ router.delete('/:reunionId', async (req, res, next) => {
       return res.status(403).json({ error: 'Solo el docente creador puede eliminar esta reuni?n' });
     }
 
+    if (reunion.esExcepcion) {
+      await destroyReunionCascade(reunion.reunionId);
+      return res.json({ ok: true, reunionId: reunion.reunionId, destroyed: true });
+    }
+
     reunion.estado = 'finalizada';
     reunion.fechaHoraFin = reunion.fechaHoraFin || new Date();
     await reunion.save();
@@ -382,27 +757,29 @@ router.get('/room/:roomId', async (req, res, next) => {
     const roomKey = String(req.params.roomId || '')
       .trim()
       .toLowerCase();
-    const reunion = await Reunion.findOne({
-      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
+    const reunion = await findReunionByRoomKey(roomKey);
+    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
+
+    const reunionFull = await Reunion.findByPk(reunion.reunionId, {
       include: [
         { model: Usuario, as: 'docente', attributes: ['usuarioId', 'nombre', 'email', 'rol'] },
         { model: Tablero, as: 'tablero', required: false },
       ],
     });
-    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+    if (!reunionFull) return res.status(404).json({ error: 'Reunión no encontrada' });
 
     const participantes = await Participa.count({
-      where: { reunionId: reunion.reunionId },
+      where: { reunionId: reunionFull.reunionId },
     });
     const estudiantes = await Participa.count({
       where: {
-        reunionId: reunion.reunionId,
-        usuarioId: { [Op.ne]: reunion.docenteUsuarioId },
+        reunionId: reunionFull.reunionId,
+        usuarioId: { [Op.ne]: reunionFull.docenteUsuarioId },
       },
     });
 
     res.json({
-      reunion,
+      reunion: reunionFull,
       cupo: {
         participantes,
         estudiantes,
@@ -570,10 +947,8 @@ router.post('/room/:roomId/unirse', async (req, res, next) => {
     const roomKey = String(req.params.roomId || '')
       .trim()
       .toLowerCase();
-    const reunion = await Reunion.findOne({
-      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
-    });
-    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+    const reunion = await findReunionByRoomKey(roomKey);
+    if (!reunion) return res.status(404).json({ error: 'Reunión no encontrada' });
 
     const existente = await Participa.findOne({
       where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
@@ -615,11 +990,7 @@ router.post('/room/:roomId/chat-adjunto', (req, res, next) => {
       const roomKey = String(req.params.roomId || '')
         .trim()
         .toLowerCase();
-      const reunion =
-        req._chatAdjReunion ||
-        (await Reunion.findOne({
-          where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), roomKey),
-        }));
+      const reunion = req._chatAdjReunion || (await findReunionByRoomKey(roomKey));
       if (!reunion) {
         fs.unlink(file.path, () => {});
         return res.status(404).json({ error: 'Reuni?n no encontrada' });

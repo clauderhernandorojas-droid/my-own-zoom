@@ -8,9 +8,11 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 
 ### Backend (`server.js`)
 
+- Tras `sequelize.sync()`, arranque **SQLite / excepciones de agenda**: `ensureReunionExceptionColumns()` añade si faltan `parent_reunion_id`, `es_excepcion`, `occurrence_day_key`; en SQLite elimina índices únicos conflictivos sobre `room_id` y ejecuta **`repairSqliteReunionGhostReferences()`** (`src/services/sqliteReunionSchemaRepair.js`) para limpiar referencias huérfanas tras migraciones manuales.
+- Helpers adicionales antes del `sync()`: columnas de invitados/solicitudes de acceso, esquema de **`reunion_asistencia`** (elimina tabla legacy incompatible si aplica).
 - **Express** en el mismo proceso HTTP que **Socket.io** (mismo puerto; por defecto `3000`).
 - **CORS** abierto para desarrollo; **JSON** body parser.
-- Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`).
+- Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`). Resolución de reunión por sala: **`findReunionByRoomKey`** en `src/services/reunionByRoom.js` (uso en rutas de reunión, adjuntos de chat y socket).
 - **Health**: `GET /health` (en desarrollo incluye `copresenciaUmbralMs` leído de `ASISTENCIA_COPRESENCIA_MS_MIN`).
 - **Historial de agenda (cliente)**: `GET /js/historialAcciones.js` sirve `src/services/historialAcciones.js` (pilas deshacer/rehacer en el navegador; sin persistencia en servidor).
 - **WebRTC / ICE**: `GET /api/rtc/config` — STUN desde `STUN_URLS` o por defecto Google; TURN opcional vía `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
@@ -23,10 +25,10 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 
 ### Persistencia y esquema
 
-- Modelos en `src/models/`: `Usuario`, `Reunion`, `Participa`, `Mensaje`, `Tablero`, **`ReunionAsistencia`**, **`ReunionOcurrencia`**, **`ReunionInvitado`**, **`ReunionSolicitudAcceso`** y asociaciones en `src/models/index.js`.
+- Modelos en `src/models/`: `Usuario`, `Reunion`, `Participa`, `Mensaje`, `Tablero`, **`ReunionAsistencia`**, **`ReunionOcurrencia`**, **`ReunionInvitado`**, **`ReunionSolicitudAcceso`** y asociaciones en `src/models/index.js` (incluye relaciones padre/hijo de **excepciones de serie**).
 - **Asistencia / copresencia**: filas en `reunion_asistencia` (entrada/salida por usuario y reunión); copresencia en memoria en `src/services/copresencia.js` (umbral configurable). Al `room:join` / `room:leave` el socket delega en `src/services/asistencia.js` (`registrarEntradaStub` / `registrarSalidaStub`) sin alterar la lógica interna de copresencia.
-- **Ocurrencias de serie**: overrides de fecha por instancia en `reunion_ocurrencia` (`occurrenceId` UUID o legacy `t_<epochMs>`); servicio `src/services/reuniones.js` (`reagendarOcurrencia`).
-- **Importante:** el esquema base se aplica con **`sequelize.sync()`** al iniciar (`server.js`); las columnas nuevas de adjuntos en `mensajes` se completan con el helper anterior. Si existía una tabla legacy `reunion_asistencias` incompatible, `server.js` la elimina antes del `sync()` para recrear el esquema actual. **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
+- **Ocurrencias de serie**: overrides de fecha por instancia en `reunion_ocurrencia` (`occurrenceId` UUID o legacy `t_<epochMs>`); servicio `src/services/reuniones.js` (`reagendarOcurrencia`). Además, excepciones/omisiones con filas `esExcepcion` + `occurrenceDayKey` en `reuniones`.
+- **Importante:** el esquema base se aplica con **`sequelize.sync()`** al iniciar (`server.js`); las columnas nuevas de adjuntos en `mensajes` se completan con el helper anterior. **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
 
 ### Cliente (`public/index.html`)
 
@@ -35,6 +37,11 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Medios locales**: si cámara y micrófono fallan, se intenta **solo micrófono** y, en último caso, unión con **stream vacío** y transceiver de vídeo **`recvonly`** para seguir en la sala. Los textos de estado de medios **no** se muestran bajo el título en la franja de vídeo (no hay `#mediaStatus` en esa zona); `setMediaStatus` puede seguir en código sin ese nodo en DOM.
 - **Barra de medios estilo Zoom**: controles inferiores con patrón botón principal + menú desplegable para **Audio**, **Vídeo**, **Compartir** y **Grabar**; listas de dispositivos movidas al menú (incluye acciones rápidas de refresco/reinicio de medios). Se simplificó UI quitando botones redundantes de aplicar/actualizar.
 - **Compartir pantalla y tablero**: menú con `Pantalla` / `Tablero`. Al compartir pantalla, se usa `getDisplayMedia`, se reemplaza la pista de vídeo enviada por WebRTC y al terminar se restaura la cámara automáticamente.
+- **Anotaciones sobre pantalla compartida (sync en sala)**:
+  - Estado **solo en RAM** en el servidor (`meetScreenShareInkByRoom` en `src/socket/index.js`), **sin persistencia** en base de datos; se limpia al dejar de compartir o al cambiar de presentador.
+  - Eventos Socket: **`screenshare-annotate:update`** (el cliente envía `contenido.elementos`; el servidor sanitiza —trazos y textos únicamente— y rebroadcast); **`screenshare-annotate:state`** para enviar estado actual o vacío a quien entra durante share o cuando termina la captura.
+  - Cliente (`public/index.html`): overlay sobre el vídeo de pantalla (lápiz, texto, emoji, borrador, selección), coordenadas normalizadas para encajar la relación de aspecto útil del vídeo.
+  - **Selección múltiple en anotaciones**: un solo marco de unión cuando hay dos o más ítems; **redimensión conjunta** de trazos y textos con asas en el bbox unión; clic en hueco dentro del bbox (sin golpear otro elemento) inicia **arrastre del grupo**; **flechas** del teclado desplazan la selección (texto + trazos) en modo seleccionar con historial incremental.
 - **Flujo de autorización para compartir pantalla (nuevo)**:
   - Invitado: al pulsar **Compartir**, no arranca captura directa; envía **solicitud** al presentador.
   - Presentador (docente/admin): recibe una solicitud **obvia en modal centrado** con acciones `Aceptar` / `Rechazar`.
@@ -53,13 +60,15 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Grabación de la reunión (docente)**: solo el **dueño de la sala** (`reunion.docenteUsuarioId`) ve los controles; el servidor rechaza `recording:state` para otros. Un único botón **grabar vídeo** con `MediaRecorder` sobre canvas compuesto (1280×720 @ ~24 fps) + mezcla Web Audio. Se retiró la casilla “incluir tablero”; la composición prioriza **pantalla compartida** cuando está activa y usa cámaras como franja contextual (arriba o a la derecha según layout). **IndexedDB** y `recording:state` / `recording:notify`.
 - **Tablero**: cuadrícula punteada sutil y vista sin borde final visible (experiencia “infinita” práctica). El minimapa pasó a marco dinámico basado en contenido + viewport en lugar de límites fijos.
 - **Home/Lobby rediseñado**: estilo unificado negro/blanco/azul, acciones rápidas, calendario y lista de próximas reuniones. Se removió el flujo manual de `Room ID` y la entrada se hace por acciones directas por reunión (`Entrar`, `Editar`, `Cupo`, `Eliminar`, `Copiar link`).
-- **Calendario (dos meses)**:
+- **Calendario (dos meses, asistencia y agenda)**:
+  - Vista de **dos meses** con navegación `‹` / `›` (`homeCalendarPanels`).
   - Modos **Agendamiento** y **Asistencia** por reunión seleccionada; colores de día: azul (programado/futuro), verde (asistió / copresencia cumplida), rojo (no asistió / pasado sin registro).
   - Datos de asistencia vía `GET /api/reuniones/:reunionId/asistencia` (filas + `resumen`); emparejamiento de ocurrencias con `entradaAt`/`salidaAt` en el mismo día local; soporte de **reagenda** (`fechaOcurrenciaOverride` vs `inicioSesion`).
   - **Reagendar** una ocurrencia de serie: `POST /api/reuniones/:reunionId/reagendar` con `occurrenceId` + `newDate`; marcador ↻ en el día; aviso en modal «Reagendada desde…».
   - Barra del calendario: **Deshacer** / **Rehacer** solo visibles para **profesor** (pilas en cliente para agendar, editar, reagendar, eliminar); **Imprimir agendamiento** / **Imprimir asistencia** son placeholders (log «próximamente»).
   - Tras salir de sala, `loadHomeMeetings()` refresca el calendario para reflejar asistencia persistida.
 - **Agendamiento en modal**: creación y edición con título, inicio, duración, zona horaria, link compartible y copia al portapapeles. Modal con scroll interno + acciones sticky para mantener botones visibles en pantallas pequeñas.
+- **Solapamiento de agenda (docente)**: el servidor valida intervalos `[fechaHora, fechaHoraFin]` frente al resto de reuniones no finalizadas del mismo docente (`src/services/reunionHorarioSolapamiento.js`): una query carga la agenda, se construyen intervalos ocupados (padres, expansión RRULE alineada al cliente, excepciones; se omiten `omitInstance` y la reunión bajo edición vía `excludeReunionId`). **`POST /api/reuniones`** y **`PATCH`** del padre (no excepción) llaman a la validación de serie; conflicto → **409** con mensaje en español (título y hora de fin del bloqueo). Excepciones de ocurrencia validan con `validateNoOverlapForDocente`. Rutas `POST .../excepcion-ocurrencia` y `POST .../omitir-ocurrencia` para edición/omisión por día.
 - **Recurrencia en UI**: `No repetir`, `Diario`, `Semanal`, `Mensual`, `Personalizado` (base diaria/semanal/mensual, intervalo y selección de días con chips). Fin de secuencia con modo `Nunca` o `Hasta fecha`, resumen legible de la regla y validación visual/funcional cuando la fecha fin queda antes del inicio.
 - **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
 - **Auth (login/registro) — UX actualizada**:
@@ -94,6 +103,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
   - **Compatibilidad SQLite en orden de reacciones**: el servidor ordena por `mensajeReaccionId` (no por `createdAt`) para evitar errores en BD locales con esquemas previos.
 - **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
 - **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
+- **Selección en tablero (puntero)**: con varios elementos seleccionados se dibuja un **marco de unión**. Las **flechas del teclado** mueven toda la multiselección, incluidos los **trazos** (todos los puntos), además de texto e imagen; se respeta `locked`.
 - **Borrador del tablero**: al tocar un trazo/elemento, elimina el elemento completo (hit-test por segmento para strokes) en lugar de “pintar blanco”.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
@@ -116,29 +126,33 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | **Reacciones de mensaje** (toggle por usuario/emoji, persistencia y broadcast) | `src/socket/index.js`, `src/models/mensajeReaccion.js`, `src/routes/mensajes.js`, `public/index.html` |
 | **Reacción de sala** desde toolbar inferior | `room:reaction` en `src/socket/index.js`, menú `roomReactionMenu` en `public/index.html` |
 | **Borrado de mensaje + adjunto en disco** | `DELETE /api/mensajes/:mensajeId`, emisión `chat:messageDeleted` usando `req.app.get('io')` |
-| **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / SQL `lower(room_id)` |
+| **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / `findReunionByRoomKey` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
 | **Grabación** (vídeo + audio mezclado): solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
 | **Compartir pantalla por solicitud**: invitado solicita, presentador aprueba/rechaza en modal; grant temporal por sala y validación en socket para iniciar share | `public/index.html` (modal + cola + handlers), `src/socket/index.js` (`meet:screenShare:request/response/grant`, `meetScreenShareGrant`) |
+| **Anotaciones en pantalla compartida** (estado en RAM, sanitizado, rebroadcast) | `screenshare-annotate:update`, `screenshare-annotate:state` en `src/socket/index.js`; overlay y herramientas en `public/index.html` |
 | **API/Socket cross-origin en Render**: helper `toApiUrl`, fallback de origen, y conexión Socket.IO al backend público cuando frontend/backend están separados | `public/index.html` (`API_ORIGIN`, `inferApiOrigin`, `toApiUrl`, `connectSocketIfNeeded`) |
 | **Registro público sin escalamiento de rol**: alta siempre como `estudiante`, sin confiar en `rol` del cliente | `src/routes/auth.js`, `public/index.html` |
 | **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` en `src/routes/usuarios.js` |
 | **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
-| Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) en modelo | `src/models/reunion.js` |
+| **Sin solape de horarios** del docente al crear/editar reunión o serie; mensaje 409 descriptivo | `src/services/reunionHorarioSolapamiento.js`, `POST`/`PATCH` en `src/routes/reuniones.js` |
+| Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) y **excepciones de serie** (`parentReunionId`, `esExcepcion`, `occurrenceDayKey`) | `src/models/reunion.js` |
 | **Asistencia en BD** + umbral de copresencia | `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, socket `src/socket/asistenciaSocket.js` + stubs en `room:join`/`room:leave` |
-| **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` |
+| **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` + tabla `reunion_ocurrencia` |
 | **Deshacer/rehacer agenda** (solo UI profesor; pilas en memoria) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`) |
-| Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` (API según rutas en `reuniones.js`) |
+| Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` |
+| Búsqueda de reunión por `room_id` (case-insensitive) centralizada | `src/services/reunionByRoom.js` |
+| Reparación opcional de integridad SQLite en `reuniones` tras cambios de esquema | `src/services/sqliteReunionSchemaRepair.js`, llamado desde `server.js` |
 
 ---
 
 ## 3. Próximas etapas visibles en el esquema / producto
 
 - **Chat**: pulir UX según feedback (flujo copiar/cortar, toasts, consistencia del borrado y reacciones en todos los clientes).
-- **Impresión** desde calendario (agendamiento y asistencia): placeholders en UI; falta vista imprimible o PDF.
-- **Recurrencia avanzada de serie**: regla JSON + overrides por ocurrencia vía `reunion_ocurrencia`; edición por día del calendario fuerza instancia de serie; falta cancelar ocurrencia suelta sin tocar la serie completa.
+- **Impresión** desde calendario (agendamiento y asistencia): placeholders en UI; falta vista imprimible o PDF (p. ej. html2canvas + estilos `@media print`).
+- **Recurrencia avanzada de serie**: regla JSON + overrides por `reunion_ocurrencia` y excepciones `esExcepcion`; edición por día del calendario; unificar UX de filtrado por serie seleccionada con la vista de asistencia/agendamiento.
 - **Migraciones explícitas**: pasar de `sync()` a **sequelize-cli** (o similar) para entornos compartidos y despliegues.
 - **Mejoras opcionales**: endurecer reglas de cupo si entraran roles mixtos; export PDF también desde servidor; TURN en producción; tests automatizados.
 
@@ -187,4 +201,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — calendario con asistencia/copresencia en BD, reagendar ocurrencias, historial deshacer/rehacer (solo profesor), script `test:copresencia` y modelos `reunion_asistencia` / `reunion_ocurrencia`.*
+*Última actualización de este documento: mayo 2026 — asistencia/copresencia en BD, reagendar ocurrencias, historial deshacer/rehacer (solo profesor), solapamiento de agenda docente (409), excepciones/omisiones de serie, anotaciones en pantalla compartida y reparación SQLite en arranque.*

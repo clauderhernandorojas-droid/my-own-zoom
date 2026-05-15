@@ -5,6 +5,7 @@ const { Participa, Reunion, Mensaje, MensajeReaccion, Tablero, Usuario } = requi
 const copresencia = require('../services/copresencia');
 const { registrarEntradaStub, registrarSalidaStub } = require('../services/asistencia');
 const { adjuntoAbsoluteOrNull, MAX_BYTES } = require('../services/chatAdjuntos');
+const { findReunionByRoomKey } = require('../services/reunionByRoom');
 const {
   consumeRoomEntryGrant,
   registerAsistenciaSocketHandlers,
@@ -21,12 +22,71 @@ const boardPresentationSharer = new Map();
 const meetScreenShareSharer = new Map();
 /** roomId → usuarioId invitado autorizado temporalmente para compartir pantalla */
 const meetScreenShareGrant = new Map();
+/** roomId → trazos de anotación sobre la pantalla compartida ({ elementos }) — sólo RAM, sin persistencia */
+const meetScreenShareInkByRoom = new Map();
+/** roomId → Set<usuarioId> autorizado temporalmente para entrar desde sala de espera */
+const roomEntryGrant = new Map();
 const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🎉', '👏'];
 
 /** Clave única para salas Socket.IO y Maps (UUID suele variar en mayúsculas). */
 function normRoomId(id) {
   if (id == null || id === '') return '';
   return String(id).trim().toLowerCase();
+}
+
+/** Strokes + text; todo lo demás se descarta. Sin persistencia en BD. */
+function sanitizeScreenShareInkElementos(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const el of raw.slice(0, 500)) {
+    if (!el || typeof el !== 'object') continue;
+    if (el.type === 'stroke' && Array.isArray(el.points)) {
+      const points = el.points
+        .filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y))
+        .slice(0, 9999);
+      if (points.length < 2) continue;
+      let lw =
+        typeof el.lw === 'number' && el.lw > 0 && el.lw <= 1
+          ? el.lw
+          : typeof el.linewidthNorm === 'number'
+            ? el.linewidthNorm
+            : 0.008;
+      if (lw > 1) lw = 1;
+      if (lw <= 0) lw = 0.008;
+      out.push({
+        type: 'stroke',
+        points,
+        color: typeof el.color === 'string' && el.color.slice(0, 32) ? el.color : '#111111',
+        lw,
+      });
+    } else if (el.type === 'text' && typeof el.text === 'string') {
+      const text = el.text.replace(/\u0000/g, '').slice(0, 4000);
+      if (!String(text).trim()) continue;
+      const x = Number(el.x);
+      const y = Number(el.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      let w = Number(el.w);
+      let h = Number(el.h);
+      if (!Number.isFinite(w) || w <= 0) w = 0.25;
+      if (!Number.isFinite(h) || h <= 0) h = 0.1;
+      w = Math.min(1, Math.max(0.02, w));
+      h = Math.min(1, Math.max(0.02, h));
+      let fontSize = Number(el.fontSize);
+      if (!Number.isFinite(fontSize) || fontSize < 8) fontSize = 22;
+      if (fontSize > 160) fontSize = 160;
+      out.push({
+        type: 'text',
+        text,
+        x: Math.min(1, Math.max(0, x)),
+        y: Math.min(1, Math.max(0, y)),
+        w,
+        h,
+        color: typeof el.color === 'string' && el.color.slice(0, 32) ? el.color : '#111111',
+        fontSize: Math.round(fontSize),
+      });
+    }
+  }
+  return out;
 }
 
 function verifySocketToken(token) {
@@ -46,9 +106,7 @@ async function usuarioEnReunion(usuarioId, reunionId) {
 async function obtenerReunionPorRoom(roomId) {
   const key = normRoomId(roomId);
   if (!key) return null;
-  return Reunion.findOne({
-    where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('room_id')), key),
-  });
+  return findReunionByRoomKey(key);
 }
 
 /** Compara UUID (JWT vs Sequelize pueden diferir en mayúsculas). */
@@ -201,6 +259,11 @@ function attachSocketIO(io) {
             active: true,
             userId: screenSharer,
           });
+          const ink = meetScreenShareInkByRoom.get(canonicalRoomId);
+          socket.emit('screenshare-annotate:state', {
+            roomId: canonicalRoomId,
+            contenido: ink || { elementos: [] },
+          });
         }
         const granted = meetScreenShareGrant.get(canonicalRoomId);
         if (granted && sameUsuarioId(granted, userId)) {
@@ -257,7 +320,12 @@ function attachSocketIO(io) {
           const screenShar = meetScreenShareSharer.get(rid);
           if (screenShar && sameUsuarioId(screenShar, userId)) {
             meetScreenShareSharer.delete(rid);
+            meetScreenShareInkByRoom.delete(rid);
             socket.to(rid).emit('meet:screenShare', { roomId: rid, active: false, userId });
+            io.to(rid).emit('screenshare-annotate:state', {
+              roomId: rid,
+              contenido: { elementos: [] },
+            });
           }
           const granted = meetScreenShareGrant.get(rid);
           if (granted && sameUsuarioId(granted, userId)) {
@@ -409,6 +477,23 @@ function attachSocketIO(io) {
       const outRoom = normRoomId(reunion.roomId) || normRoomId(roomId);
       socket.to(outRoom).emit('board:update', { contenido, from: socket.id });
       scheduleBoardPersist(reunion.reunionId, contenido);
+    });
+
+    socket.on('screenshare-annotate:update', async ({ roomId, contenido }) => {
+      if (!roomId || contenido === undefined) return;
+      const reunion = await obtenerReunionPorRoom(roomId);
+      if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) return;
+      if (!meetScreenShareSharer.get(normRoomId(reunion.roomId) || normRoomId(roomId))) return;
+      const outRoom = normRoomId(reunion.roomId) || normRoomId(roomId);
+      if (!Array.isArray(contenido.elementos)) return;
+      const safe = sanitizeScreenShareInkElementos(contenido.elementos);
+      const nextState = { elementos: safe.slice(0, 500) };
+      meetScreenShareInkByRoom.set(outRoom, nextState);
+      io.in(outRoom).emit('screenshare-annotate:update', {
+        roomId: outRoom,
+        contenido: nextState,
+        from: socket.id,
+      });
     });
 
     socket.on('board:follow:set', async ({ roomId, enabled }, cb) => {
@@ -613,6 +698,7 @@ function attachSocketIO(io) {
         if (active) {
           if (!socketCanStartScreenShare(socket, reunion, canonicalRoomId)) return;
           meetScreenShareSharer.set(canonicalRoomId, userId);
+          meetScreenShareInkByRoom.set(canonicalRoomId, { elementos: [] });
           if (!socketCanShareMeetingContent(socket, reunion)) {
             meetScreenShareGrant.delete(canonicalRoomId);
           }
@@ -621,14 +707,23 @@ function attachSocketIO(io) {
             active: true,
             userId,
           });
+          socket.to(canonicalRoomId).emit('screenshare-annotate:state', {
+            roomId: canonicalRoomId,
+            contenido: { elementos: [] },
+          });
         } else {
           const cur = meetScreenShareSharer.get(canonicalRoomId);
           if (cur && !sameUsuarioId(cur, userId)) return;
           meetScreenShareSharer.delete(canonicalRoomId);
+          meetScreenShareInkByRoom.delete(canonicalRoomId);
           socket.to(canonicalRoomId).emit('meet:screenShare', {
             roomId: canonicalRoomId,
             active: false,
             userId,
+          });
+          io.in(canonicalRoomId).emit('screenshare-annotate:state', {
+            roomId: canonicalRoomId,
+            contenido: { elementos: [] },
           });
         }
       } catch (e) {
@@ -747,10 +842,15 @@ function attachSocketIO(io) {
         const screenShar = meetScreenShareSharer.get(roomId);
         if (screenShar && sameUsuarioId(screenShar, userId)) {
           meetScreenShareSharer.delete(roomId);
+          meetScreenShareInkByRoom.delete(roomId);
           socket.to(roomId).emit('meet:screenShare', {
             roomId,
             active: false,
             userId,
+          });
+          io.to(roomId).emit('screenshare-annotate:state', {
+            roomId,
+            contenido: { elementos: [] },
           });
         }
         const granted = meetScreenShareGrant.get(roomId);
