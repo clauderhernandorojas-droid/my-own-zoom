@@ -26,7 +26,11 @@ app.use(express.json());
 app.get('/health', (_req, res) => {
   const body = { ok: true, service: 'my-own-zoom' };
   if (process.env.NODE_ENV !== 'production') {
-    body.copresenciaUmbralMs = require('./src/services/copresencia').getUmbralMs();
+    const cop = require('./src/services/copresencia');
+    const metricas = require('./src/services/metricasParticipacion');
+    body.copresenciaUmbralMs = cop.getUmbralMs();
+    body.asistenciaLiveEnabled = cop.isAsistenciaLiveEnabled();
+    body.asistenciaMetricasEnabled = metricas.isAsistenciaMetricasEnabled();
   }
   res.json(body);
 });

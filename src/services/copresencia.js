@@ -3,10 +3,18 @@
  * `(reunionId, inicioSesion)`; persistencia de `asistio` vía `calcularCopresencia`.
  *
  * - `ASISTENCIA_COPRESENCIA_MS_MIN`: umbral en ms (p. ej. 3600000 = 60 min; 30000 = 30 s en pruebas).
+ * - `ASISTENCIA_LIVE_ENABLED`: emisiones `attendance:*` y flush anticipado al umbral (ver socket).
  * - `room:join` / `room:leave` (socket) y `asistencia.js` (API) notifican aquí; no duplicar reglas fuera de este módulo.
  */
 
 const { ReunionAsistencia, Participa } = require('../models');
+
+function isAsistenciaLiveEnabled() {
+  const raw = process.env.ASISTENCIA_LIVE_ENABLED;
+  if (raw == null || String(raw).trim() === '') return false;
+  const s = String(raw).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes';
+}
 
 function normalizeInicioSesion(d) {
   const t = new Date(d);
@@ -48,7 +56,14 @@ function hasCopresence(presentes) {
   return doc >= 1 && est >= 1;
 }
 
-/** @type {Map<string, { reunionId: string, inicioSesion: Date, presentes: Map<string, 'docente'|'estudiante'>, accumulatedMs: number, currentStart: number|null }>} */
+function hasTeacherPresent(presentes) {
+  for (const tipo of presentes.values()) {
+    if (tipo === 'docente') return true;
+  }
+  return false;
+}
+
+/** @type {Map<string, { reunionId: string, inicioSesion: Date, presentes: Map<string, 'docente'|'estudiante'>, accumulatedMs: number, currentStart: number|null, teacherAccumulatedMs: number, teacherCurrentStart: number|null, fulfilledNotified: boolean }>} */
 const sessions = new Map();
 
 function getOrCreate(reunionId, inicioSesion) {
@@ -61,6 +76,9 @@ function getOrCreate(reunionId, inicioSesion) {
       presentes: new Map(),
       accumulatedMs: 0,
       currentStart: null,
+      teacherAccumulatedMs: 0,
+      teacherCurrentStart: null,
+      fulfilledNotified: false,
     });
   }
   return sessions.get(key);
@@ -76,6 +94,27 @@ function tickState(s, nowMs) {
   }
 }
 
+function ensureTeacherFields(s) {
+  if (s.teacherAccumulatedMs == null) s.teacherAccumulatedMs = 0;
+  if (s.teacherCurrentStart === undefined) s.teacherCurrentStart = null;
+}
+
+function tickTeacherState(s, nowMs) {
+  ensureTeacherFields(s);
+  const teacher = hasTeacherPresent(s.presentes);
+  if (teacher && s.teacherCurrentStart == null) {
+    s.teacherCurrentStart = nowMs;
+  } else if (!teacher && s.teacherCurrentStart != null) {
+    s.teacherAccumulatedMs += nowMs - s.teacherCurrentStart;
+    s.teacherCurrentStart = null;
+  }
+}
+
+function tickSessionStates(s, nowMs) {
+  tickState(s, nowMs);
+  tickTeacherState(s, nowMs);
+}
+
 function getUmbralMs(umbralExplicito) {
   if (umbralExplicito != null && Number.isFinite(umbralExplicito) && umbralExplicito > 0) {
     return umbralExplicito;
@@ -89,6 +128,63 @@ function getUmbralMs(umbralExplicito) {
 }
 
 /**
+ * Snapshot de solo lectura para asistencia en vivo (RAM).
+ * @returns {object|null}
+ */
+function getSessionSnapshot(reunionId, inicioSesion) {
+  const key = sessionKey(reunionId, inicioSesion);
+  if (!key) return null;
+  const s = sessions.get(key);
+  const nowMs = Date.now();
+  const umbralMs = getUmbralMs();
+  if (!s) {
+    const inicioN = normalizeInicioSesion(inicioSesion);
+    return {
+      reunionId: String(reunionId),
+      inicioSesion: inicioN ? inicioN.toISOString() : null,
+      docenteCount: 0,
+      estudianteCount: 0,
+      teacherPresent: false,
+      studentPresent: false,
+      copresenceActive: false,
+      sessionActive: false,
+      acumuladoMs: 0,
+      copresenceMs: 0,
+      teacherPresenceMs: 0,
+      umbralMs,
+      fulfilled: false,
+      participants: [],
+    };
+  }
+  let docenteCount = 0;
+  let estudianteCount = 0;
+  const participants = [];
+  for (const [uid, tipo] of s.presentes) {
+    if (tipo === 'docente') docenteCount += 1;
+    else estudianteCount += 1;
+    participants.push({ userId: uid, role: tipo });
+  }
+  const acumuladoMs = snapshotAcumuladoMs(s, nowMs);
+  const teacherPresenceMs = snapshotTeacherPresenceMs(s, nowMs);
+  return {
+    reunionId: String(reunionId),
+    inicioSesion: s.inicioSesion.toISOString(),
+    docenteCount,
+    estudianteCount,
+    teacherPresent: docenteCount >= 1,
+    studentPresent: estudianteCount >= 1,
+    copresenceActive: hasCopresence(s.presentes),
+    sessionActive: s.presentes.size > 0,
+    acumuladoMs,
+    copresenceMs: acumuladoMs,
+    teacherPresenceMs,
+    umbralMs,
+    fulfilled: !!s.fulfilledNotified || acumuladoMs >= umbralMs,
+    participants,
+  };
+}
+
+/**
  * @param {string} usuarioId
  * @param {string} reunionId
  * @param {Date|string} inicioSesion
@@ -99,7 +195,7 @@ function registrarEntrada(usuarioId, reunionId, inicioSesion, rol) {
   if (!s) return;
   const tipo = rol === 'docente' ? 'docente' : 'estudiante';
   s.presentes.set(String(usuarioId), tipo);
-  tickState(s, Date.now());
+  tickSessionStates(s, Date.now());
 }
 
 /**
@@ -113,14 +209,34 @@ function registrarSalida(usuarioId, reunionId, inicioSesion) {
   const s = sessions.get(key);
   if (!s) return;
   const nowMs = Date.now();
-  tickState(s, nowMs);
+  tickSessionStates(s, nowMs);
   s.presentes.delete(String(usuarioId));
-  tickState(s, Date.now());
+  tickSessionStates(s, nowMs);
 }
 
 function snapshotAcumuladoMs(s, nowMs) {
   if (!s) return 0;
   return s.accumulatedMs + (s.currentStart != null ? nowMs - s.currentStart : 0);
+}
+
+function snapshotTeacherPresenceMs(s, nowMs) {
+  if (!s) return 0;
+  ensureTeacherFields(s);
+  return s.teacherAccumulatedMs + (s.teacherCurrentStart != null ? nowMs - s.teacherCurrentStart : 0);
+}
+
+function getTeacherPresenceMs(reunionId, inicioSesion) {
+  const key = sessionKey(reunionId, inicioSesion);
+  if (!key) return 0;
+  const s = sessions.get(key);
+  return snapshotTeacherPresenceMs(s, Date.now());
+}
+
+function getCopresenceMs(reunionId, inicioSesion) {
+  const key = sessionKey(reunionId, inicioSesion);
+  if (!key) return 0;
+  const s = sessions.get(key);
+  return snapshotAcumuladoMs(s, Date.now());
 }
 
 function esEstudianteParticipacion(rolEnReunion) {
@@ -130,7 +246,7 @@ function esEstudianteParticipacion(rolEnReunion) {
 
 /**
  * Calcula tiempo de copresencia acumulado, actualiza asistio en BD según umbral y participación.
- * @returns {Promise<{ acumuladoMs: number, umbralMs: number, asistida: boolean }>}
+ * @returns {Promise<{ acumuladoMs: number, umbralMs: number, asistida: boolean, aplicado?: boolean }>}
  */
 async function calcularCopresencia(reunionId, inicioSesion, umbralMs) {
   const key = sessionKey(reunionId, inicioSesion);
@@ -144,6 +260,7 @@ async function calcularCopresencia(reunionId, inicioSesion, umbralMs) {
   if (!s) {
     return { acumuladoMs: 0, umbralMs: umbral, asistida: false, aplicado: false };
   }
+  tickSessionStates(s, nowMs);
   const totalMs = snapshotAcumuladoMs(s, nowMs);
   const asistida = totalMs >= umbral;
 
@@ -164,7 +281,38 @@ async function calcularCopresencia(reunionId, inicioSesion, umbralMs) {
     await row.save();
   }
 
+  if (asistida) s.fulfilledNotified = true;
+
   return { acumuladoMs: totalMs, umbralMs: umbral, asistida, aplicado: true };
+}
+
+/**
+ * Flush anticipado al cruzar el umbral (asistencia en vivo). Idempotente por sesión en RAM.
+ * @returns {Promise<{ emitted: boolean, reunionId?: string, inicioSesion?: string, asistio?: boolean, acumuladoMs?: number }>}
+ */
+async function maybeFlushIfThresholdMet(reunionId, inicioSesion) {
+  if (!isAsistenciaLiveEnabled()) return { emitted: false };
+  const key = sessionKey(reunionId, inicioSesion);
+  const inicioN = normalizeInicioSesion(inicioSesion);
+  if (!key || !inicioN) return { emitted: false };
+  const s = sessions.get(key);
+  if (!s || s.fulfilledNotified) return { emitted: false };
+  const totalMs = snapshotAcumuladoMs(s, Date.now());
+  const umbral = getUmbralMs();
+  if (totalMs < umbral) return { emitted: false };
+  const result = await calcularCopresencia(reunionId, inicioSesion, umbral);
+  if (!result.asistida) return { emitted: false };
+  return {
+    emitted: true,
+    reunionId: String(reunionId),
+    inicioSesion: inicioN.toISOString(),
+    asistio: true,
+    acumuladoMs: result.acumuladoMs,
+  };
+}
+
+function attendanceWatchRoom(reunionId) {
+  return `attendance-watch:${String(reunionId)}`;
 }
 
 module.exports = {
@@ -175,4 +323,10 @@ module.exports = {
   registrarSalida,
   calcularCopresencia,
   getUmbralMs,
+  isAsistenciaLiveEnabled,
+  getSessionSnapshot,
+  getTeacherPresenceMs,
+  getCopresenceMs,
+  maybeFlushIfThresholdMet,
+  attendanceWatchRoom,
 };

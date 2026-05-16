@@ -10,6 +10,12 @@ const {
   consumeRoomEntryGrant,
   registerAsistenciaSocketHandlers,
 } = require('./asistenciaSocket');
+const {
+  afterAttendancePresenceChange,
+  startCopresenceTimer,
+  stopCopresenceTimer,
+  registerAttendanceLiveHandlers,
+} = require('./attendanceLive');
 
 const boardSaveTimers = new Map();
 /** roomId (string) → true cuando el docente activó «la audiencia sigue mi vista» */
@@ -190,6 +196,11 @@ function attachSocketIO(io) {
       Usuario,
     });
 
+    registerAttendanceLiveHandlers(io, socket, {
+      usuarioEnReunion,
+      Reunion,
+    });
+
     socket.on('room:join', async (data, cb) => {
       console.log('Evento room:join recibido', data);
       try {
@@ -224,6 +235,13 @@ function attachSocketIO(io) {
           const inicioCp = copresencia.inicioSesionDesdeReunion(reunion);
           if (inicioCp) {
             await registrarEntradaStub(reunion.reunionId, userId, { inicioSesion: inicioCp });
+            await afterAttendancePresenceChange(
+              io,
+              canonicalRoomId,
+              reunion.reunionId,
+              inicioCp
+            );
+            startCopresenceTimer(io, canonicalRoomId, reunion.reunionId, inicioCp);
           }
         } catch (err) {
           console.error('asistencia room:join', err);
@@ -306,7 +324,14 @@ function attachSocketIO(io) {
                 inicioSesion: inicioCp,
               });
               console.log('asistencia room:leave', regSalida ? { asistio: regSalida.asistio } : 'sin fila');
+              await afterAttendancePresenceChange(
+                io,
+                rid,
+                reunionCop.reunionId,
+                inicioCp
+              );
             }
+            stopCopresenceTimer(rid);
           }
         } catch (err) {
           console.error('copresencia room:leave', err);

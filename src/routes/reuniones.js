@@ -37,6 +37,7 @@ const {
   resumenAsistenciaStub,
 } = require('../services/asistencia');
 const { reagendarOcurrencia, occurrenceIdFromLegacyOldDate } = require('../services/reuniones');
+const { buildReporteAsistenciaPayload } = require('../services/reporteAsistencia');
 
 const router = express.Router();
 
@@ -923,6 +924,64 @@ router.get('/:reunionId/participantes', async (req, res, next) => {
     }));
 
     res.json({ participantes });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/:reunionId/asistencia/reporte', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+
+    const soyParticipante = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (!soyParticipante && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
+    }
+
+    const payload = await buildReporteAsistenciaPayload(reunion.reunionId, {
+      desde: req.query.desde || undefined,
+      hasta: req.query.hasta || undefined,
+      inicioSesion: req.query.inicioSesion || undefined,
+      live: req.query.live,
+      metrics: req.query.metrics,
+    });
+    if (!payload) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+    res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/:reunionId/asistencia/live', async (req, res, next) => {
+  try {
+    const reunion = await Reunion.findByPk(req.params.reunionId);
+    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
+
+    const soyParticipante = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, usuarioId: req.usuario.usuarioId },
+    });
+    if (!soyParticipante && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'No participas en esta reuni?n' });
+    }
+
+    const copresencia = require('../services/copresencia');
+    let inicioSesion = null;
+    if (req.query.inicioSesion) {
+      inicioSesion = copresencia.normalizeInicioSesion(new Date(String(req.query.inicioSesion)));
+    } else {
+      inicioSesion = copresencia.inicioSesionDesdeReunion(reunion);
+    }
+    const snapshot = inicioSesion
+      ? copresencia.getSessionSnapshot(reunion.reunionId, inicioSesion)
+      : null;
+    res.json({
+      liveEnabled: copresencia.isAsistenciaLiveEnabled(),
+      reunionId: reunion.reunionId,
+      snapshot,
+    });
   } catch (e) {
     next(e);
   }

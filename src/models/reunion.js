@@ -78,9 +78,22 @@ module.exports = (sequelize) => {
         allowNull: true,
         field: 'occurrence_day_key',
       },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: 'creado_en',
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: 'actualizado_en',
+      },
     },
     {
       tableName: 'reuniones',
+      timestamps: false,
+      createdAt: 'creado_en',
+      updatedAt: 'actualizado_en',
       hooks: {
         beforeValidate(reunion) {
           if (!reunion.roomId) {

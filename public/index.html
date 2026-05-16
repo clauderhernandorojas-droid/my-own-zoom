@@ -8,6 +8,8 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
+  <script src="/js/asistenciaLive.js"></script>
+  <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -1777,6 +1779,23 @@
       border-color: rgba(248, 113, 113, 0.45);
     }
     /** Solo indicador (flecha curva blanca); el color del día sigue azul/verde/rojo. */
+    .home-attendance-live-badge {
+      display: block;
+      width: 100%;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #86efac;
+      margin: 0.2rem 0 0;
+      line-height: 1.35;
+    }
+    .meet-attendance-copresence {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #93c5fd;
+      margin-top: 0.25rem;
+      line-height: 1.3;
+    }
     .calendar-day--reag-marker .calendar-day__num::after {
       content: "\21BB";
       margin-left: 2px;
@@ -2425,6 +2444,7 @@
             </div>
             <span id="homeCalendarRoleHint" class="home-muted">Vista</span>
           </div>
+          <span id="homeAttendanceLiveBadge" class="home-attendance-live-badge hidden" aria-live="polite"></span>
           <div id="homeCalendarPanels" class="home-calendar-panels"></div>
         </section>
 
@@ -2633,6 +2653,11 @@
                 >
                   Copiar código
                 </button>
+                <span
+                  id="meetAttendanceCopresence"
+                  class="meet-attendance-copresence hidden"
+                  aria-live="polite"
+                ></span>
               </div>
               <div class="room-video-strip__stage">
             <div class="room-video-layout-switch" id="roomVideoLayoutSwitch" aria-label="Layout de videollamada">
@@ -3333,6 +3358,20 @@
         : null;
     if (typeof CalendarController !== "undefined") {
       CalendarController.initStep1();
+    }
+    if (typeof AsistenciaLive !== "undefined") {
+      AsistenciaLive.init({
+        getSelectedReunionId: () =>
+          homeQuickSelectedReunionId != null ? String(homeQuickSelectedReunionId) : null,
+        onFulfilledRefresh: (reunionId) => {
+          if (
+            homeQuickSelectedReunionId != null &&
+            String(homeQuickSelectedReunionId) === String(reunionId)
+          ) {
+            void loadAsistenciaForCalendar(reunionId);
+          }
+        },
+      });
     }
     let boardSideMenuOpen = "";
     const chatAdjuntoPreviewCache = new Map();
@@ -5422,6 +5461,47 @@ body.print-calendar-export {
   color: #94a3b8;
   margin: 0 0 0.85rem;
 }
+.print-report-summary {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #334155;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.print-report-summary__title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0.65rem 0 0.35rem;
+}
+.print-report-summary__note,
+.print-report-summary__empty {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin: 0 0 0.5rem;
+}
+.print-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.print-report-table th,
+.print-report-table td {
+  border: 1px solid #334155;
+  padding: 0.35rem 0.45rem;
+  text-align: left;
+}
+.print-report-table th {
+  background: #0f172a;
+  color: #cbd5e1;
+}
+.print-report-live-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
 .home-calendar-panels {
   display: flex;
   flex-direction: column;
@@ -5606,8 +5686,30 @@ body.print-calendar-export {
     color: #fef2f2 !important;
     border-color: #f87171 !important;
   }
+  .print-report-summary {
+    margin-top: 0.35rem !important;
+    padding-top: 0.35rem !important;
+  }
+  .print-report-summary__title {
+    font-size: 0.68rem !important;
+    margin: 0.25rem 0 0.15rem !important;
+  }
+  .print-report-table {
+    font-size: 0.55rem !important;
+  }
+  .print-report-table th,
+  .print-report-table td {
+    padding: 0.15rem 0.25rem !important;
+  }
+  .print-report-live-list {
+    font-size: 0.58rem !important;
+  }
 }
 `;
+    }
+
+    if (typeof ReporteAsistenciaPrint !== "undefined") {
+      ReporteAsistenciaPrint.init({ api, escapeHtml: escapeHtmlForPrint });
     }
 
     function buildPrintTimesForOccurrencesHtml(reunion, occs) {
@@ -5711,7 +5813,7 @@ body.print-calendar-export {
       return html;
     }
 
-    function openPrintCalendarPreview(title, subtitle, selectedReunion, agendamientoReunion) {
+    function openPrintCalendarPreview(title, subtitle, selectedReunion, agendamientoReunion, reportExtraHtml) {
       let html = "";
       try {
         const ref = homeCalendarViewDate instanceof Date ? homeCalendarViewDate : new Date();
@@ -5726,6 +5828,10 @@ body.print-calendar-export {
         const monthsHtml =
           buildPrintCalendarMonthHtml(y0, m0, selectedReunion, agendamientoReunion, asistenciaRows, now) +
           buildPrintCalendarMonthHtml(y1, m1, selectedReunion, agendamientoReunion, asistenciaRows, now);
+        const extra =
+          reportExtraHtml && String(reportExtraHtml).trim()
+            ? String(reportExtraHtml)
+            : "";
         html =
           "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>" +
           escapeHtmlForPrint(title) +
@@ -5737,7 +5843,9 @@ body.print-calendar-export {
           escapeHtmlForPrint(subtitle) +
           "</p><div class=\"home-calendar-panels\">" +
           monthsHtml +
-          "</div></body></html>";
+          "</div>" +
+          extra +
+          "</body></html>";
       } catch (err) {
         log("No se pudo generar la vista de impresión: " + (err?.message || err));
         return;
@@ -5797,7 +5905,7 @@ body.print-calendar-export {
       openPrintCalendarPreview(title, subtitle, null, agendamientoReunion);
     }
 
-    function printAsistenciaCalendar() {
+    async function printAsistenciaCalendar() {
       const pk = homeQuickSelectedReunionId != null ? String(homeQuickSelectedReunionId) : "";
       if (!pk) {
         log("Selecciona una reunión y activa la vista Asistencia para imprimir el calendario.");
@@ -5810,7 +5918,31 @@ body.print-calendar-export {
       }
       const title = `Asistencia · ${selectedReunion.titulo || "Reunión"}`;
       const subtitle = `Misma cuadrícula que en la app · generado ${new Date().toLocaleString("es-CO")}`;
-      openPrintCalendarPreview(title, subtitle, selectedReunion, null);
+      let reportExtraHtml = "";
+      if (getToken() && typeof ReporteAsistenciaPrint !== "undefined") {
+        const ref = homeCalendarViewDate instanceof Date ? homeCalendarViewDate : new Date();
+        const range = ReporteAsistenciaPrint.calendarRangeIso(ref);
+        try {
+          const reportPayload = await ReporteAsistenciaPrint.fetchReporte(pk, {
+            ...range,
+            live: "1",
+            metrics: "full",
+          });
+          if (reportPayload?.basic) {
+            homeAsistenciaPayload = {
+              asistencia: reportPayload.basic.asistencia,
+              resumen: reportPayload.basic.resumen,
+            };
+          }
+          reportExtraHtml =
+            (ReporteAsistenciaPrint.buildSummaryHtml(reportPayload) || "") +
+            (ReporteAsistenciaPrint.buildSessionMetricsHtml(reportPayload) || "") +
+            (ReporteAsistenciaPrint.buildMetricsHtml(reportPayload) || "");
+        } catch (e) {
+          log("No se pudo cargar el reporte de asistencia: " + (e?.message || e));
+        }
+      }
+      openPrintCalendarPreview(title, subtitle, selectedReunion, null, reportExtraHtml);
     }
 
     function syncScheduleAgendamientoDetalleSesiones(mWork) {
@@ -6349,6 +6481,7 @@ body.print-calendar-export {
           if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(id)) {
             homeQuickSelectedReunionId = null;
             homeAsistenciaPayload = null;
+            if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
             renderScheduledMeetings();
             renderHomeCalendar();
             return;
@@ -6656,6 +6789,7 @@ body.print-calendar-export {
     async function loadAsistenciaForCalendar(reunionPk) {
       if (!reunionPk || !getToken()) {
         homeAsistenciaPayload = null;
+        if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
         renderHomeCalendar();
         return;
       }
@@ -6671,6 +6805,7 @@ body.print-calendar-export {
       } catch (_) {
         homeAsistenciaPayload = { asistencia: [], resumen: { filas: [] } };
       }
+      if (typeof AsistenciaLive !== "undefined") AsistenciaLive.subscribe(reunionPk);
       renderHomeCalendar();
     }
 
@@ -9718,7 +9853,11 @@ body.print-calendar-export {
         } else {
           socket = io({ auth: { token }, transports: ["websocket", "polling"] });
         }
-        socket.on("connect", () => resolve(socket));
+        if (typeof AsistenciaLive !== "undefined") AsistenciaLive.setSocket(socket);
+        socket.on("connect", () => {
+          if (typeof AsistenciaLive !== "undefined") AsistenciaLive.setSocket(socket);
+          resolve(socket);
+        });
         socket.on("connect_error", (e) => {
           const msg =
             String(e?.message || "").includes("UNAUTHORIZED") || e?.data === "UNAUTHORIZED"
@@ -10311,6 +10450,7 @@ body.print-calendar-export {
             socket = null;
           }
           currentUser = null;
+          if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
           calendarioHistorial?.clear();
           updateCalendarHistoryButtons();
           setToken(null);

@@ -26,9 +26,167 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 ### Persistencia y esquema
 
 - Modelos en `src/models/`: `Usuario`, `Reunion`, `Participa`, `Mensaje`, `Tablero`, **`ReunionAsistencia`**, **`ReunionOcurrencia`**, **`ReunionInvitado`**, **`ReunionSolicitudAcceso`** y asociaciones en `src/models/index.js` (incluye relaciones padre/hijo de **excepciones de serie**).
+- **Modelo `Reunion` (`reuniones`)**: las columnas reales en SQLite/Postgres son `creado_en` y `actualizado_en` (no `createdAt`/`updatedAt` en BD). El modelo declara atributos `createdAt`/`updatedAt` con `field: 'creado_en'` / `'actualizado_en'` y tiene **`timestamps: false`** para que Sequelize no gestione timestamps automáticos ni genere SQL con nombres de columna incorrectos.
 - **Asistencia / copresencia**: filas en `reunion_asistencia` (entrada/salida por usuario y reunión); copresencia en memoria en `src/services/copresencia.js` (umbral configurable). Al `room:join` / `room:leave` el socket delega en `src/services/asistencia.js` (`registrarEntradaStub` / `registrarSalidaStub`) sin alterar la lógica interna de copresencia.
 - **Ocurrencias de serie**: overrides de fecha por instancia en `reunion_ocurrencia` (`occurrenceId` UUID o legacy `t_<epochMs>`); servicio `src/services/reuniones.js` (`reagendarOcurrencia`). Además, excepciones/omisiones con filas `esExcepcion` + `occurrenceDayKey` en `reuniones`.
 - **Importante:** el esquema base se aplica con **`sequelize.sync()`** al iniciar (`server.js`); las columnas nuevas de adjuntos en `mensajes` se completan con el helper anterior. **No** hay carpeta de migraciones `sequelize-cli` versionada en este repo en el estado auditado.
+
+#### Asistencia y copresencia
+
+**Asistencia básica (siempre activa)**
+
+| Pieza | Archivo | Rol |
+|-------|---------|-----|
+| Persistencia entrada/salida | [`src/services/asistencia.js`](src/services/asistencia.js) | `reunion_asistencias`: `entradaAt`, `salidaAt`, `presente`, `asistio` |
+| Acumulación copresencia (RAM) | [`src/services/copresencia.js`](src/services/copresencia.js) | `accumulatedMs` + tramo abierto; **no** hay columna `copresenceMs` en BD |
+| Flush `asistio` | `calcularCopresencia` | Tras `room:leave`, `POST .../asistencia/salida` o al listar resumen en `GET .../asistencia` |
+| Socket persistencia | [`src/socket/index.js`](src/socket/index.js) | `room:join` → `registrarEntradaStub`; `room:leave` → `registrarSalidaStub` + flush |
+| Calendario (colores) | [`public/index.html`](public/index.html) | `loadAsistenciaForCalendar` + `sessionKindForOccurrence` → azul/verde/rojo |
+
+**Reglas de copresencia:** tiempo en que coexisten ≥1 participante con rol bucket **docente** y ≥1 **estudiante** en la misma clave `(reunionId, inicioSesion)`. Umbral: `ASISTENCIA_COPRESENCIA_MS_MIN` (default 3 600 000 ms). Estudiantes: `asistio` en BD solo si hubo `entradaAt` y copresencia ≥ umbral; docentes: `asistio` con solo `entradaAt`.
+
+**Eventos Socket (no confundir):**
+
+| Evento | Dominio |
+|--------|---------|
+| `room:join` / `room:leave` | Persistencia asistencia + copresencia |
+| `presence:join` / `presence:leave` | WebRTC/chat en sala; **no** actualiza calendario |
+| `room:entry:*` | Sala de espera ([`src/socket/asistenciaSocket.js`](src/socket/asistenciaSocket.js)) |
+| `attendance:*` | Asistencia en vivo (solo si `ASISTENCIA_LIVE_ENABLED=true`) |
+
+**Limitación conocida:** en `room:join`, `inicioSesion` se toma de `reunion.fechaHora` (ancla de la serie), no de la ocurrencia concreta del día en reuniones recurrentes.
+
+**Asistencia avanzada en tiempo real** (`ASISTENCIA_LIVE_ENABLED=true`)
+
+| Paso | Implementación |
+|------|----------------|
+| Indicadores en vivo | `attendance:presence` — En sesión, docente/estudiante presente, copresencia activa |
+| Contador | `attendance:copresence` cada ~8 s en sala + `GET /api/reuniones/:id/asistencia/live` |
+| Umbral en vivo | `attendance:fulfilled` + `maybeFlushIfThresholdMet` (flush anticipado idempotente) |
+| Cliente | [`public/js/asistenciaLive.js`](public/js/asistenciaLive.js) — badges lobby (`#homeAttendanceLiveBadge`), contador sala (`#meetAttendanceCopresence`); suscripción `attendance:subscribe` al elegir modo asistencia |
+| Emisión | [`src/socket/attendanceLive.js`](src/socket/attendanceLive.js) |
+
+**Fallback y seguridad**
+
+- Con `ASISTENCIA_LIVE_ENABLED=false` (default): no se emiten `attendance:*`; el flujo básico no cambia.
+- Rollback: desactivar flag y omitir script `asistenciaLive.js` si hiciera falta.
+- **Multi-instancia:** el mapa `sessions` en `copresencia.js` es **por proceso**; en despliegues con varias réplicas hace falta sticky sessions o store compartido (Redis) antes de confiar en contadores en vivo.
+- Regresión: `npm run test:copresencia` (socket join/leave + umbral).
+- No duplicar reglas de copresencia en el calendario: solo consumir eventos/API; dominio en `copresencia.js`.
+
+#### Reportes y exportación
+
+**Estado actual:** no existen `reportes.js` ni `impresion.js` en servidor. La exportación de calendario es **HTML en el cliente** (iframe `srcdoc` + `window.print()`; el usuario puede “Guardar como PDF”). El tablero usa **jsPDF** en el navegador (`exportBoardToPdf`); no está ligado a asistencia.
+
+| Salida | Mecanismo | Archivos clave |
+|--------|-----------|----------------|
+| Agendamiento / asistencia (cuadrícula 2 meses) | HTML + print | `public/index.html` — `printAgendamientoCalendar`, `printAsistenciaCalendar`, `openPrintCalendarPreview`, `buildPrintCalendarMonthHtml` |
+| Asistencia con resumen + live opcional | Misma ventana print: cuadrícula + tabla/pie | [`public/js/reporteAsistenciaPrint.js`](public/js/reporteAsistenciaPrint.js), `GET /api/reuniones/:id/asistencia/reporte` |
+| Tablero | PDF binario (jsPDF CDN) | `exportBoardToPdf` en `public/index.html` |
+
+**Composición en servidor:** [`src/services/reporteAsistencia.js`](src/services/reporteAsistencia.js) — `buildReporteAsistenciaPayload` ensambla `basic: { asistencia, resumen }` (delega en `asistencia.js`; **no** reimplementa umbral ni colores) y, si aplica, `live: { enabled, included, snapshot }` vía `copresencia.getSessionSnapshot`.
+
+**Endpoint:** `GET /api/reuniones/:reunionId/asistencia/reporte?desde=&hasta=&inicioSesion=&live=1` — misma auth que `GET .../asistencia`. Query `live=0` fuerza omitir snapshot aunque `ASISTENCIA_LIVE_ENABLED=true`.
+
+**Nomenclatura live (API/RAM, no BD):**
+
+| Campo en snapshot | Notas |
+|-------------------|--------|
+| `acumuladoMs` | Tiempo acumulado de copresencia; **no** hay columna `copresenceMs` en BD |
+| `fulfilled` | Umbral cumplido (`fulfilledNotified` interno **o** `acumuladoMs >= umbralMs`) |
+| `umbralMs` | Desde `ASISTENCIA_COPRESENCIA_MS_MIN` |
+
+**Cliente al imprimir asistencia:** `printAsistenciaCalendar` llama al endpoint reporte (rango = dos meses visibles), actualiza `homeAsistenciaPayload` para colorear la cuadrícula y añade HTML bajo el calendario: sección “Registrado en base de datos” (`resumen.filas`) y, solo si `live.enabled && live.included`, “Instantánea en sala (RAM)”. [`asistenciaLive.js`](public/js/asistenciaLive.js) guarda el último `attendance:copresence` (`getLastCopresenceSnapshot`) como respaldo al imprimir sin refrescar API.
+
+**Fallback:** con `ASISTENCIA_LIVE_ENABLED=false`, el reporte no incluye bloque live; la impresión coincide con el flujo básico (cuadrícula + tabla BD si hay filas). Sin sesión en RAM: texto “No hay sesión activa en este momento” — no inventar `acumuladoMs`.
+
+**Riesgos:** no mezclar verde de celda (BD/`asistio`) con `fulfilled` live; multi-instancia → snapshot live por proceso; PDF de calendario en servidor queda como fase posterior.
+
+#### Métricas avanzadas — Fase A (chat)
+
+**Servicio:** [`src/services/metricasParticipacion.js`](src/services/metricasParticipacion.js) — `countMensajesPorReunion(reunionId, { desde, hasta, inicioSesion })` agrega mensajes por `usuarioId` en la ventana **[inicioSesion, inicioSesion + duración de reunión]** intersectada con `desde`/`hasta`. **No** devuelve contenido de mensajes, solo `{ userId, count }[]`.
+
+**Flag:** `ASISTENCIA_METRICAS_ENABLED=true` (default desactivado). `GET /health` (dev) expone `asistenciaMetricasEnabled`.
+
+**Query en reporte:** `GET .../asistencia/reporte?metrics=chat` (también `metrics=1` o `metrics=full` incluyen chat). `metrics=0` u omitido → `metrics: null`.
+
+**Ejemplo de payload** (`metrics=chat`, flag on):
+
+```json
+{
+  "reunionId": "...",
+  "basic": { "asistencia": [], "resumen": { "filas": [] } },
+  "live": { "enabled": false, "included": false, "snapshot": null },
+  "metrics": {
+    "enabled": true,
+    "included": true,
+    "participation": {
+      "chatByUser": [{ "userId": "...", "count": 12 }]
+    }
+  }
+}
+```
+
+Con flag off y `metrics=chat`: `metrics.enabled: false`, `metrics.included: false`, sin `chatByUser`.
+
+**Impresión:** `buildMetricsHtml` en [`reporteAsistenciaPrint.js`](public/js/reporteAsistenciaPrint.js) — tabla «Mensajes por usuario» debajo del resumen BD y del pie live.
+
+**Seguridad:** misma auth que `/asistencia`; el reporte solo expone conteos agregados, no texto ni adjuntos de chat.
+
+#### Métricas avanzadas — Fase B (docente / copresencia RAM)
+
+**Servicio:** [`src/services/copresencia.js`](src/services/copresencia.js) — acumula en RAM, por `(reunionId, inicioSesion)`:
+
+| Campo | Significado |
+|-------|-------------|
+| `teacherPresenceMs` | Tiempo con ≥1 docente en sala (sin exigir estudiantes) |
+| `copresenceMs` / `acumuladoMs` | Tiempo con ≥1 docente **y** ≥1 estudiante simultáneos |
+
+**No se persisten ms en BD** (solo `asistio` booleano en `reunion_asistencias`). Tras reinicio del proceso o otra réplica, los valores RAM pueden ser 0.
+
+**Query en reporte:** `GET .../asistencia/reporte?metrics=session` (solo sesión RAM), `metrics=full` o `metrics=1` (sesión + chat Fase A). `metrics=chat` no incluye `metrics.session`. `metrics=0` u omitido → `metrics: null`.
+
+**Flag:** mismo `ASISTENCIA_METRICAS_ENABLED=true` que Fase A. Con flag off y `metrics=session|full`: `metrics.enabled: false`, `metrics.included: false`, sin `session` ni `chatByUser`.
+
+**Ejemplo de payload** (`metrics=full`, flag on):
+
+```json
+{
+  "metrics": {
+    "enabled": true,
+    "included": true,
+    "session": {
+      "inicioSesion": "2026-05-05T19:00:00.000Z",
+      "teacherPresenceMs": 5400000,
+      "copresenceMs": 3600000,
+      "umbralMs": 3600000,
+      "fulfilled": true,
+      "teacherPresent": false,
+      "copresenceActive": false,
+      "source": "ram"
+    },
+    "participation": {
+      "chatByUser": [{ "userId": "...", "count": 3 }]
+    }
+  }
+}
+```
+
+**Impresión:** `buildSessionMetricsHtml` en [`public/js/reporteAsistenciaPrint.js`](public/js/reporteAsistenciaPrint.js) — bloque «Métricas de sesión» bajo la cuadrícula (`printAsistenciaCalendar` usa `metrics=full`). La cuadrícula y colores de asistencia (BD) no cambian.
+
+**Rendimiento:** los ticks `attendance:copresence` (cada ~8 s) solo **leen** `getSessionSnapshot`; la agregación ocurre en `room:join` / `room:leave`. El conteo de chat (BD) solo en `GET .../reporte`.
+
+**Fase C (futuro):** columnas opcionales `copresence_ms` / `teacher_presence_ms` y flush en `calcularCopresencia`.
+
+#### Pruebas de validación de métricas
+
+| Script | Uso |
+|--------|-----|
+| `node scripts/validate-reporte-metrics-plan.cjs` | Fase A (chat): requiere servidor en marcha; `metrics=0`, `metrics=chat`, flag on/off. |
+| `node scripts/validate-phase-b-debug.cjs` | Fase B (RAM + API): dos instancias recomendadas — **3001** (`ASISTENCIA_METRICAS_ENABLED=false`) y **3002** (`true`); escenarios socket A/B/C y HTTP `metrics=session\|full`; escribe `debug-<sesión>.log` (NDJSON). |
+| `node scripts/debug-api-reunion-metrics.cjs` | Login JWT + reporte; variable `VALIDATE_PORT` (default 3001). |
+
+Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceMs` solo con docente+estudiante; con flag on, `GET .../reporte?metrics=session` devuelve `metrics.session.source: "ram"`; `metrics=0` → `metrics: null`.
 
 ### Cliente (`public/index.html`)
 
@@ -201,11 +359,13 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
 | **Sin solape de horarios** del docente al crear/editar/reagendar; 409 descriptivo en API y modal de agenda; omisión de validación en PATCH si agenda sin cambios (`isAgendaPatchNoOp`); excepciones de serie excluidas del mapa de ocupación al validar el padre (`buildBusyIntervals`) | `src/services/reunionHorarioSolapamiento.js`, `src/routes/reuniones.js`, `public/index.html` (`scheduleApiErrorMessage`, `#scheduleModalError`, `openScheduleModal` + roster vs panel agendamiento) |
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) y **excepciones de serie** (`parentReunionId`, `esExcepcion`, `occurrenceDayKey`) | `src/models/reunion.js` |
-| **Asistencia en BD** + umbral de copresencia | `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, socket `src/socket/asistenciaSocket.js` + stubs en `room:join`/`room:leave` |
+| **Asistencia en BD** + umbral de copresencia | Ver §1 «Asistencia y copresencia»; `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, `GET .../asistencia/live`, socket `room:join`/`room:leave`, opcional `attendance:*` vía `src/socket/attendanceLive.js` |
+| **Asistencia en vivo (opcional)** | `ASISTENCIA_LIVE_ENABLED`, `public/js/asistenciaLive.js`, eventos `attendance:presence` / `attendance:copresence` / `attendance:fulfilled` |
+| **Métricas de reporte (Fase A/B)** | `ASISTENCIA_METRICAS_ENABLED`, `GET .../asistencia/reporte?metrics=0\|chat\|session\|full`, `src/services/reporteAsistencia.js`, `metricasParticipacion.js`, `teacherPresenceMs`/`copresenceMs` en RAM (`copresencia.js`) |
 | **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` + tabla `reunion_ocurrencia` |
 | **Deshacer/rehacer agenda** (pilas en cliente; ver §1 Historial de acciones) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`, `#btnCalendarUndo` / `#btnCalendarRedo`); migración hacia `public/js/calendarController.js` (paso 2) |
 | **Calendario lobby — estado y carga** (`getMeetings` / `setMeetings` / `loadHomeMeetings`, paso 1) | `public/js/calendarController.js` + delegación en `public/index.html` |
-| **Impresión agendamiento y asistencia** (calendario visual, mismos colores y horas en celdas; sin listado textual) | `public/index.html` (`printAgendamientoCalendar`, `printAsistenciaCalendar`, `openPrintCalendarPreview`, `#btnCalendarPrintAgendamiento`, `#btnCalendarPrintAsistencia`) |
+| **Impresión agendamiento y asistencia** (cuadrícula 2 meses; asistencia + tabla resumen BD y pie live opcional vía reporte) | §1 «Reportes y exportación»; `public/index.html`, [`public/js/reporteAsistenciaPrint.js`](public/js/reporteAsistenciaPrint.js), [`src/services/reporteAsistencia.js`](src/services/reporteAsistencia.js), `GET .../asistencia/reporte` |
 | **Calendario por rol** (Ver + puntitos docente; hora en celda estudiante) | `public/index.html` (`appendCalendarDayDots`, `appendCalendarDayVerButton`, `appendCalendarDayTimesForStudent`, `openDayRosterFromCell`) |
 | Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` |
 | Búsqueda de reunión por `room_id` (case-insensitive) centralizada | `src/services/reunionByRoom.js` |
@@ -232,7 +392,9 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | `npm run dev` | Mismo servidor con `node --watch` |
 | `npm run test:copresencia` | Script `scripts/test-copresencia-socket.cjs` (socket.io-client; prueba entrada/salida y umbral) |
 
-Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción).
+Scripts adicionales (sin entrada en `package.json`): `validate-reporte-metrics-plan.cjs`, `validate-phase-b-debug.cjs`, `debug-api-reunion-metrics.cjs` — ver § métricas.
+
+Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado).
 
 ---
 
@@ -265,4 +427,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda (roster día vs panel solo lectura en agendamiento detalle), PATCH sin revalidar solape si no hay cambios, excepciones de serie en validación de solape, asistencia/copresencia en BD, reagendar, historial deshacer/rehacer, 409 en API/modal, anotaciones en pantalla compartida y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
