@@ -13,7 +13,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Express** en el mismo proceso HTTP que **Socket.io** (mismo puerto; por defecto `3000`).
 - **CORS** abierto para desarrollo; **JSON** body parser.
 - Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`). Resolución de reunión por sala: **`findReunionByRoomKey`** en `src/services/reunionByRoom.js` (uso en rutas de reunión, adjuntos de chat y socket).
-- **Health**: `GET /health` (en desarrollo incluye `copresenciaUmbralMs` leído de `ASISTENCIA_COPRESENCIA_MS_MIN`).
+- **Health**: `GET /health` (en desarrollo incluye `copresenciaUmbralMs`, `asistenciaMetricasEnabled`, `asistenciaPersistenceEnabled`).
 - **Historial de agenda (cliente)**: `GET /js/historialAcciones.js` sirve `src/services/historialAcciones.js` (pilas deshacer/rehacer en el navegador; sin persistencia en servidor).
 - **WebRTC / ICE**: `GET /api/rtc/config` — STUN desde `STUN_URLS` o por defecto Google; TURN opcional vía `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
 - **Estáticos**: `public/`; la raíz sirve `public/index.html`.
@@ -176,7 +176,23 @@ Con flag off y `metrics=chat`: `metrics.enabled: false`, `metrics.included: fals
 
 **Rendimiento:** los ticks `attendance:copresence` (cada ~8 s) solo **leen** `getSessionSnapshot`; la agregación ocurre en `room:join` / `room:leave`. El conteo de chat (BD) solo en `GET .../reporte`.
 
-**Fase C (futuro):** columnas opcionales `copresence_ms` / `teacher_presence_ms` y flush en `calcularCopresencia`.
+#### Métricas avanzadas — Fase C (persistencia BD)
+
+**Tabla:** `reunion_asistencia_ms` — una fila por `(reunion_id, inicio_sesion, user_id)` con los mismos ms de sesión (snapshot RAM al flush).
+
+**Flags:** `ASISTENCIA_PERSISTENCE_ENABLED=true` (default **false**) + `ASISTENCIA_METRICAS_ENABLED=true` para exponer `metrics.session` en reporte.
+
+**Flush:** al final de `calcularCopresencia` en [`copresencia.js`](src/services/copresencia.js) vía [`asistenciaMsPersistencia.js`](src/services/asistenciaMsPersistencia.js) — no en cada tick socket.
+
+**Lectura reporte:** prioriza BD; si no hay filas → RAM. Campos extra: `source` (`db`|`ram`), `persistedAt`, `selectedBy`, `adminView`, `adminOverride`.
+
+**Selección admin-aware** (`selectPersistedSessionMetrics`): 1) fila del docente (`docenteUsuarioId`); 2) admin sin `?asRequester=true` → mayor `copresence_ms`; admin con `asRequester=true` → fila del solicitante; 3) no admin → fila del solicitante o max copresencia.
+
+**Query:** `GET .../asistencia/reporte?metrics=session&asRequester=1` (solo relevante para admin).
+
+**Migración manual:** [`migrations/2026_add_reunion_asistencia_ms.sql`](migrations/2026_add_reunion_asistencia_ms.sql). Arranque: `ensureReunionAsistenciaMsTable()` en `server.js`.
+
+**Rollback operativo:** desactivar `ASISTENCIA_PERSISTENCE_ENABLED`; opcional `migrations/rollback_2026_add_reunion_asistencia_ms.sql`.
 
 #### Pruebas de validación de métricas
 
@@ -184,9 +200,13 @@ Con flag off y `metrics=chat`: `metrics.enabled: false`, `metrics.included: fals
 |--------|-----|
 | `node scripts/validate-reporte-metrics-plan.cjs` | Fase A (chat): requiere servidor en marcha; `metrics=0`, `metrics=chat`, flag on/off. |
 | `node scripts/validate-phase-b-debug.cjs` | Fase B (RAM + API): dos instancias recomendadas — **3001** (`ASISTENCIA_METRICAS_ENABLED=false`) y **3002** (`true`); escenarios socket A/B/C y HTTP `metrics=session\|full`; escribe `debug-<sesión>.log` (NDJSON). |
+| `npm run test:asistencia-ms` | Fase C unitario: upsert + `selectPersistedSessionMetrics`. |
+| `npm run validate:phase-c` | Fase C integración: servidor con persistencia on, flush, reinicio, `source: db`. |
 | `node scripts/debug-api-reunion-metrics.cjs` | Login JWT + reporte; variable `VALIDATE_PORT` (default 3001). |
 
 Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceMs` solo con docente+estudiante; con flag on, `GET .../reporte?metrics=session` devuelve `metrics.session.source: "ram"`; `metrics=0` → `metrics: null`.
+
+Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "db"` y `persistedAt` ISO; persistencia off → sigue RAM aunque exista tabla vacía.
 
 ### Cliente (`public/index.html`)
 
@@ -361,7 +381,7 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) y **excepciones de serie** (`parentReunionId`, `esExcepcion`, `occurrenceDayKey`) | `src/models/reunion.js` |
 | **Asistencia en BD** + umbral de copresencia | Ver §1 «Asistencia y copresencia»; `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, `GET .../asistencia/live`, socket `room:join`/`room:leave`, opcional `attendance:*` vía `src/socket/attendanceLive.js` |
 | **Asistencia en vivo (opcional)** | `ASISTENCIA_LIVE_ENABLED`, `public/js/asistenciaLive.js`, eventos `attendance:presence` / `attendance:copresence` / `attendance:fulfilled` |
-| **Métricas de reporte (Fase A/B)** | `ASISTENCIA_METRICAS_ENABLED`, `GET .../asistencia/reporte?metrics=0\|chat\|session\|full`, `src/services/reporteAsistencia.js`, `metricasParticipacion.js`, `teacherPresenceMs`/`copresenceMs` en RAM (`copresencia.js`) |
+| **Métricas de reporte (Fase A/B/C)** | `ASISTENCIA_METRICAS_ENABLED`, `ASISTENCIA_PERSISTENCE_ENABLED`, `GET .../asistencia/reporte?metrics=0\|chat\|session\|full`, `reporteAsistencia.js`, `asistenciaMsPersistencia.js`, tabla `reunion_asistencia_ms` |
 | **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` + tabla `reunion_ocurrencia` |
 | **Deshacer/rehacer agenda** (pilas en cliente; ver §1 Historial de acciones) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`, `#btnCalendarUndo` / `#btnCalendarRedo`); migración hacia `public/js/calendarController.js` (paso 2) |
 | **Calendario lobby — estado y carga** (`getMeetings` / `setMeetings` / `loadHomeMeetings`, paso 1) | `public/js/calendarController.js` + delegación en `public/index.html` |
@@ -394,7 +414,7 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 
 Scripts adicionales (sin entrada en `package.json`): `validate-reporte-metrics-plan.cjs`, `validate-phase-b-debug.cjs`, `debug-api-reunion-metrics.cjs` — ver § métricas.
 
-Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado).
+Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado), **`ASISTENCIA_PERSISTENCE_ENABLED`** (`true` para flush/lectura BD de métricas sesión; default desactivado).
 
 ---
 
@@ -427,4 +447,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*

@@ -7,6 +7,7 @@ const { Reunion } = require('../models');
 const { listarAsistenciaPorReunion, resumenAsistenciaStub } = require('./asistencia');
 const copresencia = require('./copresencia');
 const metricasParticipacion = require('./metricasParticipacion');
+const asistenciaMsPersistencia = require('./asistenciaMsPersistencia');
 
 function parseIncludeLive(liveParam) {
   if (liveParam === undefined || liveParam === null || String(liveParam).trim() === '') {
@@ -40,7 +41,7 @@ function resolveInicioSesionForReport(reunion, opts) {
   return copresencia.inicioSesionDesdeReunion(reunion);
 }
 
-function buildSessionMetricsFromSnapshot(snap) {
+function buildSessionMetricsFromSnapshot(snap, extra = {}) {
   if (!snap) {
     return {
       inicioSesion: null,
@@ -51,6 +52,10 @@ function buildSessionMetricsFromSnapshot(snap) {
       teacherPresent: false,
       copresenceActive: false,
       source: 'ram',
+      selectedBy: extra.selectedBy || 'ram',
+      requestedByRole: extra.requestedByRole || null,
+      adminView: !!extra.adminView,
+      adminOverride: !!extra.adminOverride,
     };
   }
   return {
@@ -62,7 +67,42 @@ function buildSessionMetricsFromSnapshot(snap) {
     teacherPresent: !!snap.teacherPresent,
     copresenceActive: !!snap.copresenceActive,
     source: 'ram',
+    selectedBy: extra.selectedBy || 'ram',
+    requestedByRole: extra.requestedByRole || null,
+    adminView: !!extra.adminView,
+    adminOverride: !!extra.adminOverride,
   };
+}
+
+async function resolveSessionMetrics(reunion, inicioSesion, opts = {}) {
+  const requesterRole = opts.requesterRole || null;
+  const baseExtra = { requestedByRole: requesterRole };
+
+  if (!inicioSesion) {
+    return buildSessionMetricsFromSnapshot(null, { ...baseExtra, selectedBy: 'ram' });
+  }
+
+  if (asistenciaMsPersistencia.isAsistenciaPersistenceEnabled()) {
+    const rows = await asistenciaMsPersistencia.loadPersistedRowsForSession(
+      reunion.reunionId,
+      inicioSesion
+    );
+    if (rows && rows.length > 0) {
+      const { session } = asistenciaMsPersistencia.selectPersistedSessionMetrics({
+        rows,
+        docenteUsuarioId: opts.docenteUsuarioId ?? reunion.docenteUsuarioId,
+        requesterId: opts.requesterId,
+        requesterRole,
+        asRequester: !!opts.asRequester,
+      });
+      if (session) {
+        return { ...session, requestedByRole: requesterRole };
+      }
+    }
+  }
+
+  const snap = copresencia.getSessionSnapshot(reunion.reunionId, inicioSesion);
+  return buildSessionMetricsFromSnapshot(snap, { ...baseExtra, selectedBy: 'ram' });
 }
 
 /**
@@ -111,10 +151,12 @@ async function buildReporteAsistenciaPayload(reunionId, opts = {}) {
     };
 
     if (serverMetricsOn && wantSession) {
-      const snap = inicioSesion
-        ? copresencia.getSessionSnapshot(reunion.reunionId, inicioSesion)
-        : null;
-      metrics.session = buildSessionMetricsFromSnapshot(snap);
+      metrics.session = await resolveSessionMetrics(reunion, inicioSesion, {
+        requesterId: opts.requesterId,
+        requesterRole: opts.requesterRole,
+        asRequester: opts.asRequester,
+        docenteUsuarioId: opts.docenteUsuarioId ?? reunion.docenteUsuarioId,
+      });
     }
 
     if (serverMetricsOn && wantChat) {
@@ -142,4 +184,5 @@ module.exports = {
   parseIncludeLive,
   parseMetricsMode,
   buildSessionMetricsFromSnapshot,
+  resolveSessionMetrics,
 };

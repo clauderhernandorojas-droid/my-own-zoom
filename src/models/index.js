@@ -8,6 +8,7 @@ const defineTablero = require('./tablero');
 const defineReunionInvitado = require('./reunionInvitado');
 const defineReunionSolicitudAcceso = require('./reunionSolicitudAcceso');
 const defineReunionAsistencia = require('./reunionAsistencia');
+const defineReunionAsistenciaMs = require('./reunionAsistenciaMs');
 const defineReunionOcurrencia = require('./reunionOcurrencia');
 
 const sequelize = createSequelize();
@@ -21,6 +22,7 @@ const Tablero = defineTablero(sequelize);
 const ReunionInvitado = defineReunionInvitado(sequelize);
 const ReunionSolicitudAcceso = defineReunionSolicitudAcceso(sequelize);
 const ReunionAsistencia = defineReunionAsistencia(sequelize);
+const ReunionAsistenciaMs = defineReunionAsistenciaMs(sequelize);
 const ReunionOcurrencia = defineReunionOcurrencia(sequelize);
 
 // Usuarios ↔ Reuniones N:M
@@ -103,5 +105,6 @@ module.exports = {
   ReunionInvitado,
   ReunionSolicitudAcceso,
   ReunionAsistencia,
+  ReunionAsistenciaMs,
   ReunionOcurrencia,
 };

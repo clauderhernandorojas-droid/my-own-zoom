@@ -941,12 +941,18 @@ router.get('/:reunionId/asistencia/reporte', async (req, res, next) => {
       return res.status(403).json({ error: 'No participas en esta reuni?n' });
     }
 
+    const asRequester =
+      req.query.asRequester === 'true' || req.query.asRequester === '1';
     const payload = await buildReporteAsistenciaPayload(reunion.reunionId, {
       desde: req.query.desde || undefined,
       hasta: req.query.hasta || undefined,
       inicioSesion: req.query.inicioSesion || undefined,
       live: req.query.live,
       metrics: req.query.metrics,
+      requesterId: req.usuario.usuarioId,
+      requesterRole: req.usuario.rol,
+      asRequester,
+      docenteUsuarioId: reunion.docenteUsuarioId,
     });
     if (!payload) return res.status(404).json({ error: 'Reuni?n no encontrada' });
     res.json(payload);

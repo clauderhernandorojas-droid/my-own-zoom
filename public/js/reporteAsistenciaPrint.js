@@ -127,15 +127,37 @@
     const copresenceMs = Number(session.copresenceMs) || 0;
     const umbralMs = Number(session.umbralMs) || 0;
 
+    const source = session.source === "db" ? "db" : "ram";
+    const persistedAt = session.persistedAt ? String(session.persistedAt) : "";
+    const selectedBy = session.selectedBy ? String(session.selectedBy) : "";
+
     let html = `<section class="print-report-summary print-report-session-metrics" aria-label="Métricas de sesión">`;
     html += `<h2 class="print-report-summary__title">Métricas de sesión</h2>`;
-    html += `<p class="print-report-summary__note">Datos en memoria del servidor (RAM); no sustituyen el historial en base de datos. Pueden ser 0 si no hubo sala activa en este proceso.</p>`;
+    if (source === "db") {
+      html += `<p class="print-report-summary__note">Origen: <strong>base de datos</strong>`;
+      if (persistedAt) {
+        html += ` · Persistido: <strong>${escapeHtml(persistedAt)}</strong>`;
+      }
+      if (selectedBy) {
+        html += ` · Selección: <strong>${escapeHtml(selectedBy)}</strong>`;
+      }
+      html += `.</p>`;
+    } else {
+      html += `<p class="print-report-summary__note">Origen: <strong>RAM</strong> (memoria del proceso actual). Pueden ser 0 si no hubo sala activa en este servidor.</p>`;
+    }
     html += `<ul class="print-report-live-list">`;
     html += `<li>Tiempo con docente presente: <strong>${escapeHtml(formatMs(teacherMs))}</strong></li>`;
     html += `<li>Copresencia acumulada (docente + estudiante): <strong>${escapeHtml(formatMs(copresenceMs))}</strong> / umbral <strong>${escapeHtml(formatMs(umbralMs))}</strong></li>`;
-    html += `<li>Umbral copresencia cumplido (RAM): <strong>${session.fulfilled ? "Sí" : "No"}</strong></li>`;
+    html += `<li>Umbral copresencia cumplido: <strong>${session.fulfilled ? "Sí" : "No"}</strong></li>`;
     html += `<li>Docente presente ahora: <strong>${session.teacherPresent ? "Sí" : "No"}</strong> · Copresencia activa ahora: <strong>${session.copresenceActive ? "Sí" : "No"}</strong></li>`;
-    html += `</ul></section>`;
+    html += `</ul>`;
+    if (session.adminView) {
+      html += `<p class="print-report-summary__note">Vista administrador (máxima copresencia o fila representativa).</p>`;
+    }
+    if (session.adminOverride) {
+      html += `<p class="print-report-summary__note">Vista como solicitante (admin con asRequester).</p>`;
+    }
+    html += `</section>`;
     return html;
   }
 
