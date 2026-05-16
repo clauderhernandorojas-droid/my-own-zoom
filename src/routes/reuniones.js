@@ -1,6 +1,5 @@
 const express = require('express');
 const fs = require('fs');
-const path = require('path');
 const multer = require('multer');
 const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
@@ -19,6 +18,7 @@ const {
   validateNoOverlapForDocente,
   validateSeriesOccurrencesNoOverlap,
   CONFLICT_MESSAGE,
+  durationMsFromReunion,
   getMeetingOccurrencesInRange,
   formatOccurrenceDayKey,
   parseOmitInstance,
@@ -78,6 +78,50 @@ function normalizeRecurrence(raw) {
     };
   }
   return null;
+}
+
+function recurrenceNormKey(raw) {
+  const n = normalizeRecurrence(raw);
+  return n == null ? '' : JSON.stringify(n);
+}
+
+function sameInstantOrBothNull(a, b) {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  const da = a instanceof Date ? a : new Date(a);
+  const db = b instanceof Date ? b : new Date(b);
+  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return false;
+  return da.getTime() === db.getTime();
+}
+
+/** true si el PATCH no altera título, fechas, zona ni recurrencia respecto a la fila actual. */
+function isAgendaPatchNoOp(reunion, { titulo, fechaHora, fechaHoraFin, zonaHoraria, recurrencia }) {
+  if (String(reunion.titulo || '').trim() !== String(titulo || '').trim()) return false;
+  const effStart =
+    fechaHora !== undefined && fechaHora !== null && fechaHora !== ''
+      ? new Date(fechaHora)
+      : reunion.fechaHora
+        ? new Date(reunion.fechaHora)
+        : null;
+  const oldStart = reunion.fechaHora ? new Date(reunion.fechaHora) : null;
+  if (effStart && Number.isNaN(effStart.getTime())) return false;
+  if (!sameInstantOrBothNull(effStart, oldStart)) return false;
+
+  const effEnd =
+    fechaHoraFin !== undefined && fechaHoraFin !== null && fechaHoraFin !== ''
+      ? new Date(fechaHoraFin)
+      : reunion.fechaHoraFin
+        ? new Date(reunion.fechaHoraFin)
+        : null;
+  const oldEnd = reunion.fechaHoraFin ? new Date(reunion.fechaHoraFin) : null;
+  if (effEnd && Number.isNaN(effEnd.getTime())) return false;
+  if (!sameInstantOrBothNull(effEnd, oldEnd)) return false;
+
+  const effZone = zonaHoraria !== undefined ? zonaHoraria || null : reunion.zonaHoraria ?? null;
+  if (String(effZone || '') !== String((reunion.zonaHoraria ?? null) || '')) return false;
+
+  const incomingRec = recurrencia !== undefined ? recurrencia : reunion.recurrencia;
+  return recurrenceNormKey(incomingRec) === recurrenceNormKey(reunion.recurrencia);
 }
 
 async function destroyReunionCascade(reunionId) {
@@ -321,21 +365,6 @@ router.post('/:reunionId/excepcion-ocurrencia', async (req, res, next) => {
         return res.status(400).json({ error: 'La reunión padre no puede ser una excepción' });
       }
       parent = master;
-      // #region agent log
-      try {
-        fs.appendFileSync(
-          path.join(__dirname, '..', '..', 'debug-4fb334.log'),
-          `${JSON.stringify({
-            sessionId: '4fb334',
-            hypothesisId: 'H3',
-            location: 'reuniones.js:excepcion-ocurrencia',
-            message: 'URL era fila excepción; resuelto a padre serie',
-            data: { requestedId, resolvedMasterId: parent.reunionId },
-            timestamp: Date.now(),
-          })}\n`
-        );
-      } catch (_) {}
-      // #endregion
     }
     if (!normalizeRecurrence(parent.recurrencia)) {
       return res.status(400).json({ error: 'Solo series recurrentes admiten excepciones por día' });
@@ -573,7 +602,15 @@ router.patch('/:reunionId', async (req, res, next) => {
     if (startDate && endDate && endDate <= startDate) {
       return res.status(400).json({ error: 'fechaHoraFin debe ser posterior a fechaHora' });
     }
+    const patchNoOp = isAgendaPatchNoOp(reunion, {
+      titulo,
+      fechaHora,
+      fechaHoraFin,
+      zonaHoraria,
+      recurrencia,
+    });
     if (
+      !patchNoOp &&
       reunion.esExcepcion &&
       startDate &&
       endDate &&
@@ -593,7 +630,7 @@ router.patch('/:reunionId', async (req, res, next) => {
       }
     }
 
-    if (!reunion.esExcepcion) {
+    if (!patchNoOp && !reunion.esExcepcion) {
       const effectiveStart =
         startDate && !Number.isNaN(startDate.getTime())
           ? startDate
@@ -703,6 +740,48 @@ router.post('/:reunionId/reagendar', async (req, res, next) => {
         return res.status(st).json({ error: leg.error, code: leg.code });
       }
       occurrenceId = leg.occurrenceId;
+    }
+
+    const newD = new Date(newDate);
+    if (Number.isNaN(newD.getTime())) {
+      return res.status(400).json({ error: 'newDate inválida' });
+    }
+    const durMs = durationMsFromReunion(reunion);
+    const endD = new Date(newD.getTime() + durMs);
+    const origDayKeys = [];
+    const oidTrim = String(occurrenceId).trim();
+    const tMatch = /^t_(-?\d+)$/.exec(oidTrim);
+    if (tMatch) {
+      const origMs = Number(tMatch[1]);
+      if (Number.isFinite(origMs)) {
+        const dk = formatOccurrenceDayKey(new Date(origMs));
+        if (dk) origDayKeys.push(dk);
+      }
+    } else {
+      const exRow = await ReunionOcurrencia.findOne({
+        where: { reunionOcurrenciaId: oidTrim, reunionId: reunion.reunionId },
+      });
+      if (exRow?.fechaOcurrenciaOriginal) {
+        const dk = formatOccurrenceDayKey(exRow.fechaOcurrenciaOriginal);
+        if (dk) origDayKeys.push(dk);
+      }
+    }
+    const newDayKey = formatOccurrenceDayKey(newD);
+    const substDayKeys = [...origDayKeys];
+    if (newDayKey && !substDayKeys.includes(newDayKey)) substDayKeys.push(newDayKey);
+    const overlapReag = await validateNoOverlapForDocente({
+      docenteUsuarioId: reunion.docenteUsuarioId,
+      start: newD,
+      end: endD,
+      excludeReunionId: null,
+      serieLogId: reunion.serieId || reunion.reunionId,
+      mergeParentSubstitution:
+        substDayKeys.length > 0
+          ? { parentReunionId: reunion.reunionId, occurrenceDayKeys: substDayKeys }
+          : null,
+    });
+    if (overlapReag.conflict) {
+      return res.status(409).json({ error: overlapReag.message || CONFLICT_MESSAGE });
     }
 
     const result = await reagendarOcurrencia(req.params.reunionId, occurrenceId, newDate);

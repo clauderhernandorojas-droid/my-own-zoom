@@ -61,14 +61,76 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Tablero**: cuadrícula punteada sutil y vista sin borde final visible (experiencia “infinita” práctica). El minimapa pasó a marco dinámico basado en contenido + viewport en lugar de límites fijos.
 - **Home/Lobby rediseñado**: estilo unificado negro/blanco/azul, acciones rápidas, calendario y lista de próximas reuniones. Se removió el flujo manual de `Room ID` y la entrada se hace por acciones directas por reunión (`Entrar`, `Editar`, `Cupo`, `Eliminar`, `Copiar link`).
 - **Calendario (dos meses, asistencia y agenda)**:
-  - Vista de **dos meses** con navegación `‹` / `›` (`homeCalendarPanels`).
+  - Vista de **dos meses** con navegación `‹` / `›` (`homeCalendarPanels`): los meses se apilan **en vertical** (`flex-direction: column` en `#homeCalendarPanels`) para ganar ancho y claridad; la barra superior (navegación, deshacer/rehacer, impresión) permanece arriba.
+  - Celdas de día más altas (`min-height` ~92px). **Docente**: puntitos (`.calendar-day__dot`, uno por sesión del día) + botón **Ver** (abre modal de agenda del día con reagendar/eliminar). **Estudiante**: hora programada en la celda (`fechaHora`/`fechaHoraFin`, p. ej. `15:00 - 16:00`), sin botón Ver ni modal desde el calendario (sin alterar colores ni lógica de asistencia/copresencia).
   - Modos **Agendamiento** y **Asistencia** por reunión seleccionada; colores de día: azul (programado/futuro), verde (asistió / copresencia cumplida), rojo (no asistió / pasado sin registro).
+  - **Vista detallada de agendamiento** (`homeAgendamientoReunionId`): con esa reunión enfocada, al abrir su modal de agenda **Editar**, se muestra un panel **solo lectura** (`#scheduleAgendamientoSesionesReadonly`, `syncScheduleAgendamientoDetalleSesiones` en `public/index.html`) con **cada sesión** incluida en el rango de los **dos meses visibles** del calendario, con **hora programada** en formato legible (`HH:mm – HH:mm`, derivada de `fechaHora` / `fechaHoraFin` por instancia vía `resolveMeetingOccurrenceSlot`). **No** se muestra ese panel cuando el modal se abre desde **Ver** el día (`_calendarDayMeetings` / roster): ahí solo debe verse el listado del día con **Eliminar**; si hubiera foco de agendamiento, el panel se oculta y vacía para no tapar la UX del roster. **Imprimir agendamiento** sigue replicando el **calendario visual** (celdas y colores), no un listado textual — la lógica de fechas por sesión es coherente entre pantalla, modal y print.
   - Datos de asistencia vía `GET /api/reuniones/:reunionId/asistencia` (filas + `resumen`); emparejamiento de ocurrencias con `entradaAt`/`salidaAt` en el mismo día local; soporte de **reagenda** (`fechaOcurrenciaOverride` vs `inicioSesion`).
   - **Reagendar** una ocurrencia de serie: `POST /api/reuniones/:reunionId/reagendar` con `occurrenceId` + `newDate`; marcador ↻ en el día; aviso en modal «Reagendada desde…».
-  - Barra del calendario: **Deshacer** / **Rehacer** solo visibles para **profesor** (pilas en cliente para agendar, editar, reagendar, eliminar); **Imprimir agendamiento** / **Imprimir asistencia** son placeholders (log «próximamente»).
+  - Barra superior del calendario (`calendar-head__tools`): historial deshacer/rehacer (docente), impresión de agendamiento (con hora) e impresión de asistencia (placeholder). Ver subsecciones más abajo.
   - Tras salir de sala, `loadHomeMeetings()` refresca el calendario para reflejar asistencia persistida.
+
+#### Disposición vertical del calendario
+
+- **Qué cambió**: `#homeCalendarPanels` usa `display: flex; flex-direction: column` (cada `.home-calendar-month-wrap` ocupa el ancho completo, un mes debajo del otro).
+- **Por qué**: mayor claridad al leer dos meses seguidos y más espacio horizontal por celda para la **hora** (estudiante) o **puntitos + Ver** (docente) sin comprimir la cuadrícula.
+- La cabecera `calendar-head` (flechas, etiqueta de rango, herramientas de impresión e historial) no se mueve; solo el bloque de meses es vertical.
+
+#### calendarController.js (migración por pasos)
+
+- **Archivo**: `public/js/calendarController.js`, cargado en `public/index.html` **después** de `/js/historialAcciones.js` y **antes** del bloque `<script>` principal.
+- **Objetivo**: centralizar poco a poco inicialización, carga de datos del calendario y cableado con historial, impresión, reagendamiento y vistas por rol, **sin duplicar** lógica de dominio ya existente en servidor (`asistencia.js`, `copresencia.js`, `reuniones.js`, etc.).
+
+| Dependencia / consumidor | Uso actual (paso 1) |
+|----------------------------|---------------------|
+| `GET /api/reuniones/mis` vía `api()` del index | `CalendarController.loadHomeMeetings` invoca el cliente HTTP existente |
+| `public/index.html` | Define `loadHomeMeetings()` como delegado: pasa `getToken`, `api`, `onNoToken`, `onAfterLoad` (reset de focos asistencia/agendamiento, `loadAsistenciaForCalendar` / `renderHomeCalendar`, `renderScheduledMeetings`) |
+| `HistorialAcciones` (`/js/historialAcciones.js`) | Sin cambios; paso 2 enlazará botones desde el controlador |
+| Lista de reuniones en memoria | `CalendarController.getMeetings()` / `setMeetings()` sustituyen el antiguo `let homeMeetings` |
+
+**API expuesta (paso 1)**:
+
+| Miembro | Descripción |
+|---------|-------------|
+| `initStep1()` | Marca inicialización del paso 1 (extensible en pasos siguientes). |
+| `getMeetings()` | Devuelve el array de reuniones cargadas. |
+| `setMeetings(arr)` | Reemplaza el array (p. ej. tras eliminar una reunión en el lobby). |
+| `loadHomeMeetings(hooks)` | Vacía lista, sin token → `onNoToken()`; con token → `GET /api/reuniones/mis`; siempre → `onAfterLoad(meetings)` en `finally`. |
+
+**Notas de migración — Paso 1 (hecho)**:
+
+- Se movió el **estado** `homeMeetings` al módulo y la **petición** `GET /api/reuniones/mis` dentro de `CalendarController.loadHomeMeetings`.
+- La **orquestación** tras la carga (fechas de calendario, focos `homeQuickSelectedReunionId` / `homeAgendamientoReunionId`, `homeAsistenciaPayload`, re-render) permanece en `public/index.html` mediante callbacks para no romper el orden de llamadas existente.
+- **Prueba manual sugerida**: login → lobby carga reuniones; deshacer/rehacer, imprimir, Ver y asistencia/agendamiento siguen en el index (sin regresión esperada en paso 1).
+
+**Pasos pendientes** (documentar cada uno al completarlo):
+
+2. Conectar `calendarioHistorial` y botones de impresión al controlador (delegación sin reescribir `historialAcciones.js`).
+3. Integrar reagendamiento y validación de solape del lado cliente donde aplique (sigue usando API existente).
+4. Cablear asistencia/copresencia solo como orquestación; **no** modificar `src/services/asistencia.js` ni `copresencia.js`.
+
+#### Historial de acciones (deshacer / rehacer)
+
+- **Servicio**: `src/services/historialAcciones.js`, expuesto al navegador con `GET /js/historialAcciones.js` (`server.js`).
+- **API del módulo**: `createHistorialAcciones()` devuelve `{ push, undo, redo, canUndo, canRedo, clear, onChange, getSizes }`. Máximo **50** entradas en la pila deshacer (`MAX_ACCIONES`).
+- **Forma de cada acción**: `{ type, label, undo: () => Promise, redo: () => Promise }`. Tipos: `agendar`, `editar`, `reagendar`, `cancelar` (`ACCION_TYPES`).
+- **Separación de dominios**: no importa ni usa `asistencia.js`, `copresencia.js` ni `reuniones.js` (reagendar). Solo gestiona pilas; el cliente (`public/index.html`, instancia `calendarioHistorial`) registra callbacks que llaman a `POST`/`PATCH`/`DELETE` de reuniones.
+- **UI**: botones `#btnCalendarUndo` y `#btnCalendarRedo` en la barra del calendario (clase `btn-ghost btn-calendar-tool`). Visibles solo para **docente** (`updateLobbyRoleUi`); se habilitan/deshabilitan con `updateCalendarHistoryButtons` vía `onChange`.
+- **Registro (`push`)** tras operaciones exitosas: `pushHistorialAgendar`, `pushHistorialEditar`, `pushHistorialReagendar`, `pushHistorialCancelar` (eliminar reunión). **Deshacer** ejecuta `undo()` de la cima y la mueve a la pila rehacer; **Rehacer** hace `redo()` y la devuelve a deshacer.
+- Al **cerrar sesión** se llama `calendarioHistorial.clear()` para no mezclar acciones entre usuarios.
+
+#### Calendario por rol (Ver, hora en celda, puntitos)
+
+- **Docente / profesor** (`isTeacherRole`): en días con sesión se muestran **puntitos** (`.calendar-day__dots`; tantos como reuniones u ocurrencias ese día) y el botón **Ver** (`btn-calendar-ver`). **Ver** abre `#scheduleModal` con el listado del día (`_calendarDayMeetings`), edición, reagendar y eliminar. `openDayRosterFromCell` rechaza roles que no sean docente.
+- **Estudiante**: en cada día con sesión se muestra la **hora** directamente en la celda (`.calendar-day__times` / `.calendar-day__time`, derivada de `fechaHora` y `fechaHoraFin` vía `resolveMeetingOccurrenceSlot`). **No** hay botón Ver ni apertura de modal desde el calendario; puede usar **Entrar** en la lista de próximas reuniones.
+- **Modal de agenda (solo docente vía Ver o Editar)**: formulario completo de agendar/editar; el estudiante no entra al modal desde el calendario.
+
+#### Impresión en la barra superior
+
+- **`#btnCalendarPrintAgendamiento`** / **`#btnCalendarPrintAsistencia`**: generan HTML con la misma cuadrícula que en pantalla y llaman a **`print()`** desde un **iframe oculto** con `srcdoc` (evita pestañas `blob:` en blanco en algunos navegadores/perfiles). Estilos embebidos en `getCalendarPrintEmbeddedStyles()`: en **impresión** se fuerza **A4 apaisado**, márgenes cortos, celdas más compactas, `page-break-inside: avoid` en cada `.home-calendar-month-wrap` y `print-color-adjust: exact` en todos los nodos para acercar verde/rojo/azul al lobby. Las **horas** en celdas (`calendar-day__time`) se mantienen. Para **asistencia**, el docente **dueño** de la reunión (`docenteUsuarioId` = usuario actual) usa **`calendarAsistenciaRowsFromPayload`**: todas las filas de `GET .../asistencia` (`asistencia[]`) para colorear por participación de la clase; el resto de roles sigue filtrando a la fila propia (`parseAsistenciaRowsFromApi`). Conviene activar **gráficos de fondo** en el diálogo de impresión del navegador si los tonos salen apagados.
+- Botones visibles para todos los roles; estilos `btn-ghost btn-calendar-tool`.
 - **Agendamiento en modal**: creación y edición con título, inicio, duración, zona horaria, link compartible y copia al portapapeles. Modal con scroll interno + acciones sticky para mantener botones visibles en pantallas pequeñas.
-- **Solapamiento de agenda (docente)**: el servidor valida intervalos `[fechaHora, fechaHoraFin]` frente al resto de reuniones no finalizadas del mismo docente (`src/services/reunionHorarioSolapamiento.js`): una query carga la agenda, se construyen intervalos ocupados (padres, expansión RRULE alineada al cliente, excepciones; se omiten `omitInstance` y la reunión bajo edición vía `excludeReunionId`). **`POST /api/reuniones`** y **`PATCH`** del padre (no excepción) llaman a la validación de serie; conflicto → **409** con mensaje en español (título y hora de fin del bloqueo). Excepciones de ocurrencia validan con `validateNoOverlapForDocente`. Rutas `POST .../excepcion-ocurrencia` y `POST .../omitir-ocurrencia` para edición/omisión por día.
+- **Solapamiento de agenda (docente)**: el servidor valida intervalos `[fechaHora, fechaHoraFin]` frente al resto de reuniones no finalizadas del mismo docente (`src/services/reunionHorarioSolapamiento.js`): una query carga la agenda, se construyen intervalos ocupados (padres, expansión RRULE alineada al cliente, excepciones; se omiten `omitInstance` y la reunión bajo edición vía `excludeReunionId`). Al validar el **padre** de una serie, las filas **excepción** (`esExcepcion`) con el mismo `parentReunionId` que el `excludeReunionId` **no** se añaden a la agenda ocupada (evita 409 falso tras reagendar: la expansión teórica ya no choca con la propia excepción). En **`POST .../reagendar`**, la sustitución de la serie padre debe excluir de la expansión RRULE tanto el **día origen** como el **día destino**; si solo se omite el origen, una serie diaria/semanal puede autoconflictar en el día destino (409 falso citando la misma clase). **`POST /api/reuniones`**, **`PATCH`** del padre (no excepción) y **`POST .../reagendar`** validan solape; conflicto → **409** con mensaje en español (título y hora de fin de la sesión **bloqueadora**, que puede ser otra clase distinta de la que se está guardando). En **`PATCH /api/reuniones/:id`**, si título, fechas, zona y recurrencia normalizada no cambian respecto a la BD (`isAgendaPatchNoOp` en `src/routes/reuniones.js`), **no** se re-ejecuta la validación de solape (permite «Guardar sin cambios» sin 409 sobre un estado ya conflictivo). En el cliente, el modal de agendamiento (`#scheduleModal`, `#scheduleModalError`) captura explícitamente el **409**: muestra el `error` del API o, si falta, el texto «Esta sesión se solapa con otra. Elige otro horario.» sin cerrar el modal. Excepciones de ocurrencia validan con `validateNoOverlapForDocente`. Rutas `POST .../excepcion-ocurrencia` y `POST .../omitir-ocurrencia` para edición/omisión por día.
 - **Recurrencia en UI**: `No repetir`, `Diario`, `Semanal`, `Mensual`, `Personalizado` (base diaria/semanal/mensual, intervalo y selección de días con chips). Fin de secuencia con modo `Nunca` o `Hasta fecha`, resumen legible de la regla y validación visual/funcional cuando la fecha fin queda antes del inicio.
 - **Nombre obligatorio para entrar**: mini-modal para capturar nombre visible antes de unirse a reunión, con persistencia local por usuario.
 - **Auth (login/registro) — UX actualizada**:
@@ -137,11 +199,14 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 | **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
-| **Sin solape de horarios** del docente al crear/editar reunión o serie; mensaje 409 descriptivo | `src/services/reunionHorarioSolapamiento.js`, `POST`/`PATCH` en `src/routes/reuniones.js` |
+| **Sin solape de horarios** del docente al crear/editar/reagendar; 409 descriptivo en API y modal de agenda; omisión de validación en PATCH si agenda sin cambios (`isAgendaPatchNoOp`); excepciones de serie excluidas del mapa de ocupación al validar el padre (`buildBusyIntervals`) | `src/services/reunionHorarioSolapamiento.js`, `src/routes/reuniones.js`, `public/index.html` (`scheduleApiErrorMessage`, `#scheduleModalError`, `openScheduleModal` + roster vs panel agendamiento) |
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) y **excepciones de serie** (`parentReunionId`, `esExcepcion`, `occurrenceDayKey`) | `src/models/reunion.js` |
 | **Asistencia en BD** + umbral de copresencia | `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, socket `src/socket/asistenciaSocket.js` + stubs en `room:join`/`room:leave` |
 | **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` + tabla `reunion_ocurrencia` |
-| **Deshacer/rehacer agenda** (solo UI profesor; pilas en memoria) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`) |
+| **Deshacer/rehacer agenda** (pilas en cliente; ver §1 Historial de acciones) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`, `#btnCalendarUndo` / `#btnCalendarRedo`); migración hacia `public/js/calendarController.js` (paso 2) |
+| **Calendario lobby — estado y carga** (`getMeetings` / `setMeetings` / `loadHomeMeetings`, paso 1) | `public/js/calendarController.js` + delegación en `public/index.html` |
+| **Impresión agendamiento y asistencia** (calendario visual, mismos colores y horas en celdas; sin listado textual) | `public/index.html` (`printAgendamientoCalendar`, `printAsistenciaCalendar`, `openPrintCalendarPreview`, `#btnCalendarPrintAgendamiento`, `#btnCalendarPrintAsistencia`) |
+| **Calendario por rol** (Ver + puntitos docente; hora en celda estudiante) | `public/index.html` (`appendCalendarDayDots`, `appendCalendarDayVerButton`, `appendCalendarDayTimesForStudent`, `openDayRosterFromCell`) |
 | Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` |
 | Búsqueda de reunión por `room_id` (case-insensitive) centralizada | `src/services/reunionByRoom.js` |
 | Reparación opcional de integridad SQLite en `reuniones` tras cambios de esquema | `src/services/sqliteReunionSchemaRepair.js`, llamado desde `server.js` |
@@ -151,7 +216,6 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 ## 3. Próximas etapas visibles en el esquema / producto
 
 - **Chat**: pulir UX según feedback (flujo copiar/cortar, toasts, consistencia del borrado y reacciones en todos los clientes).
-- **Impresión** desde calendario (agendamiento y asistencia): placeholders en UI; falta vista imprimible o PDF (p. ej. html2canvas + estilos `@media print`).
 - **Recurrencia avanzada de serie**: regla JSON + overrides por `reunion_ocurrencia` y excepciones `esExcepcion`; edición por día del calendario; unificar UX de filtrado por serie seleccionada con la vista de asistencia/agendamiento.
 - **Migraciones explícitas**: pasar de `sync()` a **sequelize-cli** (o similar) para entornos compartidos y despliegues.
 - **Mejoras opcionales**: endurecer reglas de cupo si entraran roles mixtos; export PDF también desde servidor; TURN en producción; tests automatizados.
@@ -201,4 +265,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — asistencia/copresencia en BD, reagendar ocurrencias, historial deshacer/rehacer (solo profesor), solapamiento de agenda docente (409), excepciones/omisiones de serie, anotaciones en pantalla compartida y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda (roster día vs panel solo lectura en agendamiento detalle), PATCH sin revalidar solape si no hay cambios, excepciones de serie en validación de solape, asistencia/copresencia en BD, reagendar, historial deshacer/rehacer, 409 en API/modal, anotaciones en pantalla compartida y reparación SQLite en arranque.*

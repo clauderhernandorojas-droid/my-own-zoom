@@ -198,6 +198,8 @@ function buildBusyIntervals({
     if (parseOmitInstance(ex.recurrencia)) continue;
     const id = ex.reunionId != null ? String(ex.reunionId) : '';
     if (exclude && id === exclude) continue;
+    const exParent = ex.parentReunionId != null ? String(ex.parentReunionId) : '';
+    if (exclude && exParent === exclude) continue;
     const fs = ex.fechaHora ? new Date(ex.fechaHora) : null;
     const fe = ex.fechaHoraFin ? new Date(ex.fechaHoraFin) : null;
     if (!fs || !fe || Number.isNaN(fs.getTime()) || Number.isNaN(fe.getTime())) continue;
@@ -346,6 +348,7 @@ async function validateNoOverlapForDocente({
 module.exports = {
   intervalsOverlap,
   CONFLICT_MESSAGE,
+  durationMsFromReunion,
   validateNoOverlapForDocente,
   assertNoScheduleConflictDocente,
   buildBusyIntervals,

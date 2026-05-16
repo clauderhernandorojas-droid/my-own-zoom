@@ -7,6 +7,7 @@
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/historialAcciones.js"></script>
+  <script src="/js/calendarController.js"></script>
   <style>
     :root {
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -1535,16 +1536,69 @@
       color: #e0f2fe;
     }
     .home-calendar-panels {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1rem;
-      align-items: start;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      align-items: stretch;
+    }
+    .home-calendar-month-wrap {
+      width: 100%;
     }
     .home-calendar-month-wrap .calendar-month-title {
       font-size: 0.88rem;
       font-weight: 600;
       color: #cbd5e1;
       margin: 0 0 0.35rem;
+    }
+    .schedule-session-time {
+      margin: 0.35rem 0 0.65rem;
+      padding: 0.55rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid #1d4ed8;
+      background: rgba(29, 78, 216, 0.12);
+      color: #e2e8f0;
+      font-size: 0.92rem;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .schedule-session-time__range {
+      color: #93c5fd;
+      font-size: 1.05rem;
+    }
+    .schedule-agendamiento-sesiones {
+      margin: 0 0 0.75rem;
+      padding: 0.5rem 0.55rem;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+    }
+    .schedule-agendamiento-sesiones__title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin: 0 0 0.4rem;
+    }
+    .schedule-agendamiento-sesiones__list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      max-height: 11rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.28rem;
+    }
+    .schedule-agendamiento-sesiones__item {
+      font-size: 0.84rem;
+      color: #e2e8f0;
+      line-height: 1.35;
+    }
+    .schedule-agendamiento-sesiones__time {
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    #scheduleModal.schedule-modal--viewer .schedule-modal__edit-only {
+      display: none !important;
     }
     #scheduleModalDayOverview {
       margin: 0 0 0.65rem;
@@ -1635,8 +1689,8 @@
       font-size: 0.82rem;
     }
     .calendar-day:not(.calendar-day--empty) {
-      min-height: 56px;
-      padding: 3px 2px 4px;
+      min-height: 92px;
+      padding: 4px 3px 5px;
     }
     .calendar-day__inner {
       flex: 1;
@@ -1644,9 +1698,28 @@
       flex-direction: column;
       align-items: center;
       justify-content: flex-start;
-      gap: 3px;
+      gap: 4px;
       width: 100%;
       min-height: 100%;
+    }
+    .calendar-day__time {
+      font-size: 0.58rem;
+      line-height: 1.2;
+      font-weight: 600;
+      color: #93c5fd;
+      text-align: center;
+      max-width: 100%;
+      padding: 0 2px;
+      word-break: break-word;
+    }
+    .calendar-day__times {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      width: 100%;
+      flex: 1;
+      justify-content: center;
     }
     .calendar-day__num {
       font-size: 0.78rem;
@@ -1671,6 +1744,7 @@
       cursor: pointer;
       width: 100%;
       max-width: 100%;
+      margin-top: auto;
     }
     .btn-calendar-ver:hover {
       background: rgba(59, 130, 246, 0.45);
@@ -2336,16 +2410,16 @@
               <button type="button" id="btnHomeCalendarNext" class="btn-calendar-nav" aria-label="Mes siguiente">›</button>
             </div>
             <div class="calendar-head__tools" role="toolbar" aria-label="Acciones del calendario">
-              <button type="button" id="btnCalendarUndo" class="btn-ghost btn-calendar-tool hidden" disabled>
+              <button type="button" id="btnCalendarUndo" class="btn-ghost btn-calendar-tool hidden" disabled aria-label="Deshacer última acción de agenda">
                 Deshacer
               </button>
-              <button type="button" id="btnCalendarRedo" class="btn-ghost btn-calendar-tool hidden" disabled>
+              <button type="button" id="btnCalendarRedo" class="btn-ghost btn-calendar-tool hidden" disabled aria-label="Rehacer acción de agenda">
                 Rehacer
               </button>
-              <button type="button" id="btnCalendarPrintAgendamiento" class="btn-ghost btn-calendar-tool">
+              <button type="button" id="btnCalendarPrintAgendamiento" class="btn-ghost btn-calendar-tool" aria-label="Imprimir agendamiento">
                 Imprimir agendamiento
               </button>
-              <button type="button" id="btnCalendarPrintAsistencia" class="btn-ghost btn-calendar-tool">
+              <button type="button" id="btnCalendarPrintAsistencia" class="btn-ghost btn-calendar-tool" aria-label="Imprimir calendario de asistencia">
                 Imprimir asistencia
               </button>
             </div>
@@ -2408,11 +2482,13 @@
     <div class="profile-modal__backdrop" id="scheduleModalBackdrop"></div>
     <div class="profile-modal__card">
       <h3 id="scheduleModalTitle">Agendar reunión</h3>
-      <p>Configura título, fecha y duración. Se guardará en tu calendario.</p>
-      <label>Título *
+      <p id="scheduleModalIntro" class="schedule-modal__edit-only">Configura título, fecha y duración. Se guardará en tu calendario.</p>
+      <div id="scheduleAgendamientoSesionesReadonly" class="schedule-agendamiento-sesiones hidden" role="region" aria-label="Sesiones programadas en el calendario visible"></div>
+      <p id="scheduleSessionTimeDisplay" class="schedule-session-time hidden" role="status" aria-live="polite"></p>
+      <label class="schedule-modal__edit-only">Título *
         <input id="scheduleTitleInput" type="text" placeholder="Clase de matemáticas" maxlength="140" />
       </label>
-      <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
+      <div class="auth-grid auth-grid--compact schedule-modal__edit-only" style="margin-top:0.6rem">
         <label>Inicio *
           <input id="scheduleStartInput" type="datetime-local" />
         </label>
@@ -2421,10 +2497,10 @@
         </label>
       </div>
       <p id="scheduleReagendaNotice" class="schedule-reagenda-notice hidden" role="status" aria-live="polite"></p>
-      <label>Zona horaria
+      <label class="schedule-modal__edit-only">Zona horaria
         <input id="scheduleTimezoneInput" type="text" />
       </label>
-      <div class="auth-grid auth-grid--compact" style="margin-top:0.6rem">
+      <div class="auth-grid auth-grid--compact schedule-modal__edit-only" style="margin-top:0.6rem">
         <label>Repetición
           <select id="scheduleRecurrenceMode">
             <option value="none" selected>No repetir</option>
@@ -2441,10 +2517,10 @@
           </select>
         </label>
       </div>
-      <label id="scheduleRecurrenceUntilWrap" class="hidden">Fecha de fin
+      <label id="scheduleRecurrenceUntilWrap" class="hidden schedule-modal__edit-only">Fecha de fin
         <input id="scheduleRecurrenceUntil" type="date" />
       </label>
-      <div id="scheduleCustomRecurrenceWrap" class="hidden" style="margin-top:0.35rem">
+      <div id="scheduleCustomRecurrenceWrap" class="hidden schedule-modal__edit-only" style="margin-top:0.35rem">
         <div class="auth-grid auth-grid--compact">
           <label>Base personalizada
             <select id="scheduleCustomBase">
@@ -2470,17 +2546,17 @@
           </div>
         </div>
       </div>
-      <p id="scheduleRecurrenceSummary" class="home-muted" style="margin:0.45rem 0 0.2rem"></p>
+      <p id="scheduleRecurrenceSummary" class="home-muted schedule-modal__edit-only" style="margin:0.45rem 0 0.2rem"></p>
       <div class="row" style="margin-top:0.35rem;align-items:flex-end">
         <label style="flex:1 1 auto;margin:0">Código para compartir
           <input id="scheduleShareLinkInput" type="text" readonly placeholder="Se generará al guardar" />
         </label>
         <button type="button" id="btnScheduleCopyLink" class="btn-ghost">Copiar código</button>
       </div>
-      <p id="scheduleModalError" class="home-muted" style="color:#fecaca;min-height:1.1em;margin-top:0.45rem"></p>
+      <p id="scheduleModalError" class="home-muted" role="alert" aria-live="polite" style="color:#fecaca;min-height:1.1em;margin-top:0.45rem"></p>
       <div class="profile-modal__actions" style="justify-content:space-between">
         <button type="button" id="btnScheduleModalCancel" class="btn-ghost">Cancelar</button>
-        <button type="button" id="btnScheduleModalSave" class="btn-primary">Guardar agenda</button>
+        <button type="button" id="btnScheduleModalSave" class="btn-primary schedule-modal__edit-only">Guardar agenda</button>
       </div>
     </div>
   </div>
@@ -3233,7 +3309,6 @@
     let screenSharePreviewVideo = null;
     let roomBoardLayout = "top";
     let chatPanelHidden = false;
-    let homeMeetings = [];
     let homeCalendarViewDate = new Date();
     let homeQuickSelectedReunionId = null;
     let homeAsistenciaPayload = null;
@@ -3256,6 +3331,9 @@
       typeof HistorialAcciones !== "undefined" && HistorialAcciones.createHistorialAcciones
         ? HistorialAcciones.createHistorialAcciones()
         : null;
+    if (typeof CalendarController !== "undefined") {
+      CalendarController.initStep1();
+    }
     let boardSideMenuOpen = "";
     const chatAdjuntoPreviewCache = new Map();
     /** @type {{ mensajeId: string, mensaje: object } | null} */
@@ -4922,7 +5000,7 @@
 
     function getRescheduledExceptionDayNumbersAll(year, month) {
       const set = new Set();
-      for (const r of homeMeetings || []) {
+      for (const r of CalendarController.getMeetings() || []) {
         for (const d of getRescheduledExceptionDayNumbersForReunion(r, year, month)) set.add(d);
       }
       return set;
@@ -5195,12 +5273,611 @@
       updateCalendarHistoryButtons();
     }
 
+    function scheduleApiErrorMessage(e) {
+      const status = typeof e?.status === "number" ? e.status : null;
+      const serverMsg =
+        (e?.data && typeof e.data.error === "string" && e.data.error.trim()) ||
+        (typeof e?.message === "string" && e.message.trim()) ||
+        "";
+      if (status === 409) {
+        return serverMsg || "Esta sesión se solapa con otra. Elige otro horario.";
+      }
+      return serverMsg || (status ? `Error ${status}` : "") || "No se pudo agendar la reunión.";
+    }
+
+    function showScheduleModalError(errEl, message) {
+      if (!errEl) return;
+      errEl.textContent = message;
+      try {
+        errEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } catch (_) {}
+    }
+
     function getScheduleModalCard() {
       return document.querySelector("#scheduleModal .profile-modal__card");
     }
 
+    function formatScheduleTimeRange(start, end) {
+      if (!start || Number.isNaN(start.getTime())) return "";
+      const endDt =
+        end && !Number.isNaN(end.getTime())
+          ? end
+          : new Date(start.getTime() + 60 * 60000);
+      const opts = { hour: "2-digit", minute: "2-digit" };
+      return `${start.toLocaleTimeString("es-CO", opts)} - ${endDt.toLocaleTimeString("es-CO", opts)}`;
+    }
+
+    /** Formato impresión / vista tipo «6:35 p. m. - 7:35 p. m.» (es-CO, 12 h). */
+    function formatPrintCalendarTimeRange(start, end) {
+      if (!start || Number.isNaN(start.getTime())) return "";
+      const endDt =
+        end && !Number.isNaN(end.getTime())
+          ? end
+          : new Date(start.getTime() + 60 * 60000);
+      const opts = { hour: "numeric", minute: "2-digit", hour12: true };
+      return `${start.toLocaleTimeString("es-CO", opts)} - ${endDt.toLocaleTimeString("es-CO", opts)}`;
+    }
+
+    function resolveMeetingOccurrenceSlot(reunion, ctx) {
+      if (!reunion) return null;
+      let start = null;
+      if (ctx?.occurrenceDate) {
+        const od = new Date(ctx.occurrenceDate);
+        if (!Number.isNaN(od.getTime())) start = od;
+      }
+      const ymd = ctx?.ymd;
+      if (!start && ymd && reunion.fechaHora) {
+        const occ = getOccurrenceOnLocalDay(reunion, ymd.y, ymd.m, ymd.d);
+        if (occ && !Number.isNaN(occ.getTime())) start = new Date(occ);
+      }
+      if (!start && reunion.fechaHora) {
+        const s = new Date(reunion.fechaHora);
+        if (!Number.isNaN(s.getTime())) start = s;
+      }
+      if (!start) return null;
+      let end = null;
+      const fechaFin = reunion.fechaHoraFin ? new Date(reunion.fechaHoraFin) : null;
+      if (
+        fechaFin &&
+        !parseMeetingRecurrence(reunion.recurrencia) &&
+        Number.isFinite(fechaFin.getTime()) &&
+        fechaFin.getTime() > start.getTime()
+      ) {
+        end = fechaFin;
+      }
+      if (!end) {
+        end = new Date(start.getTime() + getReunionDurationMinutesFromData(reunion) * 60000);
+      }
+      return { start, end };
+    }
+
+    function resetScheduleModalAccessMode() {
+      $("scheduleModal")?.classList.remove("schedule-modal--viewer");
+      const timeEl = $("scheduleSessionTimeDisplay");
+      if (timeEl) {
+        timeEl.classList.add("hidden");
+        timeEl.textContent = "";
+      }
+      const cancelBtn = $("btnScheduleModalCancel");
+      if (cancelBtn) cancelBtn.textContent = "Cancelar";
+    }
+
+    function applyScheduleModalStudentView(meetingCtx, reunion) {
+      resetScheduleModalAccessMode();
+      const isViewer = !isTeacherRole(currentUser?.rol) && reunion;
+      if (!isViewer) return;
+      $("scheduleModal")?.classList.add("schedule-modal--viewer");
+      const slot = resolveMeetingOccurrenceSlot(reunion, {
+        ymd: meetingCtx?._calendarDayYMD,
+        occurrenceDate: meetingCtx?.occurrenceDate,
+      });
+      const timeEl = $("scheduleSessionTimeDisplay");
+      if (timeEl && slot) {
+        const datePart = slot.start.toLocaleDateString("es-CO", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+        const range = formatScheduleTimeRange(slot.start, slot.end);
+        timeEl.innerHTML = `Videoconferencia programada · ${datePart}<br><span class="schedule-session-time__range">${range}</span>`;
+        timeEl.classList.remove("hidden");
+      }
+      const modalTitle = $("scheduleModalTitle");
+      if (modalTitle && meetingCtx && !isScheduleModalDayRoster(meetingCtx)) {
+        modalTitle.textContent = `Agendamiento · ${reunion.titulo || "Reunión"}`;
+      }
+      const cancelBtn = $("btnScheduleModalCancel");
+      if (cancelBtn) cancelBtn.textContent = "Cerrar";
+    }
+
+    function escapeHtmlForPrint(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function getCalendarPrintEmbeddedStyles() {
+      return `
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body.print-calendar-export {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #020617;
+  color: #e2e8f0;
+  padding: 1rem 1.1rem 1.5rem;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.print-calendar-export h1 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+  color: #f8fafc;
+}
+.print-calendar-export .print-calendar-meta {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  margin: 0 0 0.85rem;
+}
+.home-calendar-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  align-items: stretch;
+}
+.home-calendar-month-wrap { width: 100%; }
+.home-calendar-month-wrap .calendar-month-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin: 0 0 0.35rem;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+.calendar-grid--week {
+  margin-bottom: 0.35rem;
+  color: #93c5fd;
+  font-size: 0.76rem;
+  text-align: center;
+  font-weight: 600;
+}
+.calendar-day {
+  min-height: 34px;
+  border-radius: 7px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+}
+.calendar-day:not(.calendar-day--empty) {
+  min-height: 92px;
+  padding: 4px 3px 5px;
+}
+.calendar-day__inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-height: 100%;
+}
+.calendar-day__time {
+  font-size: 0.58rem;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #93c5fd;
+  text-align: center;
+  max-width: 100%;
+  padding: 0 2px;
+  word-break: break-word;
+}
+.calendar-day__times {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  flex: 1;
+  justify-content: center;
+}
+.calendar-day__num {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.calendar-day--empty { opacity: 0.35; }
+.calendar-day--today {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35) inset;
+  color: #ffffff;
+  font-weight: 700;
+}
+.calendar-day--general-mark {
+  background: rgba(37, 99, 235, 0.22);
+  color: #dbeafe;
+}
+.calendar-day--session-future {
+  background: rgba(37, 99, 235, 0.22);
+  color: #dbeafe;
+}
+.calendar-day--session-ok {
+  background: rgba(22, 163, 74, 0.22);
+  color: #bbf7d0;
+  border-color: rgba(34, 197, 94, 0.45);
+}
+.calendar-day--session-miss {
+  background: rgba(185, 28, 28, 0.2);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+}
+.calendar-day--reag-marker .calendar-day__num::after {
+  content: "\\21BB";
+  margin-left: 2px;
+  font-size: 0.72rem;
+  vertical-align: super;
+  color: #ffffff;
+  opacity: 0.92;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.85), 0 0 1px rgba(15, 23, 42, 0.9);
+}
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 4mm;
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  body.print-calendar-export {
+    padding: 0.2rem 0.35rem 0.35rem !important;
+    background: #020617 !important;
+  }
+  .print-calendar-export h1 {
+    font-size: 0.82rem !important;
+    margin: 0 0 0.12rem !important;
+  }
+  .print-calendar-export .print-calendar-meta {
+    font-size: 0.62rem !important;
+    margin: 0 0 0.35rem !important;
+  }
+  .home-calendar-panels {
+    gap: 0.45rem !important;
+  }
+  .home-calendar-month-wrap {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .home-calendar-month-wrap .calendar-month-title {
+    font-size: 0.72rem !important;
+    margin: 0 0 0.2rem !important;
+  }
+  .calendar-grid {
+    gap: 0.12rem !important;
+  }
+  .calendar-grid--week {
+    font-size: 0.58rem !important;
+    margin-bottom: 0.15rem !important;
+  }
+  .calendar-day {
+    font-size: 0.62rem !important;
+    border-radius: 4px !important;
+  }
+  .calendar-day:not(.calendar-day--empty) {
+    min-height: 44px !important;
+    padding: 2px 2px 3px !important;
+  }
+  .calendar-day__inner {
+    gap: 1px !important;
+  }
+  .calendar-day__num {
+    font-size: 0.62rem !important;
+  }
+  .calendar-day__time {
+    font-size: 0.48rem !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+    color: #bfdbfe !important;
+  }
+  .calendar-day--general-mark,
+  .calendar-day--session-future {
+    background: rgba(37, 99, 235, 0.38) !important;
+    color: #eff6ff !important;
+    border-color: #60a5fa !important;
+  }
+  .calendar-day--session-ok {
+    background: rgba(22, 163, 74, 0.42) !important;
+    color: #ecfdf5 !important;
+    border-color: #4ade80 !important;
+  }
+  .calendar-day--session-miss {
+    background: rgba(185, 28, 28, 0.42) !important;
+    color: #fef2f2 !important;
+    border-color: #f87171 !important;
+  }
+}
+`;
+    }
+
+    function buildPrintTimesForOccurrencesHtml(reunion, occs) {
+      let h = "";
+      for (const occ of occs) {
+        const slot = resolveMeetingOccurrenceSlot(reunion, { occurrenceDate: occ });
+        if (!slot) continue;
+        const label = formatPrintCalendarTimeRange(slot.start, slot.end);
+        if (label) h += `<span class="calendar-day__time">${escapeHtmlForPrint(label)}</span>`;
+      }
+      return h;
+    }
+
+    function buildPrintTimesForMeetingsDayHtml(y, m, day, reunions) {
+      let h = "";
+      for (const r of reunions || []) {
+        const slot = resolveMeetingOccurrenceSlot(r, { ymd: { y, m, d: day } });
+        if (!slot) continue;
+        const label = formatPrintCalendarTimeRange(slot.start, slot.end);
+        if (label) h += `<span class="calendar-day__time">${escapeHtmlForPrint(label)}</span>`;
+      }
+      return h;
+    }
+
+    function buildPrintCalendarMonthHtml(year, month, selectedReunion, agendamientoReunion, asistenciaRows, now) {
+      const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+      const eventDays = new Set();
+      (CalendarController.getMeetings() || [])
+        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
+        .forEach((r) => {
+          const dates = getMeetingOccurrencesInRange(r, monthStart, monthEnd);
+          dates.forEach((d) => {
+            if (d.getMonth() === month && d.getFullYear() === year) eventDays.add(d.getDate());
+          });
+        });
+
+      const rescheduledDaysAll = getRescheduledExceptionDayNumbersAll(year, month);
+      const rescheduledAsist = getRescheduledExceptionDayNumbersForReunion(selectedReunion, year, month);
+      const rescheduledAgen = getRescheduledExceptionDayNumbersForReunion(agendamientoReunion, year, month);
+
+      const monthTitle = new Date(year, month, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+      let html = `<div class="home-calendar-month-wrap">`;
+      html += `<div class="calendar-month-title">${escapeHtmlForPrint(monthTitle)}</div>`;
+      html += `<div class="calendar-grid calendar-grid--week">`;
+      for (const w of ["Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"]) {
+        html += `<span>${escapeHtmlForPrint(w)}</span>`;
+      }
+      html += `</div><div class="calendar-grid">`;
+
+      const firstDay = new Date(year, month, 1);
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const offset = (firstDay.getDay() + 6) % 7;
+      const today = new Date();
+
+      for (let i = 0; i < offset; i++) {
+        html += `<div class="calendar-day calendar-day--empty"></div>`;
+      }
+      for (let day = 1; day <= daysInMonth; day++) {
+        const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+        const hasEvent = eventDays.has(day);
+        const classes = ["calendar-day"];
+        if (isToday) classes.push("calendar-day--today");
+        let timesHtml = "";
+
+        if (selectedReunion) {
+          const occs = getMeetingOccurrencesInRange(selectedReunion, monthStart, monthEnd).filter(
+            (d) => d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
+          );
+          if (occs.length) {
+            const kinds = occs.map((occ) => sessionKindForOccurrence(occ, selectedReunion, asistenciaRows, now));
+            const agg = aggregateDaySessionKind(kinds);
+            if (agg === "future") classes.push("calendar-day--session-future");
+            else if (agg === "ok") classes.push("calendar-day--session-ok");
+            else if (agg === "miss") classes.push("calendar-day--session-miss");
+            if (rescheduledAsist.has(day)) classes.push("calendar-day--reag-marker");
+            timesHtml = buildPrintTimesForOccurrencesHtml(selectedReunion, occs);
+          }
+        } else if (agendamientoReunion) {
+          const occs = getMeetingOccurrencesInRange(agendamientoReunion, monthStart, monthEnd).filter(
+            (d) => d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
+          );
+          if (occs.length) {
+            classes.push("calendar-day--session-future");
+            if (rescheduledAgen.has(day)) classes.push("calendar-day--reag-marker");
+            timesHtml = buildPrintTimesForOccurrencesHtml(agendamientoReunion, occs);
+          }
+        } else if (hasEvent) {
+          classes.push("calendar-day--general-mark");
+          if (rescheduledDaysAll.has(day)) classes.push("calendar-day--reag-marker");
+          const meetingsForDay = listMeetingsOnCalendarDay(year, month, day);
+          timesHtml = buildPrintTimesForMeetingsDayHtml(year, month, day, meetingsForDay);
+        }
+
+        html += `<div class="${classes.join(" ")}"><div class="calendar-day__inner">`;
+        html += `<span class="calendar-day__num">${day}</span>`;
+        if (timesHtml) html += `<div class="calendar-day__times">${timesHtml}</div>`;
+        html += `</div></div>`;
+      }
+      html += `</div></div>`;
+      return html;
+    }
+
+    function openPrintCalendarPreview(title, subtitle, selectedReunion, agendamientoReunion) {
+      let html = "";
+      try {
+        const ref = homeCalendarViewDate instanceof Date ? homeCalendarViewDate : new Date();
+        const y0 = ref.getFullYear();
+        const m0 = ref.getMonth();
+        const y1 = m0 === 11 ? y0 + 1 : y0;
+        const m1 = m0 === 11 ? 0 : m0 + 1;
+        const now = new Date();
+        const asistenciaRows = selectedReunion
+          ? calendarAsistenciaRowsFromPayload(homeAsistenciaPayload || {}, selectedReunion)
+          : [];
+        const monthsHtml =
+          buildPrintCalendarMonthHtml(y0, m0, selectedReunion, agendamientoReunion, asistenciaRows, now) +
+          buildPrintCalendarMonthHtml(y1, m1, selectedReunion, agendamientoReunion, asistenciaRows, now);
+        html =
+          "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>" +
+          escapeHtmlForPrint(title) +
+          "</title><style>" +
+          getCalendarPrintEmbeddedStyles() +
+          "</style></head><body class=\"print-calendar-export\"><h1>" +
+          escapeHtmlForPrint(title) +
+          "</h1><p class=\"print-calendar-meta\">" +
+          escapeHtmlForPrint(subtitle) +
+          "</p><div class=\"home-calendar-panels\">" +
+          monthsHtml +
+          "</div></body></html>";
+      } catch (err) {
+        log("No se pudo generar la vista de impresión: " + (err?.message || err));
+        return;
+      }
+
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("title", "Vista para imprimir calendario");
+      iframe.setAttribute("aria-hidden", "true");
+      iframe.style.cssText =
+        "position:fixed;inset:0;width:100vw;height:100vh;border:0;margin:0;padding:0;opacity:0;pointer-events:none;z-index:-9999;";
+      iframe.srcdoc = html;
+
+      const cleanup = () => {
+        try {
+          iframe.remove();
+        } catch (_) {}
+      };
+
+      iframe.addEventListener(
+        "load",
+        () => {
+          const win = iframe.contentWindow;
+          if (!win) {
+            cleanup();
+            return;
+          }
+          let printed = false;
+          const runPrint = () => {
+            if (printed) return;
+            printed = true;
+            try {
+              win.focus();
+              win.print();
+            } catch (e) {
+              log("Imprimir calendario: " + (e?.message || e));
+              cleanup();
+            }
+          };
+          win.addEventListener("afterprint", cleanup, { once: true });
+          win.requestAnimationFrame(() => win.requestAnimationFrame(runPrint));
+        },
+        { once: true }
+      );
+
+      document.body.appendChild(iframe);
+    }
+
+    function printAgendamientoCalendar() {
+      const focusPk = homeAgendamientoReunionId != null ? String(homeAgendamientoReunionId) : "";
+      const agendamientoReunion = focusPk
+        ? (CalendarController.getMeetings() || []).find((r) => String(getReunionPk(r) ?? "") === focusPk) || null
+        : null;
+      const title = agendamientoReunion
+        ? `Agendamiento · ${agendamientoReunion.titulo || "Reunión"}`
+        : `Agendamiento · ${getUserRoleLabel(currentUser?.rol)}`;
+      const subtitle = `Misma cuadrícula que en la app · generado ${new Date().toLocaleString("es-CO")}`;
+      openPrintCalendarPreview(title, subtitle, null, agendamientoReunion);
+    }
+
+    function printAsistenciaCalendar() {
+      const pk = homeQuickSelectedReunionId != null ? String(homeQuickSelectedReunionId) : "";
+      if (!pk) {
+        log("Selecciona una reunión y activa la vista Asistencia para imprimir el calendario.");
+        return;
+      }
+      const selectedReunion = (CalendarController.getMeetings() || []).find((r) => String(getReunionPk(r) ?? "") === pk);
+      if (!selectedReunion) {
+        log("No se encontró la reunión seleccionada.");
+        return;
+      }
+      const title = `Asistencia · ${selectedReunion.titulo || "Reunión"}`;
+      const subtitle = `Misma cuadrícula que en la app · generado ${new Date().toLocaleString("es-CO")}`;
+      openPrintCalendarPreview(title, subtitle, selectedReunion, null);
+    }
+
+    function syncScheduleAgendamientoDetalleSesiones(mWork) {
+      const wrap = $("scheduleAgendamientoSesionesReadonly");
+      if (!wrap) return;
+      wrap.classList.add("hidden");
+      wrap.replaceChildren();
+      const focusPk = homeAgendamientoReunionId != null ? String(homeAgendamientoReunionId) : "";
+      const mPk = mWork ? String(getReunionPk(mWork) ?? "") : "";
+      if (!focusPk || !mWork || !mPk || mPk !== focusPk) return;
+
+      const ref = homeCalendarViewDate instanceof Date ? homeCalendarViewDate : new Date();
+      const y0 = ref.getFullYear();
+      const m0 = ref.getMonth();
+      const rangeStart = new Date(y0, m0, 1, 0, 0, 0, 0);
+      const rangeEnd = new Date(y0, m0 + 2, 0, 23, 59, 59, 999);
+      const occs = getMeetingOccurrencesInRange(mWork, rangeStart, rangeEnd);
+      const slots = [];
+      for (const occ of occs) {
+        const slot = resolveMeetingOccurrenceSlot(mWork, { occurrenceDate: occ });
+        if (!slot) continue;
+        slots.push(slot);
+      }
+      slots.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      const heading = document.createElement("div");
+      heading.className = "schedule-agendamiento-sesiones__title";
+      heading.textContent =
+        `Sesiones en el calendario visible (${slots.length}) · solo lectura`;
+      wrap.appendChild(heading);
+
+      if (slots.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "home-muted";
+        empty.style.margin = "0";
+        empty.style.fontSize = "0.82rem";
+        empty.textContent = "No hay sesiones programadas en el rango de los dos meses mostrados.";
+        wrap.appendChild(empty);
+      } else {
+        const ul = document.createElement("ul");
+        ul.className = "schedule-agendamiento-sesiones__list";
+        for (const slot of slots) {
+          const dateLabel = slot.start.toLocaleDateString("es-CO", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+          });
+          const timeLabel = formatScheduleTimeRange(slot.start, slot.end);
+          const li = document.createElement("li");
+          li.className = "schedule-agendamiento-sesiones__item";
+          const spanD = document.createElement("span");
+          spanD.textContent = `${dateLabel} · `;
+          const spanT = document.createElement("span");
+          spanT.className = "schedule-agendamiento-sesiones__time";
+          spanT.textContent = timeLabel;
+          li.appendChild(spanD);
+          li.appendChild(spanT);
+          ul.appendChild(li);
+        }
+        wrap.appendChild(ul);
+      }
+      wrap.classList.remove("hidden");
+    }
+
     function openScheduleModal(meeting = null) {
       document.getElementById("scheduleModalDayOverview")?.remove();
+      resetScheduleModalAccessMode();
       const modal = $("scheduleModal");
       const modalTitle = $("scheduleModalTitle");
       const saveBtn = $("btnScheduleModalSave");
@@ -5232,12 +5909,19 @@
       scheduleEditingReunionId = mWork ? getReunionPk(mWork) || null : null;
       scheduleUndoSnapshot = mWork ? snapshotReunionAgenda(mWork) : null;
       if (!meeting) scheduleModalScrollTop = 0;
+      const agenPk = homeAgendamientoReunionId != null ? String(homeAgendamientoReunionId) : "";
+      const mWorkPk = mWork ? String(getReunionPk(mWork) ?? "") : "";
+      const agendamientoTituloMatches = !!(agenPk && mWorkPk === agenPk);
       if (modalTitle) {
-        modalTitle.textContent = roster
-          ? `Reuniones · ${meeting._calendarDayLabel || "este día"}`
-          : mWork
-            ? "Editar reunión"
-            : "Agendar reunión";
+        if (agendamientoTituloMatches && !roster) {
+          modalTitle.textContent = `Agendamiento · ${mWork?.titulo || "Reunión"}`;
+        } else {
+          modalTitle.textContent = roster
+            ? `Reuniones · ${meeting._calendarDayLabel || "este día"}`
+            : mWork
+              ? "Editar reunión"
+              : "Agendar reunión";
+        }
       }
       if (saveBtn) saveBtn.textContent = mWork ? "Guardar cambios" : "Guardar agenda";
       if (mWork) {
@@ -5411,6 +6095,7 @@
               });
             });
             rowItem.appendChild(b);
+            if (isTeacherRole(currentUser?.rol)) {
             const del = document.createElement("button");
             del.type = "button";
             del.className = "schedule-day-roster__del";
@@ -5428,7 +6113,9 @@
                 err.textContent = "";
                 const cr = $("crearResult");
                 if (cr) cr.textContent = "Reunión eliminada.";
-                homeMeetings = (homeMeetings || []).filter((x) => String(getReunionPk(x)) !== String(pkDel));
+                CalendarController.setMeetings(
+                  (CalendarController.getMeetings() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel))
+                );
                 if (String(homeQuickSelectedReunionId || "") === String(pkDel)) {
                   homeQuickSelectedReunionId = null;
                   homeAsistenciaPayload = null;
@@ -5471,6 +6158,7 @@
               }
             });
             rowItem.appendChild(del);
+            }
             row.appendChild(rowItem);
           });
           strip.appendChild(hint);
@@ -5480,11 +6168,22 @@
           else card.insertBefore(strip, card.firstChild);
         }
       }
+      if (roster) {
+        const agWrap = $("scheduleAgendamientoSesionesReadonly");
+        if (agWrap) {
+          agWrap.classList.add("hidden");
+          agWrap.replaceChildren();
+        }
+      } else {
+        syncScheduleAgendamientoDetalleSesiones(mWork);
+      }
+      applyScheduleModalStudentView(meeting, mWork);
       modal.classList.remove("hidden");
       requestAnimationFrame(() => {
         const card = getScheduleModalCard();
         if (card) card.scrollTop = scheduleModalScrollTop || 0;
-        title.focus({ preventScroll: true });
+        const focusEl = !isTeacherRole(currentUser?.rol) && mWork ? $("btnScheduleModalCancel") : title;
+        focusEl?.focus({ preventScroll: true });
       });
     }
 
@@ -5492,6 +6191,12 @@
       const card = getScheduleModalCard();
       if (card) scheduleModalScrollTop = card.scrollTop;
       document.getElementById("scheduleModalDayOverview")?.remove();
+      const agWrap = $("scheduleAgendamientoSesionesReadonly");
+      if (agWrap) {
+        agWrap.classList.add("hidden");
+        agWrap.replaceChildren();
+      }
+      resetScheduleModalAccessMode();
       $("scheduleModal")?.classList.add("hidden");
       scheduleEditingReunionId = null;
       scheduleEditingSeriesOccurrence = false;
@@ -5556,7 +6261,7 @@
       const host = $("scheduledList");
       if (!host) return;
       const now = Date.now();
-      const upcoming = (homeMeetings || [])
+      const upcoming = (CalendarController.getMeetings() || [])
         .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
         .map((r) => {
           const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
@@ -5771,14 +6476,15 @@
       return false;
     }
 
-    function parseAsistenciaRowsFromApi(data) {
+    function parseAsistenciaRowsFromApi(data, opts = {}) {
+      const includeAllParticipants = opts.includeAllParticipants === true;
       const selfId = currentUser?.usuarioId != null ? String(currentUser.usuarioId) : "";
       const rows = [];
       const seen = new Set();
       const push = (o) => {
         if (!o || typeof o !== "object") return;
         const rowUid = o.usuarioId != null ? String(o.usuarioId) : "";
-        if (selfId && rowUid && rowUid !== selfId) return;
+        if (!includeAllParticipants && selfId && rowUid && rowUid !== selfId) return;
         const start = parseDateFieldFromRecord(o);
         if (!start) return;
         const key = `${rowUid || "me"}|${start.getTime()}`;
@@ -5809,6 +6515,16 @@
         if (Array.isArray(data.resumen?.filas)) data.resumen.filas.forEach(push);
       }
       return rows;
+    }
+
+    /** Filas de asistencia para colorear el calendario: el dueño docente ve todas las participaciones de la reunión. */
+    function calendarAsistenciaRowsFromPayload(data, selectedReunion) {
+      if (!selectedReunion) return [];
+      const uid = currentUser?.usuarioId != null ? String(currentUser.usuarioId) : "";
+      const ownerFk = selectedReunion.docenteUsuarioId ?? selectedReunion.docente_usuario_id;
+      const docenteDueño =
+        isTeacherRole(currentUser?.rol) && uid && ownerFk != null && String(ownerFk) === uid;
+      return parseAsistenciaRowsFromApi(data, { includeAllParticipants: docenteDueño });
     }
 
     /**
@@ -5912,7 +6628,7 @@
       const monthStart = new Date(y, m, 1, 0, 0, 0, 0);
       const monthEnd = new Date(y, m + 1, 0, 23, 59, 59, 999);
       const byPk = new Map();
-      for (const rr of homeMeetings || []) {
+      for (const rr of CalendarController.getMeetings() || []) {
         if (!rr?.fechaHora || rr.estado === "finalizada") continue;
         const dates = getMeetingOccurrencesInRange(rr, monthStart, monthEnd);
         for (const ddt of dates) {
@@ -5980,6 +6696,93 @@
       if (btnRedo) btnRedo.classList.toggle("hidden", !isTeacher);
     }
 
+    function appendCalendarDayTimeLabel(inner, reunion, year, month, day) {
+      if (!inner || !reunion) return;
+      const slot = resolveMeetingOccurrenceSlot(reunion, { ymd: { y: year, m: month, d: day } });
+      if (!slot) return;
+      const label = formatScheduleTimeRange(slot.start, slot.end);
+      if (!label) return;
+      const timeEl = document.createElement("span");
+      timeEl.className = "calendar-day__time";
+      timeEl.textContent = label;
+      inner.appendChild(timeEl);
+    }
+
+    function appendCalendarDayTimesForStudent(inner, year, month, day, reunions) {
+      if (!inner || !reunions?.length) return;
+      let container = inner.querySelector(".calendar-day__times");
+      if (!container) {
+        container = document.createElement("div");
+        container.className = "calendar-day__times";
+        inner.appendChild(container);
+      } else {
+        container.replaceChildren();
+      }
+      for (const r of reunions) {
+        const slot = resolveMeetingOccurrenceSlot(r, { ymd: { y: year, m: month, d: day } });
+        if (!slot) continue;
+        const label = formatScheduleTimeRange(slot.start, slot.end);
+        if (!label) continue;
+        const timeEl = document.createElement("span");
+        timeEl.className = "calendar-day__time";
+        timeEl.textContent = label;
+        container.appendChild(timeEl);
+      }
+    }
+
+    function appendCalendarDayDots(inner, count) {
+      const n = Math.max(0, Number(count) || 0);
+      if (!inner || n === 0) return;
+      const dotsRow = document.createElement("div");
+      dotsRow.className = "calendar-day__dots";
+      for (let di = 0; di < n; di++) {
+        const dot = document.createElement("span");
+        dot.className = "calendar-day__dot";
+        dotsRow.appendChild(dot);
+      }
+      inner.appendChild(dotsRow);
+    }
+
+    function openDayRosterFromCell(ev, y, mo, d) {
+      ev?.stopPropagation?.();
+      if (!isTeacherRole(currentUser?.rol)) return;
+      homeCalendarSelectedDate = new Date(y, mo, d, 12, 0, 0, 0);
+      const dayList = listMeetingsOnCalendarDay(y, mo, d);
+      const dayLabel = new Date(y, mo, d).toLocaleDateString("es-CO", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+      if (dayList.length === 0) return;
+      const ymd = { y, m: mo, d };
+      if (dayList.length === 1) {
+        openScheduleModal(
+          Object.assign({}, dayList[0], {
+            _calendarDayYMD: ymd,
+            _calendarDayLabel: dayLabel,
+          })
+        );
+      } else {
+        openScheduleModal({
+          _calendarDayMeetings: dayList,
+          _calendarDayActive: dayList[0],
+          _calendarDayLabel: dayLabel,
+          _calendarDayYMD: ymd,
+        });
+      }
+    }
+
+    function appendCalendarDayVerButton(inner, year, month, day) {
+      if (!isTeacherRole(currentUser?.rol)) return;
+      const ver = document.createElement("button");
+      ver.type = "button";
+      ver.className = "btn-calendar-ver";
+      ver.textContent = "Ver";
+      ver.addEventListener("click", (ev) => openDayRosterFromCell(ev, year, month, day));
+      inner.appendChild(ver);
+    }
+
     function renderHomeCalendar(baseDate) {
       const panels = $("homeCalendarPanels");
       const rangeLabel = $("homeCalendarRangeLabel");
@@ -6003,12 +6806,14 @@
       const asistenciaPk = homeQuickSelectedReunionId != null ? String(homeQuickSelectedReunionId) : "";
       const agendamientoPk = homeAgendamientoReunionId != null ? String(homeAgendamientoReunionId) : "";
       const selectedReunion = asistenciaPk
-        ? (homeMeetings || []).find((x) => String(getReunionPk(x) ?? "") === asistenciaPk)
+        ? (CalendarController.getMeetings() || []).find((x) => String(getReunionPk(x) ?? "") === asistenciaPk)
         : null;
       const agendamientoReunion = agendamientoPk
-        ? (homeMeetings || []).find((x) => String(getReunionPk(x) ?? "") === agendamientoPk)
+        ? (CalendarController.getMeetings() || []).find((x) => String(getReunionPk(x) ?? "") === agendamientoPk)
         : null;
-      const asistenciaRows = selectedReunion ? parseAsistenciaRowsFromApi(homeAsistenciaPayload || {}) : [];
+      const asistenciaRows = selectedReunion
+        ? calendarAsistenciaRowsFromPayload(homeAsistenciaPayload || {}, selectedReunion)
+        : [];
       const now = new Date();
 
       if (roleHint) {
@@ -6017,37 +6822,8 @@
         } else if (agendamientoReunion) {
           roleHint.textContent = `Agendamiento · ${agendamientoReunion.titulo || "Reunión"}`;
         } else {
-          const count = (homeMeetings || []).filter((r) => r?.fechaHora).length;
+          const count = (CalendarController.getMeetings() || []).filter((r) => r?.fechaHora).length;
           roleHint.textContent = `${getUserRoleLabel(currentUser?.rol)} · ${count} evento(s) con fecha`;
-        }
-      }
-
-      function openDayRosterFromCell(ev, y, mo, d) {
-        ev.stopPropagation();
-        homeCalendarSelectedDate = new Date(y, mo, d, 12, 0, 0, 0);
-        const dayList = listMeetingsOnCalendarDay(y, mo, d);
-        const dayLabel = new Date(y, mo, d).toLocaleDateString("es-CO", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        });
-        if (dayList.length === 0) return;
-        const ymd = { y, m: mo, d };
-        if (dayList.length === 1) {
-          openScheduleModal(
-            Object.assign({}, dayList[0], {
-              _calendarDayYMD: ymd,
-              _calendarDayLabel: dayLabel,
-            })
-          );
-        } else {
-          openScheduleModal({
-            _calendarDayMeetings: dayList,
-            _calendarDayActive: dayList[0],
-            _calendarDayLabel: dayLabel,
-            _calendarDayYMD: ymd,
-          });
         }
       }
 
@@ -6055,7 +6831,7 @@
         const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
         const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
         const eventDays = new Set();
-        (homeMeetings || [])
+        (CalendarController.getMeetings() || [])
           .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
           .forEach((r) => {
             const dates = getMeetingOccurrencesInRange(r, monthStart, monthEnd);
@@ -6087,6 +6863,7 @@
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const offset = (firstDay.getDay() + 6) % 7;
         const today = new Date();
+        const isTeacherCal = isTeacherRole(currentUser?.rol);
 
         for (let i = 0; i < offset; i++) {
           const cell = document.createElement("div");
@@ -6127,40 +6904,23 @@
             if (occs.length) {
               cell.classList.add("calendar-day--session-future");
               if (rescheduledAgen.has(day)) cell.classList.add("calendar-day--reag-marker");
-              const dotsRow = document.createElement("div");
-              dotsRow.className = "calendar-day__dots";
-              for (let di = 0; di < occs.length; di++) {
-                const dot = document.createElement("span");
-                dot.className = "calendar-day__dot";
-                dotsRow.appendChild(dot);
+              if (isTeacherCal) {
+                appendCalendarDayDots(inner, occs.length);
+                appendCalendarDayVerButton(inner, year, month, day);
+              } else {
+                appendCalendarDayTimesForStudent(inner, year, month, day, [agendamientoReunion]);
               }
-              inner.appendChild(dotsRow);
-              const ver = document.createElement("button");
-              ver.type = "button";
-              ver.className = "btn-calendar-ver";
-              ver.textContent = "Ver";
-              ver.addEventListener("click", (ev) => openDayRosterFromCell(ev, year, month, day));
-              inner.appendChild(ver);
             }
           } else if (hasEvent) {
             cell.classList.add("calendar-day--general-mark");
             if (rescheduledDaysAll.has(day)) cell.classList.add("calendar-day--reag-marker");
             const meetingsForDay = listMeetingsOnCalendarDay(year, month, day);
-            const nDots = Math.max(1, meetingsForDay.length);
-            const dotsRow = document.createElement("div");
-            dotsRow.className = "calendar-day__dots";
-            for (let di = 0; di < nDots; di++) {
-              const dot = document.createElement("span");
-              dot.className = "calendar-day__dot";
-              dotsRow.appendChild(dot);
+            if (isTeacherCal) {
+              appendCalendarDayDots(inner, meetingsForDay.length);
+              appendCalendarDayVerButton(inner, year, month, day);
+            } else {
+              appendCalendarDayTimesForStudent(inner, year, month, day, meetingsForDay);
             }
-            inner.appendChild(dotsRow);
-            const ver = document.createElement("button");
-            ver.type = "button";
-            ver.className = "btn-calendar-ver";
-            ver.textContent = "Ver";
-            ver.addEventListener("click", (ev) => openDayRosterFromCell(ev, year, month, day));
-            inner.appendChild(ver);
           }
 
           cell.appendChild(inner);
@@ -6179,44 +6939,44 @@
     }
 
     async function loadHomeMeetings() {
-      homeMeetings = [];
-      if (!getToken()) {
-        homeQuickSelectedReunionId = null;
-        homeAsistenciaPayload = null;
-        homeAgendamientoReunionId = null;
-        homeCalendarViewDate = new Date();
-        renderHomeCalendar(homeCalendarViewDate);
+      if (typeof CalendarController === "undefined") {
+        console.warn("CalendarController no cargado (/js/calendarController.js).");
         return;
       }
-      try {
-        const data = await api("/api/reuniones/mis");
-        homeMeetings = Array.isArray(data?.reuniones) ? data.reuniones : [];
-      } catch (_) {
-        homeMeetings = [];
-      } finally {
-        homeCalendarViewDate = new Date();
-        const selA = homeQuickSelectedReunionId;
-        const selG = homeAgendamientoReunionId;
-        const stillA =
-          selA != null &&
-          (homeMeetings || []).some((x) => String(getReunionPk(x) ?? "") === String(selA));
-        const stillG =
-          selG != null &&
-          (homeMeetings || []).some((x) => String(getReunionPk(x) ?? "") === String(selG));
-        if (!stillA) {
+      await CalendarController.loadHomeMeetings({
+        getToken,
+        api,
+        onNoToken() {
           homeQuickSelectedReunionId = null;
           homeAsistenciaPayload = null;
-        }
-        if (!stillG) {
           homeAgendamientoReunionId = null;
-        }
-        if (homeQuickSelectedReunionId != null) {
-          await loadAsistenciaForCalendar(homeQuickSelectedReunionId);
-        } else {
+          homeCalendarViewDate = new Date();
           renderHomeCalendar(homeCalendarViewDate);
-        }
-        renderScheduledMeetings();
-      }
+        },
+        async onAfterLoad(meetings) {
+          homeCalendarViewDate = new Date();
+          const list = meetings || [];
+          const selA = homeQuickSelectedReunionId;
+          const selG = homeAgendamientoReunionId;
+          const stillA =
+            selA != null && list.some((x) => String(getReunionPk(x) ?? "") === String(selA));
+          const stillG =
+            selG != null && list.some((x) => String(getReunionPk(x) ?? "") === String(selG));
+          if (!stillA) {
+            homeQuickSelectedReunionId = null;
+            homeAsistenciaPayload = null;
+          }
+          if (!stillG) {
+            homeAgendamientoReunionId = null;
+          }
+          if (homeQuickSelectedReunionId != null) {
+            await loadAsistenciaForCalendar(homeQuickSelectedReunionId);
+          } else {
+            renderHomeCalendar(homeCalendarViewDate);
+          }
+          renderScheduledMeetings();
+        },
+      });
     }
 
     function renderLobbyHome() {
@@ -9551,6 +10311,8 @@
             socket = null;
           }
           currentUser = null;
+          calendarioHistorial?.clear();
+          updateCalendarHistoryButtons();
           setToken(null);
           _suppressHashRoute = true;
           location.hash = "#/login";
@@ -9590,10 +10352,10 @@
       }
     });
     $("btnCalendarPrintAgendamiento")?.addEventListener("click", () => {
-      log("Impresión de agendamiento (próximamente).");
+      printAgendamientoCalendar();
     });
     $("btnCalendarPrintAsistencia")?.addEventListener("click", () => {
-      log("Impresión de asistencia (próximamente).");
+      printAsistenciaCalendar();
     });
 
     $("btnHomeCalendarPrev")?.addEventListener("click", () => {
@@ -9837,12 +10599,8 @@
         void loadHomeMeetings();
         closeScheduleModal();
       } catch (e) {
-        const msg =
-          e?.message ||
-          e?.data?.error ||
-          (typeof e?.status === "number" ? `Error ${e.status}` : "") ||
-          "No se pudo agendar la reunión.";
-        if (err) err.textContent = msg;
+        const msg = scheduleApiErrorMessage(e);
+        showScheduleModalError(err, msg);
         log("Agendar reunión: " + msg);
       }
     });
