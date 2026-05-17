@@ -6,6 +6,7 @@
   <title>My Own Zoom — Cliente</title>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="/js/helpers.js"></script>
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
   <script src="/js/asistenciaLive.js"></script>
@@ -2382,6 +2383,7 @@
           <p class="home-subtitle">Gestiona tus reuniones y entra con un clic.</p>
         </div>
         <div class="home-header__actions">
+          <a id="linkAdminPanel" href="/admin.html" class="btn-ghost hidden">Panel admin</a>
           <span id="homeRoleBadge" class="role-badge">Rol</span>
           <button type="button" id="btnLogout" class="btn-ghost">Cerrar sesión</button>
         </div>
@@ -6829,6 +6831,10 @@ body.print-calendar-export {
       const btnRedo = $("btnCalendarRedo");
       if (btnUndo) btnUndo.classList.toggle("hidden", !isTeacher);
       if (btnRedo) btnRedo.classList.toggle("hidden", !isTeacher);
+      const linkAdmin = $("linkAdminPanel");
+      if (linkAdmin) {
+        linkAdmin.classList.toggle("hidden", !isAdminRole(role));
+      }
     }
 
     function appendCalendarDayTimeLabel(inner, reunion, year, month, day) {

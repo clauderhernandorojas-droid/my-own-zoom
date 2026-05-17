@@ -373,7 +373,8 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 | **Anotaciones en pantalla compartida** (estado en RAM, sanitizado, rebroadcast) | `screenshare-annotate:update`, `screenshare-annotate:state` en `src/socket/index.js`; overlay y herramientas en `public/index.html` |
 | **API/Socket cross-origin en Render**: helper `toApiUrl`, fallback de origen, y conexión Socket.IO al backend público cuando frontend/backend están separados | `public/index.html` (`API_ORIGIN`, `inferApiOrigin`, `toApiUrl`, `connectSocketIfNeeded`) |
 | **Registro público sin escalamiento de rol**: alta siempre como `estudiante`, sin confiar en `rol` del cliente | `src/routes/auth.js`, `public/index.html` |
-| **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` en `src/routes/usuarios.js` |
+| **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` (legacy), **`GET/PATCH /api/admin/usuarios`** en `src/routes/admin.js` + panel [`public/admin.html`](public/admin.html) |
+| **Panel admin (gestión de roles)** | `src/middleware/requireAdmin.js`, `public/js/helpers.js` (`isAdminRole`), enlace «Panel admin» en lobby (`public/index.html`) — ver §4 |
 | **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
@@ -404,7 +405,41 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 
 ---
 
-## 4. Scripts NPM actuales
+## 4. Administración (panel de roles)
+
+Usuarios con rol global **`admin`** pueden abrir **`/admin.html`** (enlace «Panel admin» en el lobby) para listar usuarios y cambiar roles (`docente`, `estudiante`, `admin`).
+
+**API (requiere JWT + rol admin):**
+
+| Método | Ruta |
+|--------|------|
+| `GET` | `/api/admin/usuarios` |
+| `PATCH` | `/api/admin/usuarios/:id/rol` — body `{ "rol": "docente" }` |
+
+**Primer administrador** (BD vacía o Render): promover manualmente una cuenta existente:
+
+```sql
+UPDATE usuarios SET rol = 'admin' WHERE email = 'tu-correo@ejemplo.com';
+```
+
+Cierra sesión y vuelve a entrar para que el cliente cargue el rol desde `GET /api/usuarios/me`.
+
+El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudiante`** por defecto.
+
+**Archivos principales:**
+
+| Archivo | Rol |
+|---------|-----|
+| `src/middleware/requireAdmin.js` | Middleware `403` si `rol !== 'admin'` |
+| `src/routes/admin.js` | Listado y cambio de rol |
+| `public/admin.html` | UI tabla + selector de rol |
+| `public/js/helpers.js` | `isAdminRole()` compartido con el lobby |
+
+**QA manual:** usuario `estudiante` → `GET /api/admin/usuarios` debe devolver **403**; usuario `admin` → lista OK; tras `PATCH`, el afectado ve el nuevo rol en el badge del lobby tras re-login o refresco (`GET /api/usuarios/me`).
+
+---
+
+## 5. Scripts NPM actuales
 
 | Comando | Uso |
 |---------|-----|
@@ -418,7 +453,7 @@ Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, 
 
 ---
 
-## 5. Sequelize CLI — estado y uso previsto
+## 6. Sequelize CLI — estado y uso previsto
 
 **Estado actual:** no hay `npm run db:migrate` definido en `package.json`; no hay archivos de migración en el árbol revisado. El lockfile puede listar `sequelize-cli` como devDependency aunque el `package.json` no lo refleje — conviene alinear e instalar de nuevo si se adopta la CLI.
 
@@ -440,11 +475,11 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-## 6. Buenas prácticas para sesiones en Cursor
+## 7. Buenas prácticas para sesiones en Cursor
 
 - **Actualizar este `README-dev.md`** cuando: se añadan rutas o eventos de socket; cambien modelos o estrategia de BD; se añadan variables de entorno; cambie el cupo o las reglas de chat; cambie la grabación (audio/vídeo) o la mezcla Web Audio; se creen migraciones o scripts.
 - Así el siguiente chat o sesión puede usar este archivo como **contexto inicial** (pegar resumen o `@README-dev.md`).
 
 ---
 
-*Última actualización de este documento: mayo 2026 — Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — Panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
