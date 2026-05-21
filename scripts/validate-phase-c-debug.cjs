@@ -12,9 +12,42 @@ const { io } = require('socket.io-client');
 const { spawn } = require('child_process');
 const { Op } = require('sequelize');
 
+function parseCli() {
+  const opts = {
+    port: null,
+    reunionId: null,
+    inicioSesion: null,
+    externalServer: false,
+  };
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    const next = argv[i + 1];
+    if (a.startsWith('--port=')) opts.port = Number(a.slice(7));
+    else if (a === '--port' && next) {
+      opts.port = Number(next);
+      i += 1;
+    } else if (a.startsWith('--reunionId=')) opts.reunionId = a.slice(12);
+    else if (a === '--reunionId' && next) {
+      opts.reunionId = next;
+      i += 1;
+    } else if (a.startsWith('--inicioSesion=')) opts.inicioSesion = a.slice(15);
+    else if (a === '--inicioSesion' && next) {
+      opts.inicioSesion = next;
+      i += 1;
+    } else if (a === '--external-server') opts.externalServer = true;
+  }
+  return opts;
+}
+
+const CLI = parseCli();
 const SESSION_ID = process.env.DEBUG_SESSION_ID || '966849';
 const LOG_PATH = path.join(__dirname, '..', `debug-${SESSION_ID}.log`);
-const PORT_C = Number(process.env.PORT_C) || 3003;
+const PORT_C =
+  CLI.port || Number(process.env.PORT) || Number(process.env.PORT_C) || 3003;
+const FORCED_REUNION_ID = CLI.reunionId || process.env.VALIDATE_REUNION_ID || null;
+const FORCED_INICIO_SESION = CLI.inicioSesion || process.env.VALIDATE_INICIO_SESION || null;
+const EXTERNAL_SERVER = CLI.externalServer || process.env.VALIDATE_EXTERNAL_SERVER === '1';
 const TEST_EMAIL = process.env.TEST_DOCENTE_EMAIL || 'clauderrojas@hotmail.com';
 const TEST_PASSWORD = process.env.TEST_DOCENTE_PASSWORD || '123456';
 
@@ -24,7 +57,9 @@ function logEntry(entry) {
   const line = JSON.stringify({
     sessionId: SESSION_ID,
     timestamp: Date.now(),
-    reproduceCommand: 'npm run validate:phase-c',
+    reproduceCommand: `node scripts/validate-phase-c-debug.cjs --port=${PORT_C}${EXTERNAL_SERVER ? ' --external-server' : ''}`,
+    environment: 'staging-runner-isolated',
+    sqliteStorage: process.env.SQLITE_STORAGE || 'data/app.sqlite',
     ...entry,
   });
   fs.appendFileSync(LOG_PATH, `${line}\n`, 'utf8');
@@ -149,6 +184,25 @@ async function login(port) {
 
 async function findReunionParticipants() {
   const { Participa, Reunion } = require('../src/models');
+  if (FORCED_REUNION_ID) {
+    const reunion = await Reunion.findByPk(FORCED_REUNION_ID);
+    if (!reunion) throw new Error(`Reunión no encontrada: ${FORCED_REUNION_ID}`);
+    const docPart = await Participa.findOne({
+      where: { reunionId: reunion.reunionId, rolEnReunion: 'docente' },
+    });
+    const estPart = await Participa.findOne({
+      where: {
+        reunionId: reunion.reunionId,
+        rolEnReunion: { [Op.in]: ['estudiante', 'asistente'] },
+      },
+    });
+    if (!docPart || !estPart) throw new Error('Reunión sin docente/estudiante');
+    const cop = require('../src/services/copresencia');
+    const inicioIso = FORCED_INICIO_SESION
+      ? cop.normalizeInicioSesion(new Date(FORCED_INICIO_SESION)).toISOString()
+      : cop.normalizeInicioSesion(new Date(reunion.fechaHora)).toISOString();
+    return { reunion, docPart, estPart, inicioIso };
+  }
   const estPart = await Participa.findOne({
     where: { rolEnReunion: { [Op.in]: ['estudiante', 'asistente'] } },
     include: [
@@ -166,7 +220,9 @@ async function findReunionParticipants() {
   if (!docPart) throw new Error('No hay docente');
   const reunion = estPart.Reunion || (await Reunion.findByPk(estPart.reunionId));
   const cop = require('../src/services/copresencia');
-  const inicioIso = cop.normalizeInicioSesion(new Date(reunion.fechaHora)).toISOString();
+  const inicioIso = FORCED_INICIO_SESION
+    ? cop.normalizeInicioSesion(new Date(FORCED_INICIO_SESION)).toISOString()
+    : cop.normalizeInicioSesion(new Date(reunion.fechaHora)).toISOString();
   return { reunion, docPart, estPart, inicioIso };
 }
 
@@ -236,10 +292,39 @@ async function runFlushScenario() {
 
 async function main() {
   if (fs.existsSync(LOG_PATH)) fs.unlinkSync(LOG_PATH);
-  logEntry({ type: 'run-start', port: PORT_C });
+  logEntry({
+    type: 'run-start',
+    port: PORT_C,
+    externalServer: EXTERNAL_SERVER,
+    forcedReunionId: FORCED_REUNION_ID,
+    forcedInicioSesion: FORCED_INICIO_SESION,
+  });
 
-  await killPort(PORT_C);
-  await startServerC();
+  if (EXTERNAL_SERVER) {
+    let tries = 0;
+    while (tries < 40) {
+      try {
+        const h = await httpRequest(PORT_C, 'GET', '/health');
+        if (
+          h.status === 200 &&
+          h.json?.asistenciaMetricasEnabled === true &&
+          h.json?.asistenciaPersistenceEnabled === true
+        ) {
+          break;
+        }
+      } catch (_) {}
+      tries += 1;
+      if (tries >= 40) {
+        throw new Error(
+          `Servidor externo en :${PORT_C} no listo (flags métricas/persistencia)`
+        );
+      }
+      await sleep(500);
+    }
+  } else {
+    await killPort(PORT_C);
+    await startServerC();
+  }
 
   let ctx;
   let tokDoc;

@@ -17,7 +17,11 @@ function createSequelize() {
     });
   }
 
-  const storage = path.join(__dirname, '..', '..', 'data', 'app.sqlite');
+  const storage = process.env.SQLITE_STORAGE
+    ? path.isAbsolute(process.env.SQLITE_STORAGE)
+      ? process.env.SQLITE_STORAGE
+      : path.join(__dirname, '..', '..', process.env.SQLITE_STORAGE)
+    : path.join(__dirname, '..', '..', 'data', 'app.sqlite');
   return new Sequelize({
     dialect: 'sqlite',
     storage,

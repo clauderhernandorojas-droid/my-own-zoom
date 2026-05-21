@@ -416,13 +416,33 @@ Usuarios con rol global **`admin`** pueden abrir **`/admin.html`** (enlace «Pan
 | `GET` | `/api/admin/usuarios` |
 | `PATCH` | `/api/admin/usuarios/:id/rol` — body `{ "rol": "docente" }` |
 
-**Primer administrador** (BD vacía o Render): promover manualmente una cuenta existente:
+**Primer administrador** (BD vacía o Render con SQL): promover manualmente una cuenta existente:
 
 ```sql
 UPDATE usuarios SET rol = 'admin' WHERE email = 'tu-correo@ejemplo.com';
 ```
 
 Cierra sesión y vuelve a entrar para que el cliente cargue el rol desde `GET /api/usuarios/me`.
+
+### Bootstrap temporal (solo desarrollo)
+
+**Advertencia:** endpoint **temporal**. Tras promover tu cuenta **una vez**, elimina el bloque `if (process.env.NODE_ENV !== 'production') { … make-admin … }` en [`src/routes/usuarios.js`](src/routes/usuarios.js) y esta subsección (o márcala obsoleta). No desplegar a producción con este código aunque esté condicionado por `NODE_ENV`.
+
+| Método | Ruta |
+|--------|------|
+| `PATCH` | `/api/usuarios/me/make-admin` — promueve al usuario del JWT; no existe si `NODE_ENV=production` (p. ej. Render) |
+
+1. Inicia sesión y obtén el token (p. ej. tras `POST /api/auth/login` o `GET /api/usuarios/me`).
+2. Promoción (solo tu sesión, sin pasar UUID en la URL):
+
+```bash
+curl -X PATCH "http://localhost:3000/api/usuarios/me/make-admin" \
+  -H "Authorization: Bearer TU_TOKEN"
+```
+
+Respuesta esperada: `{ "ok": true, "id": "…", "rol": "admin" }`. Sin token → **401**.
+3. Refresca el lobby o vuelve a llamar `GET /api/usuarios/me` → enlace **Panel admin**.
+4. **Limpieza:** borra el bloque `me/make-admin` en `usuarios.js` (y esta subsección si ya no aplica) y confirma con commit.
 
 El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudiante`** por defecto.
 
