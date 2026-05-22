@@ -4729,17 +4729,6 @@
       return String(id).trim().toLowerCase();
     }
 
-    function isTeacherRole(rol) {
-      const normalized = String(rol || "")
-        .trim()
-        .toLowerCase();
-      return normalized === "docente" || normalized === "profesor";
-    }
-
-    function getUserRoleLabel(rol) {
-      return isTeacherRole(rol) ? "Profesor" : "Estudiante";
-    }
-
     function getStoredDisplayName() {
       const uid = currentUser?.usuarioId;
       if (!uid) return "";
@@ -5405,7 +5394,7 @@
 
     function applyScheduleModalStudentView(meetingCtx, reunion) {
       resetScheduleModalAccessMode();
-      const isViewer = !isTeacherRole(currentUser?.rol) && reunion;
+      const isViewer = !canManageScheduleRole(currentUser?.rol) && reunion;
       if (!isViewer) return;
       $("scheduleModal")?.classList.add("schedule-modal--viewer");
       const slot = resolveMeetingOccurrenceSlot(reunion, {
@@ -6229,7 +6218,7 @@ body.print-calendar-export {
               });
             });
             rowItem.appendChild(b);
-            if (isTeacherRole(currentUser?.rol)) {
+            if (canManageScheduleRole(currentUser?.rol)) {
             const del = document.createElement("button");
             del.type = "button";
             del.className = "schedule-day-roster__del";
@@ -6316,7 +6305,7 @@ body.print-calendar-export {
       requestAnimationFrame(() => {
         const card = getScheduleModalCard();
         if (card) card.scrollTop = scheduleModalScrollTop || 0;
-        const focusEl = !isTeacherRole(currentUser?.rol) && mWork ? $("btnScheduleModalCancel") : title;
+        const focusEl = !canManageScheduleRole(currentUser?.rol) && mWork ? $("btnScheduleModalCancel") : title;
         focusEl?.focus({ preventScroll: true });
       });
     }
@@ -6519,7 +6508,7 @@ body.print-calendar-export {
           renderHomeCalendar();
         });
         actions.appendChild(btnAgend);
-        const canManageSchedule = isTeacherRole(currentUser?.rol);
+        const canManageSchedule = canManageScheduleRole(currentUser?.rol);
         if (canManageSchedule) {
           const btnEdit = document.createElement("button");
           btnEdit.type = "button";
@@ -6813,7 +6802,7 @@ body.print-calendar-export {
 
     function updateLobbyRoleUi() {
       const role = currentUser?.rol || "";
-      const isTeacher = isTeacherRole(role);
+      const isTeacher = canManageScheduleRole(role);
       const createBtn = $("btnCrearReunion");
       const roleBadge = $("homeRoleBadge");
       const hint = $("scheduleHint");
@@ -6886,7 +6875,7 @@ body.print-calendar-export {
 
     function openDayRosterFromCell(ev, y, mo, d) {
       ev?.stopPropagation?.();
-      if (!isTeacherRole(currentUser?.rol)) return;
+      if (!canManageScheduleRole(currentUser?.rol)) return;
       homeCalendarSelectedDate = new Date(y, mo, d, 12, 0, 0, 0);
       const dayList = listMeetingsOnCalendarDay(y, mo, d);
       const dayLabel = new Date(y, mo, d).toLocaleDateString("es-CO", {
@@ -6915,7 +6904,7 @@ body.print-calendar-export {
     }
 
     function appendCalendarDayVerButton(inner, year, month, day) {
-      if (!isTeacherRole(currentUser?.rol)) return;
+      if (!canManageScheduleRole(currentUser?.rol)) return;
       const ver = document.createElement("button");
       ver.type = "button";
       ver.className = "btn-calendar-ver";
@@ -7004,7 +6993,7 @@ body.print-calendar-export {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const offset = (firstDay.getDay() + 6) % 7;
         const today = new Date();
-        const isTeacherCal = isTeacherRole(currentUser?.rol);
+        const isTeacherCal = canManageScheduleRole(currentUser?.rol);
 
         for (let i = 0; i < offset; i++) {
           const cell = document.createElement("div");
@@ -10470,10 +10459,10 @@ body.print-calendar-export {
     });
 
     $("btnCrearReunion").addEventListener("click", async () => {
-      if (!isTeacherRole(currentUser?.rol)) {
-        log("Solo los profesores pueden agendar reuniones.");
+      if (!canManageScheduleRole(currentUser?.rol)) {
+        log("Solo profesores o administradores pueden agendar reuniones.");
         const r = $("crearResult");
-        if (r) r.textContent = "No autorizado: solo profesores.";
+        if (r) r.textContent = "No autorizado: solo profesores o administradores.";
         return;
       }
       openScheduleModal();

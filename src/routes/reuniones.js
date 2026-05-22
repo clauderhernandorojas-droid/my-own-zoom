@@ -13,6 +13,7 @@ const {
   ReunionOcurrencia,
 } = require('../models');
 const { MAX_ESTUDIANTES, puedeUnirseParticipar } = require('../services/reunionParticipacion');
+const { canManageReuniones } = require('../utils/roles');
 const { findReunionByRoomKey } = require('../services/reunionByRoom');
 const {
   validateNoOverlapForDocente,
@@ -188,7 +189,7 @@ const uploadChatAdjunto = multer({
 
 router.post('/', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden crear reuniones' });
     }
     const { titulo, fechaHora, fechaHoraFin, zonaHoraria, recurrencia } = req.body;
@@ -350,7 +351,7 @@ router.post('/unirse-con-token', async (req, res, next) => {
 
 router.post('/:reunionId/excepcion-ocurrencia', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden editar excepciones' });
     }
     let parent = await Reunion.findByPk(req.params.reunionId);
@@ -474,7 +475,7 @@ router.post('/:reunionId/excepcion-ocurrencia', async (req, res, next) => {
  */
 router.post('/:reunionId/omitir-ocurrencia', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden omitir ocurrencias' });
     }
     const parent = await Reunion.findByPk(req.params.reunionId);
@@ -712,7 +713,7 @@ router.patch('/:reunionId', async (req, res, next) => {
 
 router.post('/:reunionId/reagendar', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden reagendar ocurrencias' });
     }
     const reunion = await Reunion.findByPk(req.params.reunionId);

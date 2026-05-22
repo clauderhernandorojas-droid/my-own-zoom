@@ -293,15 +293,16 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 - **API del módulo**: `createHistorialAcciones()` devuelve `{ push, undo, redo, canUndo, canRedo, clear, onChange, getSizes }`. Máximo **50** entradas en la pila deshacer (`MAX_ACCIONES`).
 - **Forma de cada acción**: `{ type, label, undo: () => Promise, redo: () => Promise }`. Tipos: `agendar`, `editar`, `reagendar`, `cancelar` (`ACCION_TYPES`).
 - **Separación de dominios**: no importa ni usa `asistencia.js`, `copresencia.js` ni `reuniones.js` (reagendar). Solo gestiona pilas; el cliente (`public/index.html`, instancia `calendarioHistorial`) registra callbacks que llaman a `POST`/`PATCH`/`DELETE` de reuniones.
-- **UI**: botones `#btnCalendarUndo` y `#btnCalendarRedo` en la barra del calendario (clase `btn-ghost btn-calendar-tool`). Visibles solo para **docente** (`updateLobbyRoleUi`); se habilitan/deshabilitan con `updateCalendarHistoryButtons` vía `onChange`.
+- **UI**: botones `#btnCalendarUndo` y `#btnCalendarRedo` en la barra del calendario (clase `btn-ghost btn-calendar-tool`). Visibles para **docente** y **admin** (`canManageScheduleRole` en `updateLobbyRoleUi`); se habilitan/deshabilitan con `updateCalendarHistoryButtons` vía `onChange`.
 - **Registro (`push`)** tras operaciones exitosas: `pushHistorialAgendar`, `pushHistorialEditar`, `pushHistorialReagendar`, `pushHistorialCancelar` (eliminar reunión). **Deshacer** ejecuta `undo()` de la cima y la mueve a la pila rehacer; **Rehacer** hace `redo()` y la devuelve a deshacer.
 - Al **cerrar sesión** se llama `calendarioHistorial.clear()` para no mezclar acciones entre usuarios.
 
 #### Calendario por rol (Ver, hora en celda, puntitos)
 
-- **Docente / profesor** (`isTeacherRole`): en días con sesión se muestran **puntitos** (`.calendar-day__dots`; tantos como reuniones u ocurrencias ese día) y el botón **Ver** (`btn-calendar-ver`). **Ver** abre `#scheduleModal` con el listado del día (`_calendarDayMeetings`), edición, reagendar y eliminar. `openDayRosterFromCell` rechaza roles que no sean docente.
-- **Estudiante**: en cada día con sesión se muestra la **hora** directamente en la celda (`.calendar-day__times` / `.calendar-day__time`, derivada de `fechaHora` y `fechaHoraFin` vía `resolveMeetingOccurrenceSlot`). **No** hay botón Ver ni apertura de modal desde el calendario; puede usar **Entrar** en la lista de próximas reuniones.
-- **Modal de agenda (solo docente vía Ver o Editar)**: formulario completo de agendar/editar; el estudiante no entra al modal desde el calendario.
+- **Docente / profesor / admin global** (`canManageScheduleRole` en [`public/js/helpers.js`](public/js/helpers.js), alineado con `canManageReuniones` en [`src/utils/roles.js`](src/utils/roles.js)): en días con sesión se muestran **puntitos** (`.calendar-day__dots`) y el botón **Ver** (`btn-calendar-ver`). **Ver** abre `#scheduleModal` con listado del día, edición, reagendar y eliminar. La lista de próximas reuniones muestra además **Editar**, **Cupo**, **Eliminar** y **Copiar código** (no solo Entrar / Asistencia / Agendamiento).
+- **`isTeacherRole`** (solo docente/profesor): se reserva para reglas de **dueño docente** en asistencia del calendario (`calendarAsistenciaRowsFromPayload` / `docenteDueño`), no para ocultar la agenda al admin.
+- **Estudiante**: en cada día con sesión se muestra la **hora** en la celda (`.calendar-day__times` / `.calendar-day__time`). **No** hay botón Ver ni modal desde el calendario; puede usar **Entrar** en la lista de próximas reuniones.
+- **Modal de agenda (docente o admin vía Ver o Editar)**: formulario completo de agendar/editar; el estudiante no entra al modal desde el calendario.
 
 #### Impresión en la barra superior
 
@@ -357,7 +358,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 
 | Tema | Dónde / qué hace |
 |------|------------------|
-| Solo **docente** o **admin** crea reuniones | `POST /api/reuniones/` en `src/routes/reuniones.js` |
+| Solo **docente** o **admin** gestiona agenda (crear, excepciones, omitir, reagendar) | `canManageReuniones()` en [`src/utils/roles.js`](src/utils/roles.js); usado en `src/routes/reuniones.js` |
 | Reunión nueva: estado **programada** si la fecha es futura (si no, **activa**), docente auto-inscrito y **Tablero** vacío creado | `src/routes/reuniones.js` |
 | Edición y baja lógica de reuniones por dueño/admin | `PATCH /api/reuniones/:reunionId`, `DELETE /api/reuniones/:reunionId` |
 | **Cupo** 5 no-docentes + docente | `puedeUnirseParticipar`, mensaje de error fijo en español |
@@ -374,7 +375,8 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 | **API/Socket cross-origin en Render**: helper `toApiUrl`, fallback de origen, y conexión Socket.IO al backend público cuando frontend/backend están separados | `public/index.html` (`API_ORIGIN`, `inferApiOrigin`, `toApiUrl`, `connectSocketIfNeeded`) |
 | **Registro público sin escalamiento de rol**: alta siempre como `estudiante`, sin confiar en `rol` del cliente | `src/routes/auth.js`, `public/index.html` |
 | **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` (legacy), **`GET/PATCH /api/admin/usuarios`** en `src/routes/admin.js` + panel [`public/admin.html`](public/admin.html) |
-| **Panel admin (gestión de roles)** | `src/middleware/requireAdmin.js`, `public/js/helpers.js` (`isAdminRole`), enlace «Panel admin» en lobby (`public/index.html`) — ver §4 |
+| **Panel admin (gestión de roles)** | `src/middleware/requireAdmin.js`, `public/js/helpers.js` (`isAdminRole`, `canManageScheduleRole`), enlace «Panel admin» en lobby — ver §4 |
+| **Predicados de rol compartidos (cliente + servidor)** | `public/js/helpers.js` (`normalizeRol`, `isTeacherRole`, `isAdminRole`, `canManageScheduleRole`, `getUserRoleLabel`); `src/utils/roles.js` (`canManageReuniones`) |
 | **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
@@ -387,7 +389,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 | **Deshacer/rehacer agenda** (pilas en cliente; ver §1 Historial de acciones) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`, `#btnCalendarUndo` / `#btnCalendarRedo`); migración hacia `public/js/calendarController.js` (paso 2) |
 | **Calendario lobby — estado y carga** (`getMeetings` / `setMeetings` / `loadHomeMeetings`, paso 1) | `public/js/calendarController.js` + delegación en `public/index.html` |
 | **Impresión agendamiento y asistencia** (cuadrícula 2 meses; asistencia + tabla resumen BD y pie live opcional vía reporte) | §1 «Reportes y exportación»; `public/index.html`, [`public/js/reporteAsistenciaPrint.js`](public/js/reporteAsistenciaPrint.js), [`src/services/reporteAsistencia.js`](src/services/reporteAsistencia.js), `GET .../asistencia/reporte` |
-| **Calendario por rol** (Ver + puntitos docente; hora en celda estudiante) | `public/index.html` (`appendCalendarDayDots`, `appendCalendarDayVerButton`, `appendCalendarDayTimesForStudent`, `openDayRosterFromCell`) |
+| **Calendario por rol** (Ver + puntitos docente/admin; hora en celda estudiante) | `public/index.html` + `canManageScheduleRole` en `helpers.js` |
 | Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` |
 | Búsqueda de reunión por `room_id` (case-insensitive) centralizada | `src/services/reunionByRoom.js` |
 | Reparación opcional de integridad SQLite en `reuniones` tras cambios de esquema | `src/services/sqliteReunionSchemaRepair.js`, llamado desde `server.js` |
@@ -453,7 +455,8 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `src/middleware/requireAdmin.js` | Middleware `403` si `rol !== 'admin'` |
 | `src/routes/admin.js` | Listado y cambio de rol |
 | `public/admin.html` | UI tabla + selector de rol |
-| `public/js/helpers.js` | `isAdminRole()` compartido con el lobby |
+| `public/js/helpers.js` | `isAdminRole`, `isTeacherRole`, `canManageScheduleRole`, `getUserRoleLabel` (lobby y `admin.html`) |
+| `src/utils/roles.js` | `canManageReuniones()` — misma regla que agenda en API |
 
 **QA manual:** usuario `estudiante` → `GET /api/admin/usuarios` debe devolver **403**; usuario `admin` → lista OK; tras `PATCH`, el afectado ve el nuevo rol en el badge del lobby tras re-login o refresco (`GET /api/usuarios/me`).
 
@@ -502,4 +505,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — Panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — Predicados de rol compartidos (`helpers.js`, `src/utils/roles.js`: admin con misma UI de agenda que docente), panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM, Fase A métricas chat, reportes/exportación, asistencia en vivo opcional, calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*

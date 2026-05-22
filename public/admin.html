@@ -266,7 +266,10 @@
         btn.textContent = "Guardar";
         btn.addEventListener("click", async () => {
           const newRol = sel.value;
+          const prevText = btn.textContent;
           btn.disabled = true;
+          btn.textContent = "Guardando…";
+          btn.setAttribute("aria-busy", "true");
           setStatus("", "");
           try {
             await api("/api/admin/usuarios/" + encodeURIComponent(id) + "/rol", {
@@ -280,6 +283,8 @@
             setStatus(e.message || "No se pudo cambiar el rol", "err");
           } finally {
             btn.disabled = false;
+            btn.textContent = prevText;
+            btn.removeAttribute("aria-busy");
           }
         });
         tdAction.appendChild(btn);
