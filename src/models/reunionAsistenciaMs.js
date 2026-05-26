@@ -48,22 +48,12 @@ module.exports = (sequelize) => {
         defaultValue: false,
         field: 'fulfilled',
       },
-      creadoEn: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-        field: 'creado_en',
-      },
-      actualizadoEn: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-        field: 'actualizado_en',
-      },
     },
     {
       tableName: 'reunion_asistencia_ms',
-      timestamps: false,
+      timestamps: true,
+      createdAt: 'creado_en',
+      updatedAt: 'actualizado_en',
       indexes: [
         {
           unique: true,
@@ -76,7 +66,6 @@ module.exports = (sequelize) => {
   );
 
   ReunionAsistenciaMs.upsertSessionMetrics = async function upsertSessionMetrics(row) {
-    const now = new Date();
     const payload = {
       reunionId: String(row.reunionId),
       inicioSesion: row.inicioSesion,
@@ -85,7 +74,6 @@ module.exports = (sequelize) => {
       copresenceMs: Number(row.copresenceMs) || 0,
       umbralMs: Number(row.umbralMs) || 0,
       fulfilled: !!row.fulfilled,
-      actualizadoEn: now,
     };
     const existing = await ReunionAsistenciaMs.findOne({
       where: {
@@ -98,7 +86,6 @@ module.exports = (sequelize) => {
       await existing.update(payload);
       return existing;
     }
-    payload.creadoEn = now;
     return ReunionAsistenciaMs.create(payload);
   };
 
