@@ -261,7 +261,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 
 | Dependencia / consumidor | Uso actual (paso 1) |
 |----------------------------|---------------------|
-| `GET /api/reuniones/mis` vía `api()` del index | `CalendarController.loadHomeMeetings` invoca el cliente HTTP existente |
+| `GET /api/reuniones/mis` vía `api()` del index | `CalendarController.loadHomeMeetings` invoca el cliente HTTP existente; el backend filtra por rol (ver §2, "Listado de reuniones por rol") |
 | `public/index.html` | Define `loadHomeMeetings()` como delegado: pasa `getToken`, `api`, `onNoToken`, `onAfterLoad` (reset de focos asistencia/agendamiento, `loadAsistenciaForCalendar` / `renderHomeCalendar`, `renderScheduledMeetings`) |
 | `HistorialAcciones` (`/js/historialAcciones.js`) | Sin cambios; paso 2 enlazará botones desde el controlador |
 | Lista de reuniones en memoria | `CalendarController.getMeetings()` / `setMeetings()` sustituyen el antiguo `let homeMeetings` |
@@ -368,6 +368,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 | Tema | Dónde / qué hace |
 |------|------------------|
 | Solo **docente** o **admin** gestiona agenda (crear, excepciones, omitir, reagendar) | `canManageReuniones()` en [`src/utils/roles.js`](src/utils/roles.js); usado en `src/routes/reuniones.js` |
+| **Listado de reuniones por rol** (`GET /api/reuniones/mis`) — `admin` ve todas; `docente` ve solo las que él creó (incluye finalizadas, necesarias para el calendario de días pasados y para consultar asistencia); el resto (estudiante) ve las suyas vía `Participa` | Cadena de capas (1 archivo por responsabilidad): política en `getReunionScopeForUser()` ([`src/utils/roles.js`](src/utils/roles.js)) → query Sequelize en [`src/services/reunionesListing.js`](src/services/reunionesListing.js) (`listarReunionesParaUsuario`) → serialización en [`src/services/reunionPresenter.js`](src/services/reunionPresenter.js) (`reunionJsonWithReagenda`, reutilizado también en `PATCH` y reagendar de `src/routes/reuniones.js`) → handler HTTP delgado en `src/routes/reuniones.js` (`router.get('/mis', …)`). El botón **Eliminar** del lobby solo se renderiza si `isOwner || isAdmin` en `public/index.html`, con mensaje de error visible en `#crearResult` y actualización optimista vía `CalendarController.setMeetings` |
 | Reunión nueva: estado **programada** si la fecha es futura (si no, **activa**), docente auto-inscrito y **Tablero** vacío creado | `src/routes/reuniones.js` |
 | Edición y baja lógica de reuniones por dueño/admin | `PATCH /api/reuniones/:reunionId`, `DELETE /api/reuniones/:reunionId` |
 | **Cupo** 5 no-docentes + docente | `puedeUnirseParticipar`, mensaje de error fijo en español |
@@ -466,7 +467,9 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `public/admin.html` | UI tabla + selector de rol |
 | `public/js/helpers.js` | `isAdminRole`, `isTeacherRole`, `canManageScheduleRole`, `getUserRoleLabel` (lobby y `admin.html`) |
 | `public/js/tableroSeleccion.js` | Subcapa de selección del tablero: estado (Set), hit-tests (text/image/stroke), drag-box (marquee), helpers de bounds, `getResizeTransform` para resize de elemento o grupo — selección **local**, no se serializa por socket |
-| `src/utils/roles.js` | `canManageReuniones()` — misma regla que agenda en API |
+| `src/utils/roles.js` | `canManageReuniones()`, `getReunionScopeForUser()` (política de scope: `all` para admin, `owned` para docente, `participating` para el resto) — predicados puros sin Sequelize, reutilizados en `reunionesListing.js` |
+| `src/services/reunionPresenter.js` | `reunionJsonWithReagenda(reunion)` — serializador único de modelos `Reunion` con metadatos de reagendamiento (extraído del router para reuso desde servicios) |
+| `src/services/reunionesListing.js` | `listarReunionesParaUsuario(usuario)` → traduce el scope del rol a la query Sequelize correspondiente y devuelve la lista ya presentada; `GET /api/reuniones/mis` se limita a invocarla |
 
 **QA manual:** usuario `estudiante` → `GET /api/admin/usuarios` debe devolver **403**; usuario `admin` → lista OK; tras `PATCH`, el afectado ve el nuevo rol en el badge del lobby tras re-login o refresco (`GET /api/usuarios/me`).
 
@@ -515,4 +518,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — Resize de trazos y resize de grupo en el tablero (`public/js/tableroSeleccion.js#getResizeTransform`, `applyResizeTransform` en `public/index.html`: 8 handles para stroke individual, bbox de unión + 8 handles para multiselección, Shift en esquina = uniforme, `lineWidth` y `fontSize` reescalan), multiselección (Shift+click, drag-box, drag/flechas/Delete agrupados), predicados de rol compartidos (`helpers.js`, `src/utils/roles.js`), panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM, Fase A métricas chat, reportes/exportación, asistencia en vivo opcional, calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — Listado de reuniones por rol en `GET /api/reuniones/mis` (admin = todas, docente = solo las que creó, estudiante = vía `Participa`) implementado como cadena de capas (`src/utils/roles.js#getReunionScopeForUser` → `src/services/reunionesListing.js#listarReunionesParaUsuario` → `src/services/reunionPresenter.js#reunionJsonWithReagenda` → handler delgado en `src/routes/reuniones.js`), botón Eliminar del lobby restringido a `isOwner || isAdmin` con error visible y update optimista; Resize de trazos y resize de grupo en el tablero (`public/js/tableroSeleccion.js#getResizeTransform`, `applyResizeTransform` en `public/index.html`: 8 handles para stroke individual, bbox de unión + 8 handles para multiselección, Shift en esquina = uniforme, `lineWidth` y `fontSize` reescalan), multiselección (Shift+click, drag-box, drag/flechas/Delete agrupados), predicados de rol compartidos (`helpers.js`, `src/utils/roles.js`), panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM, Fase A métricas chat, reportes/exportación, asistencia en vivo opcional, calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*

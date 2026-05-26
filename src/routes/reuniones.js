@@ -39,6 +39,8 @@ const {
 } = require('../services/asistencia');
 const { reagendarOcurrencia, occurrenceIdFromLegacyOldDate } = require('../services/reuniones');
 const { buildReporteAsistenciaPayload } = require('../services/reporteAsistencia');
+const { reunionJsonWithReagenda } = require('../services/reunionPresenter');
+const { listarReunionesParaUsuario } = require('../services/reunionesListing');
 
 const router = express.Router();
 
@@ -137,23 +139,6 @@ async function destroyReunionCascade(reunionId) {
   await Participa.destroy({ where: { reunionId } });
   await Tablero.destroy({ where: { reunionId } });
   await Reunion.destroy({ where: { reunionId } });
-}
-
-/** Enriquece JSON de reunión con `reagendada` y metadatos legibles en cada excepción. */
-function reunionJsonWithReagenda(reunion) {
-  if (!reunion) return null;
-  const j = typeof reunion.toJSON === 'function' ? reunion.toJSON() : { ...reunion };
-  const ex = Array.isArray(j.ocurrenciaExcepciones) ? j.ocurrenciaExcepciones : [];
-  j.reagendada = ex.length > 0;
-  j.ocurrenciaExcepciones = ex.map((row) => {
-    const o = { ...row };
-    o.reagendada = true;
-    o.fechaOriginal = o.fechaOcurrenciaOriginal ?? o.fecha_ocurrencia_original;
-    o.nuevaFecha = o.fechaOcurrenciaOverride ?? o.fecha_ocurrencia_override;
-    o.occurrenceId = o.reunionOcurrenciaId ?? o.reunion_ocurrencia_id ?? null;
-    return o;
-  });
-  return j;
 }
 
 const uploadChatAdjunto = multer({
@@ -268,32 +253,7 @@ router.post('/', async (req, res, next) => {
 
 router.get('/mis', async (req, res, next) => {
   try {
-    const participaciones = await Participa.findAll({
-      where: { usuarioId: req.usuario.usuarioId },
-      include: [
-        {
-          model: Reunion,
-          required: true,
-          include: [
-            {
-              model: ReunionOcurrencia,
-              as: 'ocurrenciaExcepciones',
-              required: false,
-            },
-          ],
-        },
-      ],
-    });
-    const seen = new Set();
-    const reuniones = [];
-    for (const p of participaciones) {
-      const row = p.Reunion ?? p.reunion;
-      if (!row) continue;
-      const id = row.reunionId != null ? String(row.reunionId) : '';
-      if (id && seen.has(id)) continue;
-      if (id) seen.add(id);
-      reuniones.push(reunionJsonWithReagenda(row));
-    }
+    const reuniones = await listarReunionesParaUsuario(req.usuario);
     res.json({ reuniones });
   } catch (e) {
     next(e);

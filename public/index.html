@@ -6545,24 +6545,50 @@ body.print-calendar-export {
             void showCupoByRoomId(r.roomId);
           });
           actions.appendChild(btnCupo);
-          const btnDelete = document.createElement("button");
-          btnDelete.type = "button";
-          btnDelete.className = "btn-ghost";
-          btnDelete.textContent = "Eliminar";
-          btnDelete.addEventListener("click", async () => {
-            if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
-            try {
+          const ownerId = r?.docenteUsuarioId ?? r?.docente_usuario_id ?? null;
+          const isOwner = ownerId != null && currentUser?.usuarioId != null && String(ownerId) === String(currentUser.usuarioId);
+          const isAdmin = typeof isAdminRole === "function" ? isAdminRole(currentUser?.rol) : false;
+          if (isOwner || isAdmin) {
+            const btnDelete = document.createElement("button");
+            btnDelete.type = "button";
+            btnDelete.className = "btn-ghost";
+            btnDelete.textContent = "Eliminar";
+            btnDelete.addEventListener("click", async () => {
+              if (btnDelete.disabled) return;
+              if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
+              const pkDel = getReunionPk(r);
+              if (pkDel == null) {
+                $("crearResult").textContent = "No se pudo determinar la reunión a eliminar.";
+                return;
+              }
+              btnDelete.disabled = true;
               const snapDel = snapshotReunionAgenda(r);
-              const pkDel = r.reunionId;
-              await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
-              if (snapDel) pushHistorialCancelar(snapDel, pkDel);
-              $("crearResult").textContent = "Reunión eliminada.";
-              void loadHomeMeetings();
-            } catch (e) {
-              log("Eliminar reunión: " + e.message);
-            }
-          });
-          actions.appendChild(btnDelete);
+              try {
+                await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+                if (snapDel) pushHistorialCancelar(snapDel, pkDel);
+                try {
+                  const currentList = CalendarController.getMeetings() || [];
+                  const nextList = currentList.map((m) => {
+                    if (String(getReunionPk(m)) === String(pkDel)) {
+                      return { ...m, estado: "finalizada" };
+                    }
+                    return m;
+                  });
+                  CalendarController.setMeetings(nextList);
+                } catch (_optErr) {}
+                renderScheduledMeetings();
+                renderHomeCalendar();
+                $("crearResult").textContent = "Reunión eliminada.";
+                void loadHomeMeetings();
+              } catch (e) {
+                const apiMsg = e?.data?.error || e?.message || "Error al eliminar la reunión.";
+                $("crearResult").textContent = "No se pudo eliminar: " + apiMsg;
+                log("Eliminar reunión: " + apiMsg);
+                btnDelete.disabled = false;
+              }
+            });
+            actions.appendChild(btnDelete);
+          }
           const btnLink = document.createElement("button");
           btnLink.type = "button";
           btnLink.className = "btn-ghost";
@@ -11990,10 +12016,36 @@ body.print-calendar-export {
           return;
         }
 
-        const selSize = TableroSeleccion.size();
+        const selIds = TableroSeleccion.getSelectedIndices();
         const ctxResize = canvas.getContext("2d");
-        if (selSize > 1) {
-          const selIds = TableroSeleccion.getSelectedIndices();
+
+        if (selIds.length === 1) {
+          const i = selIds[0];
+          const selEl = boardState.elementos?.[i];
+          if (selEl && !selEl.locked) {
+            const bSel = TableroSeleccion.getElementWorldBounds(selEl, ctxResize, getElementBounds);
+            if (bSel) {
+              const h = hitTestResizeHandle(p, bSel, selEl);
+              if (h) {
+                pointerAction = {
+                  mode: "resize",
+                  resizeHandle: h,
+                  index: i,
+                  startPoint: p,
+                  originalElement: JSON.parse(JSON.stringify(selEl)),
+                  originalBounds: { ...bSel },
+                  snapshotBefore: cloneBoardState(boardState),
+                };
+                drawBoard();
+                canvas.setPointerCapture(e.pointerId);
+                canvas.focus();
+                return;
+              }
+            }
+          }
+        }
+
+        if (selIds.length > 1) {
           const anyLocked = selIds.some((i) => boardState.elementos?.[i]?.locked);
           const groupBounds = anyLocked
             ? null
@@ -12249,33 +12301,42 @@ body.print-calendar-export {
         const p = canvasPoint(e);
         let cursor = "default";
         if (isFiniteWorldPoint(p)) {
+          const ctxHover = canvas.getContext("2d");
           let groupHid = null;
+          let singleHid = null;
           if (TableroSeleccion.size() > 1) {
             const selIds = TableroSeleccion.getSelectedIndices();
             const anyLocked = selIds.some((i) => boardState.elementos?.[i]?.locked);
             if (!anyLocked) {
-              const ctxHover = canvas.getContext("2d");
               const gb = TableroSeleccion.getSelectionBounds(boardState.elementos, ctxHover, getElementBounds);
               if (gb) groupHid = hitTestResizeHandle(p, gb, null);
             }
+          } else if (TableroSeleccion.size() === 1) {
+            const i = TableroSeleccion.getSelectedIndices()[0];
+            const selEl = boardState.elementos?.[i];
+            if (selEl && !selEl.locked) {
+              const bSel = TableroSeleccion.getElementWorldBounds(selEl, ctxHover, getElementBounds);
+              if (bSel) singleHid = hitTestResizeHandle(p, bSel, selEl);
+            }
           }
+          const mapHandleCursor = (hid) => {
+            if (hid === "nw" || hid === "se") return "nwse-resize";
+            if (hid === "ne" || hid === "sw") return "nesw-resize";
+            if (hid === "n" || hid === "s") return "ns-resize";
+            if (hid === "e" || hid === "w") return "ew-resize";
+            return "move";
+          };
           if (groupHid) {
-            if (groupHid === "nw" || groupHid === "se") cursor = "nwse-resize";
-            else if (groupHid === "ne" || groupHid === "sw") cursor = "nesw-resize";
-            else if (groupHid === "n" || groupHid === "s") cursor = "ns-resize";
-            else if (groupHid === "e" || groupHid === "w") cursor = "ew-resize";
-            else cursor = "move";
+            cursor = mapHandleCursor(groupHid);
+          } else if (singleHid) {
+            cursor = mapHandleCursor(singleHid);
           } else {
             const hit = hitTestEditableElement(p, e.altKey);
             if (hit?.element?.locked) {
               cursor = "not-allowed";
             } else if (hit?.element) {
               const hid = hitTestResizeHandle(p, hit.bounds, hit.element);
-              if (hid === "nw" || hid === "se") cursor = "nwse-resize";
-              else if (hid === "ne" || hid === "sw") cursor = "nesw-resize";
-              else if (hid === "n" || hid === "s") cursor = "ns-resize";
-              else if (hid === "e" || hid === "w") cursor = "ew-resize";
-              else cursor = "move";
+              cursor = mapHandleCursor(hid);
             }
           }
         }
