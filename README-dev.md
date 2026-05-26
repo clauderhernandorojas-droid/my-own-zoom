@@ -344,7 +344,16 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Compatibilidad SQLite en orden de reacciones**: el servidor ordena por `mensajeReaccionId` (no por `createdAt`) para evitar errores en BD locales con esquemas previos.
 - **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
 - **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
-- **Selección en tablero (puntero)**: con varios elementos seleccionados se dibuja un **marco de unión**. Las **flechas del teclado** mueven toda la multiselección, incluidos los **trazos** (todos los puntos), además de texto e imagen; se respeta `locked`.
+- **Selección en tablero (puntero)** — implementada en [`public/js/tableroSeleccion.js`](public/js/tableroSeleccion.js) (estado local; no viaja por socket):
+  - Click sobre un elemento (texto, imagen o **trazo**) selecciona ese elemento; los trazos son seleccionables, arrastrables y **redimensionables**.
+  - **Shift+click** acumulativo: añade o quita del conjunto.
+  - **Drag-box / marquee**: click+arrastre en zona vacía dibuja un rectángulo translúcido azul; al soltar selecciona todos los elementos cuyo AABB intersecte. **Shift+drag-box** añade al conjunto en lugar de reemplazarlo.
+  - **Drag agrupado**: con N>1 seleccionados, arrastrar desde el cuerpo de cualquiera mueve los N juntos (texto/imagen por `x,y`; trazo por traslación de todos sus puntos). Un único snapshot al historial.
+  - **Resize individual**: con N=1 no bloqueado se dibujan handles alrededor del bbox y al arrastrarlos se escala el elemento. Imagen y **trazo** soportan los 8 handles con escala no uniforme (Shift en esquina = uniforme); el trazo escala todos sus `points` respecto al anchor opuesto y reescala `lineWidth` por la media de `|sx|,|sy|`. Texto conserva su escala uniforme por distancia al origen (`applyTextUniformScale`).
+  - **Resize de grupo**: con N>1 y ningún elemento `locked` se dibuja un bbox de unión y handles. Al arrastrar un handle, todos los elementos seleccionados se transforman respecto al anchor opuesto del bbox de grupo: trazos escalan `points` + `lineWidth`; imágenes escalan `w,h` y reposicionan `x,y`; textos escalan `fontSize` (uniforme) y reposicionan `x,y`. Un único snapshot al historial. Si hay algún `locked` los handles de grupo se ocultan (sólo se permite drag).
+  - **Flechas del teclado** mueven toda la multiselección (Shift = paso de 10 px); **Delete/Backspace** borra todos los seleccionados (saltando `locked`).
+  - **`selectedElementIndex`** se conserva como alias de "único seleccionado" para compat (lock UI, Ctrl+C, edición de texto inline); vale `-1` cuando hay 0 o >1 seleccionados.
+  - Math compartido en el módulo: `getResizeTransform(handleId, ob, dx, dy, shiftKey)` calcula `anchor` + `sx,sy` + `newBounds`; `applyResizeTransform(el, anchor, sx, sy)` en `public/index.html` aplica la transformación según el tipo del elemento (respetando `locked`).
 - **Borrador del tablero**: al tocar un trazo/elemento, elimina el elemento completo (hit-test por segmento para strokes) en lugar de “pintar blanco”.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
@@ -456,6 +465,7 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `src/routes/admin.js` | Listado y cambio de rol |
 | `public/admin.html` | UI tabla + selector de rol |
 | `public/js/helpers.js` | `isAdminRole`, `isTeacherRole`, `canManageScheduleRole`, `getUserRoleLabel` (lobby y `admin.html`) |
+| `public/js/tableroSeleccion.js` | Subcapa de selección del tablero: estado (Set), hit-tests (text/image/stroke), drag-box (marquee), helpers de bounds, `getResizeTransform` para resize de elemento o grupo — selección **local**, no se serializa por socket |
 | `src/utils/roles.js` | `canManageReuniones()` — misma regla que agenda en API |
 
 **QA manual:** usuario `estudiante` → `GET /api/admin/usuarios` debe devolver **403**; usuario `admin` → lista OK; tras `PATCH`, el afectado ve el nuevo rol en el badge del lobby tras re-login o refresco (`GET /api/usuarios/me`).
@@ -505,4 +515,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — Predicados de rol compartidos (`helpers.js`, `src/utils/roles.js`: admin con misma UI de agenda que docente), panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM, Fase A métricas chat, reportes/exportación, asistencia en vivo opcional, calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — Resize de trazos y resize de grupo en el tablero (`public/js/tableroSeleccion.js#getResizeTransform`, `applyResizeTransform` en `public/index.html`: 8 handles para stroke individual, bbox de unión + 8 handles para multiselección, Shift en esquina = uniforme, `lineWidth` y `fontSize` reescalan), multiselección (Shift+click, drag-box, drag/flechas/Delete agrupados), predicados de rol compartidos (`helpers.js`, `src/utils/roles.js`), panel admin (`/admin.html`, `/api/admin/usuarios`), Fase C persistencia `reunion_asistencia_ms`, Fase B métricas sesión RAM, Fase A métricas chat, reportes/exportación, asistencia en vivo opcional, calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*

@@ -7,6 +7,7 @@
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
+  <script src="/js/tableroSeleccion.js"></script>
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
   <script src="/js/asistenciaLive.js"></script>
@@ -3230,7 +3231,27 @@
     let drawing = false;
     let currentStroke = null;
     const boardImageCache = new Map();
+    /**
+     * Selección del tablero (multiselección con Shift+click y drag-box).
+     * El estado real vive en window.TableroSeleccion; este alias se mantiene
+     * para los sitios que esperan "el único seleccionado o -1" (compat con
+     * resize de un elemento, edición de texto, lock UI, Ctrl+C). Cuando hay
+     * 0 o >1 seleccionados, queda en -1.
+     */
     let selectedElementIndex = -1;
+    function syncSelectedSingle() {
+      const ids = TableroSeleccion.getSelectedIndices();
+      selectedElementIndex = ids.length === 1 ? ids[0] : -1;
+      return selectedElementIndex;
+    }
+    function selectSingle(idx) {
+      TableroSeleccion.selectOne(idx);
+      return syncSelectedSingle();
+    }
+    function clearBoardSelection() {
+      TableroSeleccion.clearSelection();
+      selectedElementIndex = -1;
+    }
     let pointerAction = null;
     /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
     let clipboardBoardElement = null;
@@ -8714,10 +8735,12 @@ body.print-calendar-export {
       const next = cloneBoardState(boardState);
       const idx = selectedElementIndex;
       next.elementos[idx] = { ...next.elementos[idx], locked: !el.locked };
-      if (next.elementos[idx].locked) {
-        selectedElementIndex = -1;
-      }
+      const willLock = !!next.elementos[idx].locked;
       applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+      if (willLock) {
+        clearBoardSelection();
+        drawBoard();
+      }
     }
 
     function getBoardElementBounds(el) {
@@ -9256,7 +9279,8 @@ body.print-calendar-export {
         boardFuture.length = 0;
       }
       boardState = cloneBoardState(nextState || { elementos: [] });
-      if (selectedElementIndex >= boardState.elementos.length) selectedElementIndex = -1;
+      TableroSeleccion.reconcileAfterStateChange(boardState.elementos.length);
+      syncSelectedSingle();
       drawBoard();
       updateBoardHistoryButtons();
       if (emit) emitBoardUpdate();
@@ -11412,6 +11436,50 @@ body.print-calendar-export {
       };
     }
 
+    /**
+     * Aplica una transformación de escala (anchor + sx + sy) a un elemento del
+     * tablero. Usada por resize individual de stroke y por resize de grupo
+     * (todos los tipos). Para texto, fontSize escala por la media absoluta de
+     * |sx|,|sy| para mantenerlo legible; la posición escala respecto al anchor.
+     * Respeta `locked`: devuelve el elemento sin cambios si está bloqueado.
+     */
+    function applyResizeTransform(el, anchor, sx, sy) {
+      if (!el || el.locked) return el;
+      const tp = (p) => ({
+        x: anchor.x + (p.x - anchor.x) * sx,
+        y: anchor.y + (p.y - anchor.y) * sy,
+      });
+      if (el.type === "stroke" && Array.isArray(el.points)) {
+        const points = el.points.map((p) => {
+          const t = tp(p);
+          return { x: Math.round(t.x * 100) / 100, y: Math.round(t.y * 100) / 100 };
+        });
+        const lineScale = Math.max(0.1, (Math.abs(sx) + Math.abs(sy)) / 2);
+        const baseLW = Number(el.lineWidth) || 2;
+        const newLW = Math.max(0.5, baseLW * lineScale);
+        return { ...el, points, lineWidth: newLW };
+      }
+      if (el.type === "image") {
+        const ox = Number(el.x) || 0;
+        const oy = Number(el.y) || 0;
+        const ow = Math.max(1, Number(el.w) || 100);
+        const oh = Math.max(1, Number(el.h) || 100);
+        const t = tp({ x: ox, y: oy });
+        const nw = Math.max(8, ow * Math.abs(sx));
+        const nh = Math.max(8, oh * Math.abs(sy));
+        return { ...el, x: Math.round(t.x), y: Math.round(t.y), w: Math.round(nw), h: Math.round(nh) };
+      }
+      if (el.type === "text") {
+        const ox = Number(el.x) || 0;
+        const oy = Number(el.y) || 0;
+        const t = tp({ x: ox, y: oy });
+        const fontScale = Math.max(0.1, (Math.abs(sx) + Math.abs(sy)) / 2);
+        const newFs = clampTextFontSize((Number(el.fontSize) || 16) * fontScale);
+        return { ...el, x: Math.round(t.x), y: Math.round(t.y), fontSize: newFs };
+      }
+      return el;
+    }
+
     function applyImageResize(handleId, ox, oy, ow, oh, dx, dy, shiftKey) {
       let x = ox;
       let y = oy;
@@ -11473,80 +11541,24 @@ body.print-calendar-export {
       return { x, y, w, h };
     }
 
+    /** Wrappers que delegan en window.TableroSeleccion (ver public/js/tableroSeleccion.js). */
     function hitTestEditableElement(p, includeLocked) {
       const context = $("board").getContext("2d");
-      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
-        const el = boardState.elementos[i];
-        if (!(el?.type === "text" || el?.type === "image")) continue;
-        if (el.locked && !includeLocked) continue;
-        const b = getElementBounds(el, context);
-        if (!b) continue;
-        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
-      }
-      return null;
+      return TableroSeleccion.hitTestEditable(p, boardState.elementos, context, !!includeLocked, getElementBounds);
     }
 
     function hitTestTextElement(p) {
       const context = $("board").getContext("2d");
-      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
-        const el = boardState.elementos[i];
-        if (el?.type !== "text") continue;
-        if (el.locked) continue;
-        const b = getElementBounds(el, context);
-        if (!b) continue;
-        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
-      }
-      return null;
-    }
-
-    function distancePointToSegment(px, py, ax, ay, bx, by) {
-      const abx = bx - ax;
-      const aby = by - ay;
-      const apx = px - ax;
-      const apy = py - ay;
-      const ab2 = abx * abx + aby * aby;
-      if (ab2 <= 1e-8) return Math.hypot(px - ax, py - ay);
-      const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / ab2));
-      const cx = ax + abx * t;
-      const cy = ay + aby * t;
-      return Math.hypot(px - cx, py - cy);
+      return TableroSeleccion.hitTestTextElement(p, boardState.elementos, context, getElementBounds);
     }
 
     function hitTestStrokeAtPoint(el, p, extraRadius = 6) {
-      if (!el || el.type !== "stroke" || !Array.isArray(el.points) || el.points.length === 0) return false;
-      const pts = el.points;
-      const radius = Math.max(6, Number(el.lineWidth || 2) * 0.5 + extraRadius);
-      if (pts.length === 1) {
-        return Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= radius;
-      }
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1];
-        const b = pts[i];
-        if (!isFiniteWorldPoint(a) || !isFiniteWorldPoint(b)) continue;
-        if (distancePointToSegment(p.x, p.y, a.x, a.y, b.x, b.y) <= radius) return true;
-      }
-      return false;
+      return TableroSeleccion.hitTestStrokeAtPoint(el, p, extraRadius);
     }
 
     function hitTestAnyElementAtPoint(p) {
       const context = $("board")?.getContext("2d");
-      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
-        const el = boardState.elementos[i];
-        if (!el) continue;
-        if (el.type === "stroke") {
-          if (hitTestStrokeAtPoint(el, p)) return i;
-          continue;
-        }
-        if (el.type === "text" || el.type === "image") {
-          const b = context ? getElementBounds(el, context) : null;
-          if (!b) continue;
-          const pad = 6;
-          if (pointInRect(p, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 })) {
-            return i;
-          }
-        }
-      }
-      return -1;
+      return TableroSeleccion.hitTestAnyAtPoint(p, boardState.elementos, context, getElementBounds);
     }
 
     function eraseWholeElementsByStroke(points) {
@@ -11624,25 +11636,65 @@ body.print-calendar-export {
     }
 
     function drawSelectionOverlay(ctx) {
-      if (selectedElementIndex < 0) return;
-      const el = boardState.elementos?.[selectedElementIndex];
-      if (!el || (el.type !== "text" && el.type !== "image")) return;
-      const b = getElementBounds(el, ctx);
-      if (!b) return;
-      ctx.save();
-      const lockedSel = !!el.locked;
-      ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(b.x, b.y, b.w, b.h);
-      ctx.setLineDash([]);
-      if (!lockedSel) {
-        ctx.fillStyle = "#2563eb";
-        for (const h of getResizeHandleRects(b, el)) {
-          ctx.fillRect(h.x, h.y, h.w, h.h);
+      const ids = TableroSeleccion.getSelectedIndices();
+      const elementos = boardState.elementos || [];
+
+      if (ids.length > 0) {
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        for (const i of ids) {
+          const el = elementos[i];
+          if (!el) continue;
+          const b = TableroSeleccion.getElementWorldBounds(el, ctx, getElementBounds);
+          if (!b) continue;
+          const lockedSel = !!el.locked;
+          ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
+          ctx.strokeRect(b.x, b.y, b.w, b.h);
         }
+
+        if (ids.length === 1) {
+          const el = elementos[ids[0]];
+          const b = el ? TableroSeleccion.getElementWorldBounds(el, ctx, getElementBounds) : null;
+          if (b && el && !el.locked && (el.type === "text" || el.type === "image" || el.type === "stroke")) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#2563eb";
+            for (const h of getResizeHandleRects(b, el)) {
+              ctx.fillRect(h.x, h.y, h.w, h.h);
+            }
+          }
+        } else {
+          const anyLocked = ids.some((i) => elementos[i]?.locked);
+          if (!anyLocked) {
+            const gb = TableroSeleccion.getSelectionBounds(elementos, ctx, getElementBounds);
+            if (gb) {
+              ctx.setLineDash([2, 3]);
+              ctx.strokeStyle = "#1d4ed8";
+              ctx.strokeRect(gb.x, gb.y, gb.w, gb.h);
+              ctx.setLineDash([]);
+              ctx.fillStyle = "#1d4ed8";
+              for (const h of getResizeHandleRects(gb, null)) {
+                ctx.fillRect(h.x, h.y, h.w, h.h);
+              }
+            }
+          }
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
       }
-      ctx.restore();
+
+      const m = TableroSeleccion.getMarqueeRect();
+      if (m && (m.w > 0 || m.h > 0)) {
+        ctx.save();
+        ctx.fillStyle = "rgba(37, 99, 235, 0.10)";
+        ctx.fillRect(m.x, m.y, m.w, m.h);
+        ctx.strokeStyle = "#2563eb";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(m.x, m.y, m.w, m.h);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     }
 
     function commitPointerMutation(snapshotBefore) {
@@ -11675,11 +11727,11 @@ body.print-calendar-export {
 
     function openInlineTextInput(p, opts = {}) {
       const editIndex = opts.editIndex != null ? opts.editIndex : null;
-      const selectionBeforeEdit = selectedElementIndex;
+      const selectionBeforeEdit = TableroSeleccion.getSelectedIndices();
       const canvas = $("board");
       closeInlineTextInput(false);
       editingTextElementIndex = editIndex != null ? editIndex : -1;
-      selectedElementIndex = -1;
+      clearBoardSelection();
       drawBoard();
 
       const worldX = editIndex != null && boardState.elementos[editIndex] ? boardState.elementos[editIndex].x : p.x;
@@ -11770,7 +11822,7 @@ body.print-calendar-export {
           const next = cloneBoardState(boardState);
           if (isEmpty) {
             next.elementos.splice(editIndex, 1);
-            selectedElementIndex = -1;
+            clearBoardSelection();
           } else {
             next.elementos[editIndex] = {
               ...next.elementos[editIndex],
@@ -11784,7 +11836,7 @@ body.print-calendar-export {
           }
           applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
           if (!isEmpty) {
-            selectedElementIndex = editIndex;
+            selectSingle(editIndex);
             drawBoard();
           }
         } else if (!isEmpty) {
@@ -11798,7 +11850,7 @@ body.print-calendar-export {
             fontSize: fontCommit,
           });
           applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
-          selectedElementIndex = boardState.elementos.length - 1;
+          selectSingle(boardState.elementos.length - 1);
           drawBoard();
         }
         closeInlineTextInput(false);
@@ -11806,7 +11858,8 @@ body.print-calendar-export {
       const cancel = () => {
         if (committedOrCancelled) return;
         committedOrCancelled = true;
-        selectedElementIndex = selectionBeforeEdit;
+        TableroSeleccion.setSelection(selectionBeforeEdit);
+        syncSelectedSingle();
         closeInlineTextInput(false);
         drawBoard();
       };
@@ -11926,42 +11979,129 @@ body.print-calendar-export {
         closeInlineTextInput(false);
         const p = canvasPoint(e);
         if (!isFiniteWorldPoint(p)) return;
+
         const badgeHit = hitTestLockedBadge(p);
         if (badgeHit) {
           e.preventDefault();
-          selectedElementIndex = badgeHit.index;
+          selectSingle(badgeHit.index);
           pointerAction = null;
           drawBoard();
           canvas.focus();
           return;
         }
+
+        const selSize = TableroSeleccion.size();
+        const ctxResize = canvas.getContext("2d");
+        if (selSize > 1) {
+          const selIds = TableroSeleccion.getSelectedIndices();
+          const anyLocked = selIds.some((i) => boardState.elementos?.[i]?.locked);
+          const groupBounds = anyLocked
+            ? null
+            : TableroSeleccion.getSelectionBounds(boardState.elementos, ctxResize, getElementBounds);
+          if (groupBounds) {
+            const gh = hitTestResizeHandle(p, groupBounds, null);
+            if (gh) {
+              const originals = new Map();
+              for (const i of selIds) {
+                const el = boardState.elementos?.[i];
+                if (el) originals.set(i, JSON.parse(JSON.stringify(el)));
+              }
+              pointerAction = {
+                mode: "resizeGroup",
+                resizeHandle: gh,
+                indices: selIds,
+                startPoint: p,
+                originalElements: originals,
+                originalBounds: { ...groupBounds },
+                snapshotBefore: cloneBoardState(boardState),
+              };
+              drawBoard();
+              canvas.setPointerCapture(e.pointerId);
+              canvas.focus();
+              return;
+            }
+          }
+        }
+
         if (e.altKey) e.preventDefault();
         const hit = hitTestEditableElement(p, e.altKey);
+
         if (!hit) {
-          selectedElementIndex = -1;
-          pointerAction = null;
+          TableroSeleccion.startMarquee(p, !!e.shiftKey);
+          syncSelectedSingle();
+          pointerAction = {
+            mode: "marquee",
+            startPoint: p,
+            snapshotBefore: null,
+          };
+          try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
           drawBoard();
+          canvas.focus();
           return;
         }
+
         if (hit.element.locked) {
-          selectedElementIndex = hit.index;
+          selectSingle(hit.index);
           pointerAction = null;
           drawBoard();
           canvas.focus();
           return;
         }
-        selectedElementIndex = hit.index;
+
+        if (e.shiftKey) {
+          TableroSeleccion.toggleInSelection(hit.index);
+          syncSelectedSingle();
+          pointerAction = null;
+          drawBoard();
+          canvas.focus();
+          return;
+        }
+
         const hId = hitTestResizeHandle(p, hit.bounds, hit.element);
-        const mode = hId ? "resize" : "drag";
-        pointerAction = {
-          mode,
-          resizeHandle: hId || null,
-          index: hit.index,
-          startPoint: p,
-          originalElement: { ...hit.element },
-          originalBounds: { ...hit.bounds },
-          snapshotBefore: cloneBoardState(boardState),
-        };
+
+        if (hId) {
+          selectSingle(hit.index);
+          pointerAction = {
+            mode: "resize",
+            resizeHandle: hId,
+            index: hit.index,
+            startPoint: p,
+            originalElement: JSON.parse(JSON.stringify(hit.element)),
+            originalBounds: { ...hit.bounds },
+            snapshotBefore: cloneBoardState(boardState),
+          };
+          drawBoard();
+          canvas.setPointerCapture(e.pointerId);
+          canvas.focus();
+          return;
+        }
+
+        const alreadyInSelection = TableroSeleccion.isSelected(hit.index) && TableroSeleccion.size() > 1;
+        if (alreadyInSelection) {
+          syncSelectedSingle();
+          const originals = new Map();
+          for (const i of TableroSeleccion.getSelectedIndices()) {
+            const el = boardState.elementos?.[i];
+            if (el) originals.set(i, JSON.parse(JSON.stringify(el)));
+          }
+          pointerAction = {
+            mode: "dragGroup",
+            indices: TableroSeleccion.getSelectedIndices(),
+            startPoint: p,
+            originalElements: originals,
+            snapshotBefore: cloneBoardState(boardState),
+          };
+        } else {
+          selectSingle(hit.index);
+          pointerAction = {
+            mode: "drag",
+            index: hit.index,
+            startPoint: p,
+            originalElement: JSON.parse(JSON.stringify(hit.element)),
+            originalBounds: { ...hit.bounds },
+            snapshotBefore: cloneBoardState(boardState),
+          };
+        }
         drawBoard();
         canvas.setPointerCapture(e.pointerId);
         canvas.focus();
@@ -11999,15 +12139,79 @@ body.print-calendar-export {
       if (boardTool === "pointer" && pointerAction) {
         const p = canvasPoint(e);
         if (!isFiniteWorldPoint(p)) return;
+
+        if (pointerAction.mode === "marquee") {
+          TableroSeleccion.updateMarquee(p);
+          drawBoard();
+          return;
+        }
+
         const dx = p.x - pointerAction.startPoint.x;
         const dy = p.y - pointerAction.startPoint.y;
+
+        if (pointerAction.mode === "resizeGroup") {
+          const tr = TableroSeleccion.getResizeTransform(
+            pointerAction.resizeHandle,
+            pointerAction.originalBounds,
+            dx,
+            dy,
+            !!e.shiftKey,
+          );
+          if (!tr) return;
+          const originals = pointerAction.originalElements;
+          for (const i of pointerAction.indices) {
+            const orig = originals.get(i);
+            if (!orig) continue;
+            boardState.elementos[i] = applyResizeTransform(orig, tr.anchor, tr.sx, tr.sy);
+          }
+          drawBoard();
+          return;
+        }
+
+        if (pointerAction.mode === "dragGroup") {
+          const originals = pointerAction.originalElements;
+          for (const i of pointerAction.indices) {
+            const orig = originals.get(i);
+            if (!orig) continue;
+            if (orig.locked) continue;
+            if (orig.type === "stroke") {
+              boardState.elementos[i] = {
+                ...orig,
+                points: (orig.points || []).map((pt) => ({
+                  x: Math.round((pt.x || 0) + dx),
+                  y: Math.round((pt.y || 0) + dy),
+                })),
+              };
+            } else {
+              boardState.elementos[i] = {
+                ...orig,
+                x: Math.round((orig.x || 0) + dx),
+                y: Math.round((orig.y || 0) + dy),
+              };
+            }
+          }
+          drawBoard();
+          return;
+        }
+
         const idx = pointerAction.index;
         const current = boardState.elementos?.[idx];
         if (!current) return;
         let nextEl = { ...pointerAction.originalElement };
         if (pointerAction.mode === "drag") {
-          nextEl.x = Math.round((pointerAction.originalElement.x || 0) + dx);
-          nextEl.y = Math.round((pointerAction.originalElement.y || 0) + dy);
+          if (pointerAction.originalElement.type === "stroke") {
+            const pts = pointerAction.originalElement.points || [];
+            nextEl = {
+              ...pointerAction.originalElement,
+              points: pts.map((pt) => ({
+                x: Math.round((pt.x || 0) + dx),
+                y: Math.round((pt.y || 0) + dy),
+              })),
+            };
+          } else {
+            nextEl.x = Math.round((pointerAction.originalElement.x || 0) + dx);
+            nextEl.y = Math.round((pointerAction.originalElement.y || 0) + dy);
+          }
         } else if (pointerAction.mode === "resize") {
           const hid = pointerAction.resizeHandle || "se";
           if (nextEl.type === "image") {
@@ -12024,6 +12228,17 @@ body.print-calendar-export {
           } else if (nextEl.type === "text") {
             const ob = pointerAction.originalBounds;
             nextEl = applyTextUniformScale(pointerAction.originalElement, ob, pointerAction.startPoint, p);
+          } else if (nextEl.type === "stroke") {
+            const tr = TableroSeleccion.getResizeTransform(
+              hid,
+              pointerAction.originalBounds,
+              dx,
+              dy,
+              !!e.shiftKey,
+            );
+            if (tr) {
+              nextEl = applyResizeTransform(pointerAction.originalElement, tr.anchor, tr.sx, tr.sy);
+            }
           }
         }
         boardState.elementos[idx] = nextEl;
@@ -12034,16 +12249,34 @@ body.print-calendar-export {
         const p = canvasPoint(e);
         let cursor = "default";
         if (isFiniteWorldPoint(p)) {
-          const hit = hitTestEditableElement(p, e.altKey);
-          if (hit?.element?.locked) {
-            cursor = "not-allowed";
-          } else if (hit?.element) {
-            const hid = hitTestResizeHandle(p, hit.bounds, hit.element);
-            if (hid === "nw" || hid === "se") cursor = "nwse-resize";
-            else if (hid === "ne" || hid === "sw") cursor = "nesw-resize";
-            else if (hid === "n" || hid === "s") cursor = "ns-resize";
-            else if (hid === "e" || hid === "w") cursor = "ew-resize";
+          let groupHid = null;
+          if (TableroSeleccion.size() > 1) {
+            const selIds = TableroSeleccion.getSelectedIndices();
+            const anyLocked = selIds.some((i) => boardState.elementos?.[i]?.locked);
+            if (!anyLocked) {
+              const ctxHover = canvas.getContext("2d");
+              const gb = TableroSeleccion.getSelectionBounds(boardState.elementos, ctxHover, getElementBounds);
+              if (gb) groupHid = hitTestResizeHandle(p, gb, null);
+            }
+          }
+          if (groupHid) {
+            if (groupHid === "nw" || groupHid === "se") cursor = "nwse-resize";
+            else if (groupHid === "ne" || groupHid === "sw") cursor = "nesw-resize";
+            else if (groupHid === "n" || groupHid === "s") cursor = "ns-resize";
+            else if (groupHid === "e" || groupHid === "w") cursor = "ew-resize";
             else cursor = "move";
+          } else {
+            const hit = hitTestEditableElement(p, e.altKey);
+            if (hit?.element?.locked) {
+              cursor = "not-allowed";
+            } else if (hit?.element) {
+              const hid = hitTestResizeHandle(p, hit.bounds, hit.element);
+              if (hid === "nw" || hid === "se") cursor = "nwse-resize";
+              else if (hid === "ne" || hid === "sw") cursor = "nesw-resize";
+              else if (hid === "n" || hid === "s") cursor = "ns-resize";
+              else if (hid === "e" || hid === "w") cursor = "ew-resize";
+              else cursor = "move";
+            }
           }
         }
         canvas.style.cursor = cursor;
@@ -12066,12 +12299,37 @@ body.print-calendar-export {
       }
       if (pointerAction) {
         try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-        const moved =
-          JSON.stringify(boardState.elementos?.[pointerAction.index] || null) !==
-          JSON.stringify(pointerAction.originalElement || null);
-        const snapshotBefore = pointerAction.snapshotBefore;
+        const action = pointerAction;
         pointerAction = null;
-        if (moved) commitPointerMutation(snapshotBefore);
+
+        if (action.mode === "marquee") {
+          const ctx = canvas.getContext("2d");
+          TableroSeleccion.finishMarquee(boardState.elementos, ctx, getElementBounds);
+          syncSelectedSingle();
+          drawBoard();
+          return;
+        }
+
+        if (action.mode === "dragGroup" || action.mode === "resizeGroup") {
+          const originals = action.originalElements;
+          let moved = false;
+          for (const i of action.indices) {
+            const orig = originals.get(i);
+            if (!orig) continue;
+            if (JSON.stringify(boardState.elementos?.[i] || null) !== JSON.stringify(orig)) {
+              moved = true;
+              break;
+            }
+          }
+          if (moved) commitPointerMutation(action.snapshotBefore);
+          else drawBoard();
+          return;
+        }
+
+        const moved =
+          JSON.stringify(boardState.elementos?.[action.index] || null) !==
+          JSON.stringify(action.originalElement || null);
+        if (moved) commitPointerMutation(action.snapshotBefore);
         else drawBoard();
         return;
       }
@@ -12198,8 +12456,10 @@ body.print-calendar-export {
         copy.y = Math.round((copy.y || 0) + 24);
         const next = cloneBoardState(boardState);
         next.elementos.push(copy);
-        selectedElementIndex = next.elementos.length - 1;
+        const newIdx = next.elementos.length - 1;
         applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+        selectSingle(newIdx);
+        drawBoard();
         log("Pegado en el tablero.");
         return;
       }
@@ -12223,18 +12483,24 @@ body.print-calendar-export {
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         boardTool === "pointer" &&
-        selectedElementIndex >= 0
+        TableroSeleccion.size() > 0
       ) {
-        const delEl = boardState.elementos?.[selectedElementIndex];
-        if (delEl?.locked) return;
-        if (delEl && (delEl.type === "text" || delEl.type === "image")) {
-          e.preventDefault();
-          const next = cloneBoardState(boardState);
-          next.elementos.splice(selectedElementIndex, 1);
-          selectedElementIndex = -1;
-          applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
-          return;
+        const ids = TableroSeleccion.getSelectedIndices();
+        const toRemove = new Set();
+        for (const i of ids) {
+          const el = boardState.elementos?.[i];
+          if (!el || el.locked) continue;
+          if (el.type === "text" || el.type === "image" || el.type === "stroke") {
+            toRemove.add(i);
+          }
         }
+        if (toRemove.size === 0) return;
+        e.preventDefault();
+        const next = cloneBoardState(boardState);
+        next.elementos = next.elementos.filter((_el, i) => !toRemove.has(i));
+        clearBoardSelection();
+        applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+        return;
       }
 
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
@@ -12248,22 +12514,43 @@ body.print-calendar-export {
         }
       }
 
-      if (selectedElementIndex < 0) return;
+      if (TableroSeleccion.size() === 0) return;
       const target = e.target;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
-      const el = boardState.elementos?.[selectedElementIndex];
-      if (!el || (el.type !== "text" && el.type !== "image")) return;
-      if (el.locked) return;
+      const ids = TableroSeleccion.getSelectedIndices();
+      const movable = ids.filter((i) => {
+        const el = boardState.elementos?.[i];
+        return el && !el.locked && (el.type === "text" || el.type === "image" || el.type === "stroke");
+      });
+      if (movable.length === 0) return;
       e.preventDefault();
       const step = e.shiftKey ? 10 : 2;
+      let dx = 0;
+      let dy = 0;
+      if (e.key === "ArrowUp") dy = -step;
+      else if (e.key === "ArrowDown") dy = step;
+      else if (e.key === "ArrowLeft") dx = -step;
+      else if (e.key === "ArrowRight") dx = step;
       const before = cloneBoardState(boardState);
-      const moved = { ...el };
-      if (e.key === "ArrowUp") moved.y = Math.round((moved.y || 0) - step);
-      if (e.key === "ArrowDown") moved.y = Math.round((moved.y || 0) + step);
-      if (e.key === "ArrowLeft") moved.x = Math.round((moved.x || 0) - step);
-      if (e.key === "ArrowRight") moved.x = Math.round((moved.x || 0) + step);
-      boardState.elementos[selectedElementIndex] = moved;
+      for (const i of movable) {
+        const el = boardState.elementos[i];
+        if (el.type === "stroke") {
+          boardState.elementos[i] = {
+            ...el,
+            points: (el.points || []).map((pt) => ({
+              x: Math.round((pt.x || 0) + dx),
+              y: Math.round((pt.y || 0) + dy),
+            })),
+          };
+        } else {
+          boardState.elementos[i] = {
+            ...el,
+            x: Math.round((el.x || 0) + dx),
+            y: Math.round((el.y || 0) + dy),
+          };
+        }
+      }
       commitPointerMutation(before);
     });
     $("btnToolPointer")?.addEventListener("click", () => {
