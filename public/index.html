@@ -3367,6 +3367,8 @@
     let homeQuickSelectedReunionId = null;
     let homeAsistenciaPayload = null;
     let homeAgendamientoReunionId = null;
+    /** PKs eliminadas en esta sesión de lobby; ocultan la reunión en Acciones rápidas tras reload. */
+    const lobbyRemovedReunionIds = new Set();
     let scheduleEditingReunionId = null;
     /** Edición de una instancia concreta de una serie (no la regla global): relaja validación until vs inicio del modal. */
     let scheduleEditingSeriesOccurrence = false;
@@ -5168,6 +5170,11 @@
       return pk != null && String(pk).trim() !== "" ? String(pk).trim() : "";
     }
 
+    function isLobbyReunionRemoved(reunion) {
+      const pk = getReunionPk(reunion);
+      return pk !== "" && lobbyRemovedReunionIds.has(pk);
+    }
+
     function updateCalendarHistoryButtons() {
       const btnU = $("btnCalendarUndo");
       const btnR = $("btnCalendarRedo");
@@ -6259,6 +6266,7 @@ body.print-calendar-export {
               try {
                 const snapDel = snapshotReunionAgenda(rev);
                 await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+                lobbyRemovedReunionIds.add(String(pkDel));
                 if (snapDel) pushHistorialCancelar(snapDel, pkDel);
                 err.textContent = "";
                 const cr = $("crearResult");
@@ -6414,8 +6422,9 @@ body.print-calendar-export {
      * Las reuniones presentes en "upcoming" NUNCA aparecen también en "past" (mutex por PK).
      */
     function selectMeetingsForBucket(all, mode, now) {
+      const base = (all || []).filter((r) => !isLobbyReunionRemoved(r));
       if (mode === "upcoming") {
-        return (all || [])
+        return base
           .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
           .map((r) => {
             const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
@@ -6430,7 +6439,7 @@ body.print-calendar-export {
       );
       const horizonStart = new Date(now - 180 * 86400000);
       const horizonEnd = new Date(now);
-      return (all || [])
+      return base
         .filter((r) => r?.fechaHora && !upcomingIds.has(String(getReunionPk(r))))
         .map((r) => {
           const occs = getMeetingOccurrencesInRange(r, horizonStart, horizonEnd) || [];
@@ -6568,16 +6577,20 @@ body.print-calendar-export {
             const snapDel = snapshotReunionAgenda(r);
             try {
               await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+              lobbyRemovedReunionIds.add(String(pkDel));
               if (snapDel) pushHistorialCancelar(snapDel, pkDel);
               try {
                 const currentList = CalendarController.getMeetings() || [];
-                const nextList = currentList.map((m) => {
-                  if (String(getReunionPk(m)) === String(pkDel)) {
-                    return { ...m, estado: "finalizada" };
-                  }
-                  return m;
-                });
+                const nextList = currentList.filter((m) => String(getReunionPk(m)) !== String(pkDel));
                 CalendarController.setMeetings(nextList);
+                if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(pkDel)) {
+                  homeQuickSelectedReunionId = null;
+                  homeAsistenciaPayload = null;
+                  if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
+                }
+                if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(pkDel)) {
+                  homeAgendamientoReunionId = null;
+                }
               } catch (_optErr) {}
               renderScheduledMeetings();
               renderHomeCalendar();
