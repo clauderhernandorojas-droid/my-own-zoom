@@ -2421,6 +2421,12 @@
           <p id="cupoInfo" class="home-result"></p>
           <p id="scheduleHint" class="home-muted">Solo los profesores pueden agendar reuniones.</p>
           <div id="scheduledList" class="scheduled-list"></div>
+          <details id="scheduledPastWrap" class="scheduled-past hidden" style="margin-top:0.6rem">
+            <summary class="home-muted" style="cursor:pointer">
+              Reuniones anteriores <span id="scheduledPastCount" class="home-muted"></span>
+            </summary>
+            <div id="scheduledPastList" class="scheduled-list" style="margin-top:0.4rem"></div>
+          </details>
         </section>
 
         <section class="home-card">
@@ -6401,21 +6407,215 @@ body.print-calendar-export {
       }
     }
 
-    function renderScheduledMeetings() {
-      const host = $("scheduledList");
-      if (!host) return;
-      const now = Date.now();
-      const upcoming = (CalendarController.getMeetings() || [])
-        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
+    /**
+     * Selecciona y ordena reuniones para uno de los dos buckets de "Acciones rápidas":
+     *   - "upcoming": próxima ocurrencia futura, asc., excluye finalizadas, máx 10.
+     *   - "past":     última ocurrencia pasada (incluye finalizadas), desc., máx 10.
+     * Las reuniones presentes en "upcoming" NUNCA aparecen también en "past" (mutex por PK).
+     */
+    function selectMeetingsForBucket(all, mode, now) {
+      if (mode === "upcoming") {
+        return (all || [])
+          .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
+          .map((r) => {
+            const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
+            return { ...r, _ref: next, _ts: next?.getTime?.() || NaN };
+          })
+          .filter((r) => Number.isFinite(r._ts))
+          .sort((a, b) => a._ts - b._ts)
+          .slice(0, 10);
+      }
+      const upcomingIds = new Set(
+        selectMeetingsForBucket(all, "upcoming", now).map((r) => String(getReunionPk(r)))
+      );
+      const horizonStart = new Date(now - 180 * 86400000);
+      const horizonEnd = new Date(now);
+      return (all || [])
+        .filter((r) => r?.fechaHora && !upcomingIds.has(String(getReunionPk(r))))
         .map((r) => {
-          const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
-          return { ...r, _next: next, _ts: next?.getTime?.() || NaN };
+          const occs = getMeetingOccurrencesInRange(r, horizonStart, horizonEnd) || [];
+          const prev = occs.length ? occs[occs.length - 1] : null;
+          return { ...r, _ref: prev, _ts: prev?.getTime?.() || NaN };
         })
         .filter((r) => Number.isFinite(r._ts))
-        .sort((a, b) => a._ts - b._ts)
+        .sort((a, b) => b._ts - a._ts)
         .slice(0, 10);
+    }
+
+    /**
+     * Construye el <div class="scheduled-item"> para un registro `r` con su `_ref`
+     * (fecha mostrada). `mode` distingue "upcoming" (aplica clases de foco de calendario)
+     * de "past" (mismo template, sin foco visual). Acciones idénticas: Entrar, Asistencia,
+     * Agendamiento, Editar, Cupo, Eliminar, Copiar código (con los guards de rol/owner).
+     */
+    function buildScheduledItem(r, mode) {
+      const rid = getReunionPk(r);
+      const item = document.createElement("div");
+      item.className = "scheduled-item";
+      if (mode === "upcoming") {
+        const inAsistenciaFocus =
+          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId);
+        const inAgendamientoFocus =
+          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId);
+        if (inAsistenciaFocus || inAgendamientoFocus) {
+          item.classList.add("scheduled-item--cal-selected");
+        }
+      }
+      const main = document.createElement("div");
+      main.className = "scheduled-item__main";
+      const title = document.createElement("div");
+      title.className = "scheduled-item__title";
+      title.textContent = r.titulo || "Reunión";
+      const meta = document.createElement("div");
+      meta.className = "scheduled-item__meta";
+      const when = r._ref.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+      meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
+      main.appendChild(title);
+      main.appendChild(meta);
+      const actions = document.createElement("div");
+      actions.className = "scheduled-item__actions";
+      const btnEnter = document.createElement("button");
+      btnEnter.type = "button";
+      btnEnter.className = "btn-primary";
+      btnEnter.textContent = "Entrar";
+      btnEnter.addEventListener("click", () => {
+        void enterRoom(r.roomId).catch(() => {});
+      });
+      actions.appendChild(btnEnter);
+      const btnAsist = document.createElement("button");
+      btnAsist.type = "button";
+      btnAsist.className = "btn-ghost";
+      btnAsist.textContent =
+        rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId)
+          ? "Quitar vista"
+          : "Asistencia";
+      btnAsist.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = getReunionPk(r);
+        if (id == null) return;
+        if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(id)) {
+          homeQuickSelectedReunionId = null;
+          homeAsistenciaPayload = null;
+          if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
+          renderScheduledMeetings();
+          renderHomeCalendar();
+          return;
+        }
+        homeAgendamientoReunionId = null;
+        homeQuickSelectedReunionId = id;
+        renderScheduledMeetings();
+        await loadAsistenciaForCalendar(id);
+        renderScheduledMeetings();
+      });
+      actions.appendChild(btnAsist);
+      const btnAgend = document.createElement("button");
+      btnAgend.type = "button";
+      btnAgend.className = "btn-ghost";
+      btnAgend.textContent =
+        rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId)
+          ? "Quitar vista"
+          : "Agendamiento";
+      btnAgend.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = getReunionPk(r);
+        if (id == null) return;
+        if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(id)) {
+          homeAgendamientoReunionId = null;
+          renderScheduledMeetings();
+          renderHomeCalendar();
+          return;
+        }
+        homeQuickSelectedReunionId = null;
+        homeAsistenciaPayload = null;
+        homeAgendamientoReunionId = id;
+        renderScheduledMeetings();
+        renderHomeCalendar();
+      });
+      actions.appendChild(btnAgend);
+      const canManageSchedule = canManageScheduleRole(currentUser?.rol);
+      if (canManageSchedule) {
+        const btnEdit = document.createElement("button");
+        btnEdit.type = "button";
+        btnEdit.className = "btn-ghost";
+        btnEdit.textContent = "Editar";
+        btnEdit.addEventListener("click", () => openScheduleModal(r));
+        actions.appendChild(btnEdit);
+        const btnCupo = document.createElement("button");
+        btnCupo.type = "button";
+        btnCupo.className = "btn-ghost";
+        btnCupo.textContent = "Cupo";
+        btnCupo.addEventListener("click", () => {
+          void showCupoByRoomId(r.roomId);
+        });
+        actions.appendChild(btnCupo);
+        const ownerId = r?.docenteUsuarioId ?? r?.docente_usuario_id ?? null;
+        const isOwner = ownerId != null && currentUser?.usuarioId != null && String(ownerId) === String(currentUser.usuarioId);
+        const isAdmin = typeof isAdminRole === "function" ? isAdminRole(currentUser?.rol) : false;
+        if (isOwner || isAdmin) {
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn-ghost";
+          btnDelete.textContent = "Eliminar";
+          btnDelete.addEventListener("click", async () => {
+            if (btnDelete.disabled) return;
+            if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
+            const pkDel = getReunionPk(r);
+            if (pkDel == null) {
+              $("crearResult").textContent = "No se pudo determinar la reunión a eliminar.";
+              return;
+            }
+            btnDelete.disabled = true;
+            const snapDel = snapshotReunionAgenda(r);
+            try {
+              await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+              if (snapDel) pushHistorialCancelar(snapDel, pkDel);
+              try {
+                const currentList = CalendarController.getMeetings() || [];
+                const nextList = currentList.map((m) => {
+                  if (String(getReunionPk(m)) === String(pkDel)) {
+                    return { ...m, estado: "finalizada" };
+                  }
+                  return m;
+                });
+                CalendarController.setMeetings(nextList);
+              } catch (_optErr) {}
+              renderScheduledMeetings();
+              renderHomeCalendar();
+              $("crearResult").textContent = "Reunión eliminada.";
+              void loadHomeMeetings();
+            } catch (e) {
+              const apiMsg = e?.data?.error || e?.message || "Error al eliminar la reunión.";
+              $("crearResult").textContent = "No se pudo eliminar: " + apiMsg;
+              log("Eliminar reunión: " + apiMsg);
+              btnDelete.disabled = false;
+            }
+          });
+          actions.appendChild(btnDelete);
+        }
+        const btnLink = document.createElement("button");
+        btnLink.type = "button";
+        btnLink.className = "btn-ghost";
+        btnLink.textContent = "Copiar código";
+        btnLink.addEventListener("click", async () => {
+          const ok = await copyTextToClipboard(getMeetingShareCode(r.roomId));
+          $("crearResult").textContent = ok ? "Código copiado al portapapeles." : "No se pudo copiar el código.";
+        });
+        actions.appendChild(btnLink);
+      }
+      item.appendChild(main);
+      item.appendChild(actions);
+      return item;
+    }
+
+    /**
+     * Pinta `list` en `host` para el modo dado. En "upcoming" se renderiza el banner de
+     * foco de calendario y el mensaje vacío estándar; "past" omite ambos (lo gestiona el
+     * <details> exterior que se oculta cuando no hay pasadas).
+     */
+    function renderBucket(host, list, mode) {
+      if (!host) return;
       host.innerHTML = "";
-      if (homeQuickSelectedReunionId != null || homeAgendamientoReunionId != null) {
+      if (mode === "upcoming" && (homeQuickSelectedReunionId != null || homeAgendamientoReunionId != null)) {
         const banner = document.createElement("div");
         banner.style.cssText =
           "display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-bottom:0.45rem";
@@ -6440,169 +6640,32 @@ body.print-calendar-export {
         banner.appendChild(btnClr);
         host.appendChild(banner);
       }
-      if (upcoming.length === 0) {
-        const empty = document.createElement("p");
-        empty.className = "home-muted";
-        empty.textContent = "No hay reuniones programadas próximas.";
-        host.appendChild(empty);
+      if (list.length === 0) {
+        if (mode === "upcoming") {
+          const empty = document.createElement("p");
+          empty.className = "home-muted";
+          empty.textContent = "No hay reuniones programadas próximas.";
+          host.appendChild(empty);
+        }
         return;
       }
-      upcoming.forEach((r) => {
-        const rid = getReunionPk(r);
-        const item = document.createElement("div");
-        item.className = "scheduled-item";
-        const inAsistenciaFocus =
-          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId);
-        const inAgendamientoFocus =
-          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId);
-        if (inAsistenciaFocus || inAgendamientoFocus) {
-          item.classList.add("scheduled-item--cal-selected");
-        }
-        const main = document.createElement("div");
-        main.className = "scheduled-item__main";
-        const title = document.createElement("div");
-        title.className = "scheduled-item__title";
-        title.textContent = r.titulo || "Reunión";
-        const meta = document.createElement("div");
-        meta.className = "scheduled-item__meta";
-        const when = r._next.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-        meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
-        main.appendChild(title);
-        main.appendChild(meta);
-        const actions = document.createElement("div");
-        actions.className = "scheduled-item__actions";
-        const btnEnter = document.createElement("button");
-        btnEnter.type = "button";
-        btnEnter.className = "btn-primary";
-        btnEnter.textContent = "Entrar";
-        btnEnter.addEventListener("click", () => {
-          void enterRoom(r.roomId).catch(() => {});
-        });
-        actions.appendChild(btnEnter);
-        const btnAsist = document.createElement("button");
-        btnAsist.type = "button";
-        btnAsist.className = "btn-ghost";
-        btnAsist.textContent =
-          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId)
-            ? "Quitar vista"
-            : "Asistencia";
-        btnAsist.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          const id = getReunionPk(r);
-          if (id == null) return;
-          if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(id)) {
-            homeQuickSelectedReunionId = null;
-            homeAsistenciaPayload = null;
-            if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
-            renderScheduledMeetings();
-            renderHomeCalendar();
-            return;
-          }
-          homeAgendamientoReunionId = null;
-          homeQuickSelectedReunionId = id;
-          renderScheduledMeetings();
-          await loadAsistenciaForCalendar(id);
-          renderScheduledMeetings();
-        });
-        actions.appendChild(btnAsist);
-        const btnAgend = document.createElement("button");
-        btnAgend.type = "button";
-        btnAgend.className = "btn-ghost";
-        btnAgend.textContent =
-          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId)
-            ? "Quitar vista"
-            : "Agendamiento";
-        btnAgend.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const id = getReunionPk(r);
-          if (id == null) return;
-          if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(id)) {
-            homeAgendamientoReunionId = null;
-            renderScheduledMeetings();
-            renderHomeCalendar();
-            return;
-          }
-          homeQuickSelectedReunionId = null;
-          homeAsistenciaPayload = null;
-          homeAgendamientoReunionId = id;
-          renderScheduledMeetings();
-          renderHomeCalendar();
-        });
-        actions.appendChild(btnAgend);
-        const canManageSchedule = canManageScheduleRole(currentUser?.rol);
-        if (canManageSchedule) {
-          const btnEdit = document.createElement("button");
-          btnEdit.type = "button";
-          btnEdit.className = "btn-ghost";
-          btnEdit.textContent = "Editar";
-          btnEdit.addEventListener("click", () => openScheduleModal(r));
-          actions.appendChild(btnEdit);
-          const btnCupo = document.createElement("button");
-          btnCupo.type = "button";
-          btnCupo.className = "btn-ghost";
-          btnCupo.textContent = "Cupo";
-          btnCupo.addEventListener("click", () => {
-            void showCupoByRoomId(r.roomId);
-          });
-          actions.appendChild(btnCupo);
-          const ownerId = r?.docenteUsuarioId ?? r?.docente_usuario_id ?? null;
-          const isOwner = ownerId != null && currentUser?.usuarioId != null && String(ownerId) === String(currentUser.usuarioId);
-          const isAdmin = typeof isAdminRole === "function" ? isAdminRole(currentUser?.rol) : false;
-          if (isOwner || isAdmin) {
-            const btnDelete = document.createElement("button");
-            btnDelete.type = "button";
-            btnDelete.className = "btn-ghost";
-            btnDelete.textContent = "Eliminar";
-            btnDelete.addEventListener("click", async () => {
-              if (btnDelete.disabled) return;
-              if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
-              const pkDel = getReunionPk(r);
-              if (pkDel == null) {
-                $("crearResult").textContent = "No se pudo determinar la reunión a eliminar.";
-                return;
-              }
-              btnDelete.disabled = true;
-              const snapDel = snapshotReunionAgenda(r);
-              try {
-                await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
-                if (snapDel) pushHistorialCancelar(snapDel, pkDel);
-                try {
-                  const currentList = CalendarController.getMeetings() || [];
-                  const nextList = currentList.map((m) => {
-                    if (String(getReunionPk(m)) === String(pkDel)) {
-                      return { ...m, estado: "finalizada" };
-                    }
-                    return m;
-                  });
-                  CalendarController.setMeetings(nextList);
-                } catch (_optErr) {}
-                renderScheduledMeetings();
-                renderHomeCalendar();
-                $("crearResult").textContent = "Reunión eliminada.";
-                void loadHomeMeetings();
-              } catch (e) {
-                const apiMsg = e?.data?.error || e?.message || "Error al eliminar la reunión.";
-                $("crearResult").textContent = "No se pudo eliminar: " + apiMsg;
-                log("Eliminar reunión: " + apiMsg);
-                btnDelete.disabled = false;
-              }
-            });
-            actions.appendChild(btnDelete);
-          }
-          const btnLink = document.createElement("button");
-          btnLink.type = "button";
-          btnLink.className = "btn-ghost";
-          btnLink.textContent = "Copiar código";
-          btnLink.addEventListener("click", async () => {
-            const ok = await copyTextToClipboard(getMeetingShareCode(r.roomId));
-            $("crearResult").textContent = ok ? "Código copiado al portapapeles." : "No se pudo copiar el código.";
-          });
-          actions.appendChild(btnLink);
-        }
-        item.appendChild(main);
-        item.appendChild(actions);
-        host.appendChild(item);
-      });
+      list.forEach((r) => host.appendChild(buildScheduledItem(r, mode)));
+    }
+
+    function renderScheduledMeetings() {
+      const host = $("scheduledList");
+      const pastHost = $("scheduledPastList");
+      if (!host) return;
+      const all = CalendarController.getMeetings() || [];
+      const now = Date.now();
+      const upcoming = selectMeetingsForBucket(all, "upcoming", now);
+      const past = selectMeetingsForBucket(all, "past", now);
+      renderBucket(host, upcoming, "upcoming");
+      renderBucket(pastHost, past, "past");
+      const pastCountEl = $("scheduledPastCount");
+      if (pastCountEl) pastCountEl.textContent = past.length ? `(${past.length})` : "";
+      const pastWrap = $("scheduledPastWrap");
+      if (pastWrap) pastWrap.classList.toggle("hidden", past.length === 0);
     }
 
     function getReunionDurationMinutesFromData(reunion) {
