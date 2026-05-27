@@ -3367,8 +3367,6 @@
     let homeQuickSelectedReunionId = null;
     let homeAsistenciaPayload = null;
     let homeAgendamientoReunionId = null;
-    /** PKs eliminadas en esta sesión de lobby; ocultan la reunión en Acciones rápidas tras reload. */
-    const lobbyRemovedReunionIds = new Set();
     let scheduleEditingReunionId = null;
     /** Edición de una instancia concreta de una serie (no la regla global): relaja validación until vs inicio del modal. */
     let scheduleEditingSeriesOccurrence = false;
@@ -5170,11 +5168,6 @@
       return pk != null && String(pk).trim() !== "" ? String(pk).trim() : "";
     }
 
-    function isLobbyReunionRemoved(reunion) {
-      const pk = getReunionPk(reunion);
-      return pk !== "" && lobbyRemovedReunionIds.has(pk);
-    }
-
     function updateCalendarHistoryButtons() {
       const btnU = $("btnCalendarUndo");
       const btnR = $("btnCalendarRedo");
@@ -5258,11 +5251,11 @@
         label: snap.titulo || "Reunión",
         undo: async () => {
           await api(`/api/reuniones/${encodeURIComponent(pk)}`, { method: "DELETE" });
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await applyAgendaCreate(snap);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5277,11 +5270,11 @@
         label: a.titulo || b.titulo || "Reunión",
         undo: async () => {
           await applyAgendaPatch(pk, b);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await applyAgendaPatch(pk, a);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5301,7 +5294,7 @@
             body: JSON.stringify({ occurrenceId: occId, newDate: fromIso }),
           });
           if (bPatch) await applyAgendaPatch(pk, bPatch);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await api(`/api/reuniones/${encodeURIComponent(pk)}/reagendar`, {
@@ -5309,7 +5302,7 @@
             body: JSON.stringify({ occurrenceId: occId, newDate: toIso }),
           });
           if (aPatch) await applyAgendaPatch(pk, aPatch);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5323,11 +5316,11 @@
         label: snap.titulo || "Reunión eliminada",
         undo: async () => {
           await applyAgendaCreate(snap);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await api(`/api/reuniones/${encodeURIComponent(pk)}`, { method: "DELETE" });
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5345,6 +5338,9 @@
         "";
       if (status === 409) {
         return serverMsg || "Esta sesión se solapa con otra. Elige otro horario.";
+      }
+      if (status === 500) {
+        return serverMsg || "Error interno del servidor. Revisa la consola del servidor o intenta de nuevo.";
       }
       return serverMsg || (status ? `Error ${status}` : "") || "No se pudo agendar la reunión.";
     }
@@ -6266,13 +6262,16 @@ body.print-calendar-export {
               try {
                 const snapDel = snapshotReunionAgenda(rev);
                 await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
-                lobbyRemovedReunionIds.add(String(pkDel));
                 if (snapDel) pushHistorialCancelar(snapDel, pkDel);
                 err.textContent = "";
                 const cr = $("crearResult");
                 if (cr) cr.textContent = "Reunión eliminada.";
                 CalendarController.setMeetings(
                   (CalendarController.getMeetings() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel))
+                );
+                CalendarController.setMisBuckets(
+                  (CalendarController.getMisProximas() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel)),
+                  (CalendarController.getMisAnteriores() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel))
                 );
                 if (String(homeQuickSelectedReunionId || "") === String(pkDel)) {
                   homeQuickSelectedReunionId = null;
@@ -6415,40 +6414,11 @@ body.print-calendar-export {
       }
     }
 
-    /**
-     * Selecciona y ordena reuniones para uno de los dos buckets de "Acciones rápidas":
-     *   - "upcoming": próxima ocurrencia futura, asc., excluye finalizadas, máx 10.
-     *   - "past":     última ocurrencia pasada (incluye finalizadas), desc., máx 10.
-     * Las reuniones presentes en "upcoming" NUNCA aparecen también en "past" (mutex por PK).
-     */
-    function selectMeetingsForBucket(all, mode, now) {
-      const base = (all || []).filter((r) => !isLobbyReunionRemoved(r));
-      if (mode === "upcoming") {
-        return base
-          .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
-          .map((r) => {
-            const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
-            return { ...r, _ref: next, _ts: next?.getTime?.() || NaN };
-          })
-          .filter((r) => Number.isFinite(r._ts))
-          .sort((a, b) => a._ts - b._ts)
-          .slice(0, 10);
-      }
-      const upcomingIds = new Set(
-        selectMeetingsForBucket(all, "upcoming", now).map((r) => String(getReunionPk(r)))
-      );
-      const horizonStart = new Date(now - 180 * 86400000);
-      const horizonEnd = new Date(now);
-      return base
-        .filter((r) => r?.fechaHora && !upcomingIds.has(String(getReunionPk(r))))
-        .map((r) => {
-          const occs = getMeetingOccurrencesInRange(r, horizonStart, horizonEnd) || [];
-          const prev = occs.length ? occs[occs.length - 1] : null;
-          return { ...r, _ref: prev, _ts: prev?.getTime?.() || NaN };
-        })
-        .filter((r) => Number.isFinite(r._ts))
-        .sort((a, b) => b._ts - a._ts)
-        .slice(0, 10);
+    function parseScheduledRef(raw) {
+      if (raw == null) return null;
+      if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw;
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
     }
 
     /**
@@ -6477,7 +6447,10 @@ body.print-calendar-export {
       title.textContent = r.titulo || "Reunión";
       const meta = document.createElement("div");
       meta.className = "scheduled-item__meta";
-      const when = r._ref.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+      const refDate = parseScheduledRef(r._ref);
+      const when = refDate
+        ? refDate.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })
+        : "—";
       meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
       main.appendChild(title);
       main.appendChild(meta);
@@ -6577,12 +6550,15 @@ body.print-calendar-export {
             const snapDel = snapshotReunionAgenda(r);
             try {
               await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
-              lobbyRemovedReunionIds.add(String(pkDel));
               if (snapDel) pushHistorialCancelar(snapDel, pkDel);
               try {
                 const currentList = CalendarController.getMeetings() || [];
                 const nextList = currentList.filter((m) => String(getReunionPk(m)) !== String(pkDel));
                 CalendarController.setMeetings(nextList);
+                CalendarController.setMisBuckets(
+                  (CalendarController.getMisProximas() || []).filter((m) => String(getReunionPk(m)) !== String(pkDel)),
+                  (CalendarController.getMisAnteriores() || []).filter((m) => String(getReunionPk(m)) !== String(pkDel))
+                );
                 if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(pkDel)) {
                   homeQuickSelectedReunionId = null;
                   homeAsistenciaPayload = null;
@@ -6595,7 +6571,7 @@ body.print-calendar-export {
               renderScheduledMeetings();
               renderHomeCalendar();
               $("crearResult").textContent = "Reunión eliminada.";
-              void loadHomeMeetings();
+              void reloadLobbyHomeData();
             } catch (e) {
               const apiMsg = e?.data?.error || e?.message || "Error al eliminar la reunión.";
               $("crearResult").textContent = "No se pudo eliminar: " + apiMsg;
@@ -6669,10 +6645,8 @@ body.print-calendar-export {
       const host = $("scheduledList");
       const pastHost = $("scheduledPastList");
       if (!host) return;
-      const all = CalendarController.getMeetings() || [];
-      const now = Date.now();
-      const upcoming = selectMeetingsForBucket(all, "upcoming", now);
-      const past = selectMeetingsForBucket(all, "past", now);
+      const upcoming = CalendarController.getMisProximas() || [];
+      const past = CalendarController.getMisAnteriores() || [];
       renderBucket(host, upcoming, "upcoming");
       renderBucket(pastHost, past, "past");
       const pastCountEl = $("scheduledPastCount");
@@ -7191,6 +7165,16 @@ body.print-calendar-export {
       appendMonthBlock(y1, m1);
     }
 
+    async function loadHomeMisBuckets() {
+      if (typeof CalendarController === "undefined") return;
+      await CalendarController.loadHomeMisBuckets({ getToken, api });
+      renderScheduledMeetings();
+    }
+
+    async function reloadLobbyHomeData() {
+      await Promise.all([loadHomeMeetings(), loadHomeMisBuckets()]);
+    }
+
     async function loadHomeMeetings() {
       if (typeof CalendarController === "undefined") {
         console.warn("CalendarController no cargado (/js/calendarController.js).");
@@ -7204,7 +7188,9 @@ body.print-calendar-export {
           homeAsistenciaPayload = null;
           homeAgendamientoReunionId = null;
           homeCalendarViewDate = new Date();
+          CalendarController.setMisBuckets([], []);
           renderHomeCalendar(homeCalendarViewDate);
+          renderScheduledMeetings();
         },
         async onAfterLoad(meetings) {
           homeCalendarViewDate = new Date();
@@ -7227,14 +7213,13 @@ body.print-calendar-export {
           } else {
             renderHomeCalendar(homeCalendarViewDate);
           }
-          renderScheduledMeetings();
         },
       });
     }
 
     function renderLobbyHome() {
       updateLobbyRoleUi();
-      void loadHomeMeetings();
+      void reloadLobbyHomeData();
     }
 
     async function loadIce() {
@@ -10411,7 +10396,7 @@ body.print-calendar-export {
       const lc = $("localConnStatus");
       if (lc) lc.textContent = "";
       log("Saliste de la reunión. Cámara, micrófono y conexiones WebRTC liberados.");
-      await loadHomeMeetings();
+      await reloadLobbyHomeData();
     }
 
     $("chatThreadPicker").addEventListener("change", (e) => {
@@ -10661,7 +10646,7 @@ body.print-calendar-export {
         const rid = data?.roomId != null ? String(data.roomId).trim() : "";
         if (!rid) throw new Error("Respuesta sin sala");
         if (st) st.textContent = "";
-        await loadHomeMeetings();
+        await reloadLobbyHomeData();
         if (input) input.value = "";
         void enterRoom(rid).catch((e) => {
           if (st) st.textContent = e?.message || "No se pudo entrar a la sala.";
@@ -10857,7 +10842,7 @@ body.print-calendar-export {
           : `Reunión agendada. Código: ${shareCode}`;
         log(isEditing ? "Reunión actualizada correctamente." : "Reunión agendada correctamente.");
         if (err) err.textContent = "";
-        void loadHomeMeetings();
+        void reloadLobbyHomeData();
         closeScheduleModal();
       } catch (e) {
         const msg = scheduleApiErrorMessage(e);

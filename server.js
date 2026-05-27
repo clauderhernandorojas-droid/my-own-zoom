@@ -105,6 +105,7 @@ async function ensureReunionExceptionColumns() {
   await tryAdd('parent_reunion_id', { type: DataTypes.UUID, allowNull: true });
   await tryAdd('es_excepcion', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false });
   await tryAdd('occurrence_day_key', { type: DataTypes.STRING(12), allowNull: true });
+  await tryAdd('eliminada_en', { type: DataTypes.DATE, allowNull: true });
 
   if (sequelize.getDialect() === 'sqlite') {
     try {

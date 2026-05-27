@@ -78,6 +78,12 @@ module.exports = (sequelize) => {
         allowNull: true,
         field: 'occurrence_day_key',
       },
+      /** Marca baja explícita por el usuario (Eliminar); distinta de finalizada natural. */
+      eliminadaEn: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: 'eliminada_en',
+      },
     },
     {
       tableName: 'reuniones',

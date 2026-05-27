@@ -1,5 +1,6 @@
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
@@ -41,6 +42,8 @@ const { reagendarOcurrencia, occurrenceIdFromLegacyOldDate } = require('../servi
 const { buildReporteAsistenciaPayload } = require('../services/reporteAsistencia');
 const { reunionJsonWithReagenda } = require('../services/reunionPresenter');
 const { listarReunionesParaUsuario } = require('../services/reunionesListing');
+const { buildMisBucketsForUsuario } = require('../services/reunionesMisBuckets');
+const { eliminarReunionEnBd } = require('../services/reunionDelete');
 
 const router = express.Router();
 
@@ -126,19 +129,6 @@ function isAgendaPatchNoOp(reunion, { titulo, fechaHora, fechaHoraFin, zonaHorar
 
   const incomingRec = recurrencia !== undefined ? recurrencia : reunion.recurrencia;
   return recurrenceNormKey(incomingRec) === recurrenceNormKey(reunion.recurrencia);
-}
-
-async function destroyReunionCascade(reunionId) {
-  const mids = (
-    await Mensaje.findAll({ where: { reunionId }, attributes: ['mensajeId'] })
-  ).map((m) => m.mensajeId);
-  if (mids.length) {
-    await MensajeReaccion.destroy({ where: { mensajeId: { [Op.in]: mids } } });
-    await Mensaje.destroy({ where: { reunionId } });
-  }
-  await Participa.destroy({ where: { reunionId } });
-  await Tablero.destroy({ where: { reunionId } });
-  await Reunion.destroy({ where: { reunionId } });
 }
 
 const uploadChatAdjunto = multer({
@@ -252,6 +242,15 @@ router.post('/', async (req, res, next) => {
 });
 
 router.get('/mis', async (req, res, next) => {
+  try {
+    const { proximas, anteriores } = await buildMisBucketsForUsuario(req.usuario);
+    res.json({ proximas, anteriores });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/calendario', async (req, res, next) => {
   try {
     const reuniones = await listarReunionesParaUsuario(req.usuario);
     res.json({ reuniones });
@@ -651,7 +650,7 @@ router.patch('/:reunionId', async (req, res, next) => {
     });
     const lastEx = await ReunionOcurrencia.findOne({
       where: { reunionId: reunion.reunionId },
-      order: [['actualizadoEn', 'DESC']],
+      order: [['actualizado_en', 'DESC']],
     });
     const reunionOut = reunionJsonWithReagenda(reloaded);
     if (lastEx) {
@@ -769,25 +768,11 @@ router.post('/:reunionId/reagendar', async (req, res, next) => {
 
 router.delete('/:reunionId', async (req, res, next) => {
   try {
-    const reunion = await Reunion.findByPk(req.params.reunionId);
-    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
-
-    const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
-    const isAdmin = req.usuario.rol === 'admin';
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({ error: 'Solo el docente creador puede eliminar esta reuni?n' });
+    const result = await eliminarReunionEnBd(req.params.reunionId, req.usuario);
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
-
-    if (reunion.esExcepcion) {
-      await destroyReunionCascade(reunion.reunionId);
-      return res.json({ ok: true, reunionId: reunion.reunionId, destroyed: true });
-    }
-
-    reunion.estado = 'finalizada';
-    reunion.fechaHoraFin = reunion.fechaHoraFin || new Date();
-    await reunion.save();
-
-    return res.json({ ok: true, reunionId: reunion.reunionId });
+    return res.json(result);
   } catch (e) {
     next(e);
   }

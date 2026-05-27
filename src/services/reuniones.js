@@ -213,7 +213,6 @@ async function reagendarOcurrencia(reunionId, occurrenceId, newDate) {
     }
     ex.fechaOcurrenciaOverride = newD;
     ex.serieId = serieRoot;
-    ex.actualizadoEn = new Date();
     await ex.save();
     const fechaOriginal = new Date(ex.fechaOcurrenciaOriginal).toISOString();
     const nuevaFecha = new Date(ex.fechaOcurrenciaOverride).toISOString();
@@ -239,7 +238,6 @@ async function reagendarOcurrencia(reunionId, occurrenceId, newDate) {
   if (ex) {
     ex.fechaOcurrenciaOverride = newD;
     ex.serieId = serieRoot;
-    ex.actualizadoEn = new Date();
     await ex.save();
   } else {
     const winStart = new Date(targetMs - 400 * 86400000);
