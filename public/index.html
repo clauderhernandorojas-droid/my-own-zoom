@@ -3075,122 +3075,6 @@
 
     function getToken() { return localStorage.getItem(LS); }
 
-    async function uploadChatAdjuntoFile(file) {
-      if (!activeRoomId || !getToken()) throw new Error("Sin sala o sesión");
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await fetch(
-        toApiUrl("/api/reuniones/room/" + encodeURIComponent(activeRoomId) + "/chat-adjunto"),
-        {
-          method: "POST",
-          headers: { Authorization: "Bearer " + getToken() },
-          body: fd,
-        }
-      );
-      const text = await r.text();
-      let data;
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { raw: text };
-      }
-      if (!r.ok) throw new Error(data.error || r.statusText || "Error al subir");
-      return data;
-    }
-
-    async function downloadChatAdjunto(mensajeId, suggestedName) {
-      if (!getToken()) return;
-      const r = await fetch(toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(mensajeId)), {
-        headers: { Authorization: "Bearer " + getToken() },
-      });
-      if (!r.ok) {
-        log("No se pudo descargar el adjunto.");
-        return;
-      }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = suggestedName || "adjunto";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    /** Portapapeles o soltar (DnD): `files` a veces viene vacío; usar también `items`. */
-    function getFirstFileFromDataTransfer(dataTransfer) {
-      if (!dataTransfer) return null;
-      if (dataTransfer.files && dataTransfer.files.length) return dataTransfer.files[0];
-      const items = dataTransfer.items;
-      if (!items?.length) return null;
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        if (it.kind === "file") {
-          const f = it.getAsFile?.();
-          if (f) return f;
-        }
-      }
-      return null;
-    }
-
-    function getClipboardFile(dataTransfer) {
-      return getFirstFileFromDataTransfer(dataTransfer);
-    }
-
-    function isChatPasteOrDropTarget(el) {
-      return !!(el && el.closest && el.closest("#chatDropZone"));
-    }
-
-    function chatInputHasFocus() {
-      const ci = $("chatInput");
-      return !!(ci && document.activeElement === ci);
-    }
-
-    async function uploadPendingChatFile(file) {
-      if (!file) return;
-      if (!activeRoomId) {
-        log("Entra en una sala antes de adjuntar archivos.");
-        return;
-      }
-      if (!getToken()) {
-        log("Sesión requerida: inicia sesión para adjuntar archivos.");
-        setMediaStatus("Inicia sesión para adjuntar.");
-        return;
-      }
-      setMediaStatus("Subiendo adjunto…");
-      if (pendingChatPreviewUrl) {
-        URL.revokeObjectURL(pendingChatPreviewUrl);
-        pendingChatPreviewUrl = "";
-      }
-      try {
-        const data = await uploadChatAdjuntoFile(file);
-        const ft = String(file.type || "").toLowerCase();
-        if (ft.startsWith("image/") || ft.startsWith("video/") || ft.startsWith("audio/") || ft.includes("pdf")) {
-          pendingChatPreviewUrl = URL.createObjectURL(file);
-        }
-        pendingChatAdjunto = {
-          adjuntoRelPath: data.adjuntoRelPath,
-          adjuntoNombreOriginal: data.adjuntoNombreOriginal || file.name || "archivo",
-          adjuntoMime: data.adjuntoMime,
-          adjuntoBytes: data.adjuntoBytes,
-        };
-        updateChatAdjuntoPendingUi();
-        setMediaStatus("Adjunto listo. Pulsa Enviar (el mensaje de texto es opcional).");
-      } catch (e) {
-        pendingChatAdjunto = null;
-        if (pendingChatPreviewUrl) {
-          URL.revokeObjectURL(pendingChatPreviewUrl);
-          pendingChatPreviewUrl = "";
-        }
-        updateChatAdjuntoPendingUi();
-        const msg = e?.message || String(e);
-        log("Adjunto: " + msg);
-        setMediaStatus(msg);
-      }
-    }
-
     function setToken(t) { if (t) localStorage.setItem(LS, t); else localStorage.removeItem(LS); }
     function log(msg) {
       const text = typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
@@ -3236,16 +3120,11 @@
     let pendingNameModalResolver = null;
     const participantsById = new Map();
     const connectedUserIds = new Set();
-    const chatThreads = new Map();
-    let activeChatThreadKey = "general";
     let activeRoomId = null;
     /** Room id mostrado en sala de espera (antes de `enterRoom`). */
     let meetWaitingRoomId = "";
     /** UUID de reunión en BD (p. ej. historial / adjuntos); la sala Socket usa `activeRoomId` (room_id). */
     let activeReunionId = null;
-    /** Tras subir archivo al servidor, se envía con el siguiente «Enviar». */
-    let pendingChatAdjunto = null;
-    let pendingChatPreviewUrl = "";
     /** Sala de espera: solicitud de ingreso pendiente para el usuario actual. */
     let waitingRoomJoinRequestPending = false;
     let boardState = { elementos: [] };
@@ -3428,15 +3307,10 @@
       });
     }
     let boardSideMenuOpen = "";
-    const chatAdjuntoPreviewCache = new Map();
-    /** @type {{ mensajeId: string, mensaje: object } | null} */
-    let chatCtxMenuTarget = null;
-
     const IDB_NAME = "my-own-zoom";
     const IDB_VERSION = 1;
     const IDB_RECORDINGS = "recordings";
     const CHAT_REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
-    const CHAT_EXTRA_EMOJIS = ["🔥", "👏", "🤝", "🙏", "💡", "✅", "❓", "😎", "🤔", "💯"];
 
     const $ = (id) => document.getElementById(id);
 
@@ -4663,82 +4537,7 @@
     }
 
     function appendRecordingNotice(text) {
-      ensureGeneralThread();
-      const thread = chatThreads.get("general");
-      if (!thread) return;
-      thread.messages.push({
-        mensajeId: "local-sys-" + Date.now(),
-        contenido: text,
-        tipo: "general",
-        marcaTiempo: new Date().toISOString(),
-        autor: { nombre: "Sala", usuarioId: null },
-      });
-      if (activeChatThreadKey !== "general") {
-        thread.unread = (thread.unread || 0) + 1;
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-      log(text);
-    }
-
-    function renderChatQuickReactionBar() {
-      const bar = $("chatQuickReactionBar");
-      if (!bar) return;
-      bar.innerHTML = "";
-      const handleQuickReaction = (emoji) => {
-        if (!activeRoomId) return;
-        const input = $("chatInput");
-        const current = String(input?.value || "");
-        if (!current.trim() && !pendingChatAdjunto) {
-          sendChatMessageFromComposer(emoji);
-          return;
-        }
-        if (!input) return;
-        const start = Number.isFinite(input.selectionStart) ? input.selectionStart : current.length;
-        const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : current.length;
-        const next = current.slice(0, start) + emoji + current.slice(end);
-        input.value = next;
-        const pos = start + emoji.length;
-        try {
-          input.setSelectionRange(pos, pos);
-        } catch (_) {}
-        input.focus();
-      };
-      CHAT_REACTION_EMOJIS.forEach((emoji) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "chat-quick-reaction-btn";
-        b.textContent = emoji;
-        b.title = `Agregar ${emoji}`;
-        b.addEventListener("click", () => handleQuickReaction(emoji));
-        bar.appendChild(b);
-      });
-      const moreBtn = document.createElement("button");
-      moreBtn.type = "button";
-      moreBtn.className = "chat-quick-reaction-btn";
-      moreBtn.textContent = "...";
-      moreBtn.title = "Más emojis";
-      moreBtn.addEventListener("click", () => {
-        const picker = document.createElement("div");
-        picker.className = "chat-msg__react-picker open";
-        CHAT_EXTRA_EMOJIS.forEach((emoji) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "chat-msg__react-emoji";
-          b.textContent = emoji;
-          b.addEventListener("click", () => {
-            handleQuickReaction(emoji);
-            picker.remove();
-          });
-          picker.appendChild(b);
-        });
-        if (bar.querySelector(".chat-msg__react-picker")) {
-          bar.querySelector(".chat-msg__react-picker")?.remove();
-          return;
-        }
-        bar.appendChild(picker);
-      });
-      bar.appendChild(moreBtn);
+      if (typeof ChatModule !== "undefined") ChatModule.appendRecordingNotice(text);
     }
 
     function renderRoomReactionMenu() {
@@ -6422,6 +6221,27 @@ body.print-calendar-export {
       }
     }
 
+    function initChatModule() {
+      if (typeof ChatModule === "undefined") return;
+      ChatModule.initChatRoom({
+        $,
+        api,
+        getToken,
+        toApiUrl,
+        normRoomKey,
+        log,
+        copyTextToClipboard,
+        getSocket: () => socket,
+        getCurrentUser: () => currentUser,
+        getActiveRoomId: () => activeRoomId,
+        getChatPanelHidden: () => chatPanelHidden,
+        setChatPanelHidden: (hidden) => setChatPanelHidden(hidden),
+        getParticipantsById: () => participantsById,
+        getConnectedUserIds: () => connectedUserIds,
+        setMediaStatus,
+      });
+    }
+
     async function showCupoByRoomId(roomId) {
       const rid = String(roomId || "").trim();
       if (!rid) return;
@@ -7430,25 +7250,11 @@ body.print-calendar-export {
       const btnInline = $("btnToggleChatInline");
       if (btnInline) { btnInline.textContent = text; btnInline.setAttribute("aria-pressed", pressed); }
       if (!chatPanelHidden && typeof ChatModule !== "undefined") {
-        ChatModule.onActiveThreadChanged(activeChatThreadKey);
+        ChatModule.onActiveThreadChanged(ChatModule.getActiveChatThreadKey());
       }
       requestAnimationFrame(() => {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
-    }
-
-    function openChatFromBottomBar() {
-      setChatPanelHidden(false);
-      let bestKey = activeChatThreadKey || "general";
-      let bestUnread = 0;
-      chatThreads.forEach((t, k) => {
-        const u = Number(t.unread) || 0;
-        if (u > bestUnread) {
-          bestUnread = u;
-          bestKey = k;
-        }
-      });
-      setActiveChatThread(bestKey);
     }
 
     let roomChatBarModulesReady = false;
@@ -7458,23 +7264,13 @@ body.print-calendar-export {
         return;
       }
       roomChatBarModulesReady = true;
-      ChatModule.initChat({
-        getCurrentUser: () => currentUser,
-        getActiveChatThreadKey: () => activeChatThreadKey,
-        getChatPanelHidden: () => chatPanelHidden,
-        getChatThreads: () => chatThreads,
-        getActiveRoomId: () => activeRoomId,
-        appendChatLineCore: appendChatLine,
-        applyMessageReactionsUpdate,
-        renderChatThreadTabs,
-      });
       Notificaciones.initNotificaciones({
-        getChatThreads: () => chatThreads,
+        getChatThreads: () => ChatModule.getChatThreads(),
         onUpdate: (state) => {
           UiBarra.updateBadge(state?.totalUnread);
         },
       });
-      UiBarra.mountRoomBottomBar({ onOpenChat: openChatFromBottomBar });
+      UiBarra.mountRoomBottomBar({ onOpenChat: () => ChatModule.openChatFromBar() });
     }
 
     function closeBoardSideMenus() {
@@ -9489,540 +9285,6 @@ body.print-calendar-export {
       applyBoardState(next, { emit: true });
     }
 
-    function appendChatLine(payload) {
-      const m = payload.mensaje;
-      if (!m) return;
-      const autor = m.autor || null;
-      const destinatario = m.destinatario || null;
-      if (autor?.usuarioId) {
-        participantsById.set(autor.usuarioId, autor);
-      }
-      if (destinatario?.usuarioId) {
-        participantsById.set(destinatario.usuarioId, destinatario);
-      }
-
-      let threadKey = "general";
-      if (m.tipo === "privado") {
-        const selfId = currentUser?.usuarioId;
-        const isMine = selfId && autor?.usuarioId === selfId;
-        const peerId = isMine
-          ? (m.destinatarioUsuarioId || destinatario?.usuarioId)
-          : autor?.usuarioId;
-        if (peerId) {
-          threadKey = `dm:${peerId}`;
-          if (!chatThreads.has(threadKey)) {
-            const peer = participantsById.get(peerId);
-            const label = peer?.nombre || `Usuario ${String(peerId).slice(0, 8)}`;
-            chatThreads.set(threadKey, {
-              key: threadKey,
-              type: "dm",
-              targetUserId: peerId,
-              label,
-              messages: [],
-              unread: 0,
-            });
-          }
-        }
-      } else {
-        ensureGeneralThread();
-      }
-
-      const thread = chatThreads.get(threadKey);
-      if (!thread) return;
-      thread.messages.push(m);
-      const selfId = currentUser?.usuarioId;
-      const isMine = !!(
-        selfId &&
-        autor?.usuarioId &&
-        (typeof ChatModule !== "undefined"
-          ? ChatModule.sameUserId(autor.usuarioId, selfId)
-          : autor.usuarioId === selfId)
-      );
-      if (!isMine) {
-        const markUnread =
-          typeof ChatModule !== "undefined"
-            ? ChatModule.shouldMarkUnread(threadKey)
-            : activeChatThreadKey !== threadKey;
-        if (markUnread) {
-          thread.unread = (thread.unread || 0) + 1;
-          if (typeof ChatModule !== "undefined") {
-            ChatModule.emitNotify({
-              kind: "message",
-              threadKey,
-              fromUserId: autor?.usuarioId,
-              mensajeId: m.mensajeId,
-            });
-          }
-        }
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-      refreshChatThreadPicker();
-    }
-
-    function ensureGeneralThread() {
-      if (!chatThreads.has("general")) {
-        chatThreads.set("general", {
-          key: "general",
-          type: "general",
-          label: "General",
-          targetUserId: null,
-          messages: [],
-          unread: 0,
-        });
-      }
-    }
-
-    function setActiveChatThread(threadKey) {
-      if (!chatThreads.has(threadKey)) return;
-      activeChatThreadKey = threadKey;
-      const thread = chatThreads.get(threadKey);
-      if (!chatPanelHidden) {
-        thread.unread = 0;
-        if (typeof ChatModule !== "undefined") {
-          ChatModule.onActiveThreadChanged(threadKey);
-        }
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-    }
-
-    function closeChatThread(threadKey) {
-      const thread = chatThreads.get(threadKey);
-      if (!thread || thread.type !== "dm") return;
-      chatThreads.delete(threadKey);
-      if (activeChatThreadKey === threadKey) {
-        activeChatThreadKey = "general";
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-      refreshChatThreadPicker();
-    }
-
-    function renderChatThreadTabs() {
-      const container = $("chatThreadTabs");
-      if (!container) return;
-      container.innerHTML = "";
-      const ordered = [...chatThreads.values()].sort((a, b) => {
-        if (a.key === "general") return -1;
-        if (b.key === "general") return 1;
-        return a.label.localeCompare(b.label, "es");
-      });
-      ordered.forEach((t) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "chat-tab" + (t.key === activeChatThreadKey ? " active" : "");
-        btn.textContent = t.label;
-        if (t.unread > 0) {
-          const badge = document.createElement("span");
-          badge.className = "badge";
-          badge.textContent = String(t.unread);
-          btn.appendChild(badge);
-        }
-        if (t.type === "dm") {
-          const closeBtn = document.createElement("button");
-          closeBtn.type = "button";
-          closeBtn.className = "chat-tab-close";
-          closeBtn.title = `Cerrar chat con ${t.label}`;
-          closeBtn.textContent = "×";
-          closeBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            closeChatThread(t.key);
-          });
-          btn.appendChild(closeBtn);
-        }
-        btn.addEventListener("click", () => setActiveChatThread(t.key));
-        container.appendChild(btn);
-      });
-    }
-
-    function removeChatMessageEverywhere(mensajeId) {
-      const id = String(mensajeId || "").trim();
-      if (!id) return;
-      const url = chatAdjuntoPreviewCache.get(id);
-      if (url) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (_) {}
-      }
-      chatAdjuntoPreviewCache.delete(id);
-      chatThreads.forEach((t) => {
-        t.messages = t.messages.filter((mm) => String(mm.mensajeId) !== id);
-      });
-      renderChatMessages();
-    }
-
-    function buildReactionSummaryFromRows(rows = []) {
-      const grouped = new Map();
-      rows.forEach((row) => {
-        const emoji = String(row?.emoji || "");
-        if (!emoji) return;
-        if (!grouped.has(emoji)) grouped.set(emoji, []);
-        grouped.get(emoji).push({
-          usuarioId: row?.reactor?.usuarioId || row?.usuarioId || null,
-          nombre: row?.reactor?.nombre || "",
-        });
-      });
-      return [...grouped.entries()].map(([emoji, users]) => ({
-        emoji,
-        count: users.length,
-        users,
-      }));
-    }
-
-    function getMessageReactionSummary(m) {
-      if (!m || typeof m !== "object") return [];
-      if (Array.isArray(m.reaccionesResumen)) return m.reaccionesResumen;
-      if (Array.isArray(m.reacciones)) return buildReactionSummaryFromRows(m.reacciones);
-      return [];
-    }
-
-    function applyMessageReactionsUpdate(mensajeId, reactions) {
-      const id = String(mensajeId || "").trim();
-      if (!id) return;
-      chatThreads.forEach((t) => {
-        t.messages.forEach((m) => {
-          if (String(m?.mensajeId || "") === id) {
-            m.reaccionesResumen = Array.isArray(reactions) ? reactions : [];
-          }
-        });
-      });
-      renderChatMessages();
-    }
-
-    function emitChatReactionToggle(mensajeId, emoji) {
-      if (!socket || !activeRoomId || !mensajeId || !emoji) return;
-      socket.emit(
-        "chat:reaction:toggle",
-        { roomId: normRoomKey(activeRoomId), mensajeId, emoji },
-        (r) => {
-          if (!r || r.ok === false) {
-            appendRecordingNotice("Reacción: " + (r?.error || "No se pudo actualizar"));
-            return;
-          }
-          if (Array.isArray(r.reactions)) {
-            applyMessageReactionsUpdate(String(mensajeId), r.reactions);
-          }
-        }
-      );
-    }
-
-    function closeChatCtxMenu() {
-      const menu = $("chatCtxMenu");
-      if (menu) {
-        menu.classList.remove("chat-ctx--open");
-        menu.innerHTML = "";
-        menu.setAttribute("aria-hidden", "true");
-      }
-      chatCtxMenuTarget = null;
-    }
-
-    function openChatCtxMenu(clientX, clientY, m) {
-      closeChatCtxMenu();
-      const menu = $("chatCtxMenu");
-      if (!menu || !m) return;
-      const midRaw = m.mensajeId;
-      const mid = midRaw != null ? String(midRaw) : "";
-      const isLocal = mid.startsWith("local-");
-      const selfId = currentUser?.usuarioId;
-      const authorId = m.autor?.usuarioId;
-      const isAdmin = String(currentUser?.rol || "").toLowerCase() === "admin";
-      const canDelete =
-        !!mid &&
-        !isLocal &&
-        (isAdmin ||
-          (selfId &&
-            authorId &&
-            String(authorId).toLowerCase() === String(selfId).toLowerCase()));
-
-      const addItem = (label, fn) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = label;
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          fn();
-          closeChatCtxMenu();
-        });
-        menu.appendChild(b);
-      };
-
-      addItem("Copiar texto", () => {
-        void copyTextToClipboard(m.contenido || "");
-      });
-      if (m.adjuntoNombreOriginal) {
-        addItem("Copiar nombre de archivo", () => {
-          void copyTextToClipboard(String(m.adjuntoNombreOriginal));
-        });
-      }
-      if (mid && !isLocal && m.adjuntoRelPath) {
-        addItem("Copiar enlace de descarga", () => {
-          const path = toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(mid));
-          void copyTextToClipboard(path);
-        });
-      }
-      if (canDelete) {
-        addItem("Eliminar mensaje", async () => {
-          if (!confirm("¿Eliminar este mensaje" + (m.adjuntoRelPath ? " y su archivo" : "") + "?")) return;
-          try {
-            await api("/api/mensajes/" + encodeURIComponent(mid), { method: "DELETE" });
-            removeChatMessageEverywhere(mid);
-          } catch (err) {
-            log(err?.message || "No se pudo eliminar");
-          }
-        });
-      }
-
-      chatCtxMenuTarget = { mensajeId: mid, mensaje: m };
-      menu.classList.add("chat-ctx--open");
-      menu.setAttribute("aria-hidden", "false");
-      const mw = 200;
-      const mh = 180;
-      let x = clientX;
-      let y = clientY;
-      if (x + mw > window.innerWidth - 6) x = window.innerWidth - mw - 6;
-      if (y + mh > window.innerHeight - 6) y = window.innerHeight - mh - 6;
-      menu.style.left = Math.max(6, x) + "px";
-      menu.style.top = Math.max(6, y) + "px";
-    }
-
-    function renderChatMessages() {
-      const box = $("chatBox");
-      if (!box) return;
-      box.innerHTML = "";
-      closeChatCtxMenu();
-      const thread = chatThreads.get(activeChatThreadKey);
-      if (!thread) return;
-      const getChatAdjuntoFileUrl = async (m) => {
-        if (!m?.adjuntoRelPath || !m?.mensajeId) return "";
-        const cacheKey = String(m.mensajeId);
-        if (chatAdjuntoPreviewCache.has(cacheKey)) {
-          return chatAdjuntoPreviewCache.get(cacheKey);
-        }
-        try {
-          const r = await fetch(toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(m.mensajeId)), {
-            headers: { Authorization: "Bearer " + getToken() },
-          });
-          if (!r.ok) return "";
-          const blob = await r.blob();
-          const url = URL.createObjectURL(blob);
-          chatAdjuntoPreviewCache.set(cacheKey, url);
-          return url;
-        } catch (_) {
-          return "";
-        }
-      };
-      thread.messages.forEach((m) => {
-        const row = document.createElement("div");
-        const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
-        const tipo = m.tipo === "privado" ? " (privado)" : "";
-        row.className = "chat-msg" + (m.tipo === "privado" ? " msg-privado" : "");
-        const mid = m.mensajeId != null ? String(m.mensajeId) : "";
-        if (mid) row.dataset.mensajeId = mid;
-        const tstr = new Date(m.marcaTiempo || Date.now()).toLocaleTimeString();
-
-        const hdr = document.createElement("div");
-        hdr.className = "chat-msg__hdr";
-        hdr.textContent = `[${tstr}] ${autor}${tipo}`;
-        row.appendChild(hdr);
-
-        const body = document.createElement("div");
-        body.className =
-          "chat-msg__body" + (m.adjuntoRelPath && m.mensajeId ? " chat-msg__body--adjunto" : "");
-
-        const selfId = currentUser?.usuarioId;
-        const authorId = m.autor?.usuarioId;
-        const isAdmin = String(currentUser?.rol || "").toLowerCase() === "admin";
-        const canDelete =
-          !!mid &&
-          !mid.startsWith("local-") &&
-          (isAdmin ||
-            (selfId &&
-              authorId &&
-              String(authorId).toLowerCase() === String(selfId).toLowerCase()));
-
-        if (canDelete) {
-          const del = document.createElement("button");
-          del.type = "button";
-          del.className = "chat-msg__del";
-          del.title = "Eliminar mensaje";
-          del.setAttribute("aria-label", "Eliminar mensaje");
-          del.textContent = "×";
-          del.addEventListener("click", async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (!confirm("¿Eliminar este mensaje" + (m.adjuntoRelPath ? " y su archivo" : "") + "?")) return;
-            try {
-              await api("/api/mensajes/" + encodeURIComponent(mid), { method: "DELETE" });
-              removeChatMessageEverywhere(mid);
-            } catch (err) {
-              log(err?.message || "No se pudo eliminar");
-            }
-          });
-          body.appendChild(del);
-        }
-
-        body.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          openChatCtxMenu(e.clientX, e.clientY, m);
-        });
-
-        if (m.adjuntoRelPath && m.mensajeId) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "chat-adjunto-btn";
-          btn.textContent = `📎 ${m.adjuntoNombreOriginal || "archivo"}`;
-          btn.title = "Descargar adjunto";
-          btn.addEventListener("click", () =>
-            downloadChatAdjunto(m.mensajeId, m.adjuntoNombreOriginal || "adjunto")
-          );
-          body.appendChild(btn);
-          const previewWrap = document.createElement("div");
-          previewWrap.className = "chat-adjunto-preview";
-          const mime = String(m.adjuntoMime || "").toLowerCase();
-          if (mime.startsWith("image/")) {
-            const img = document.createElement("img");
-            img.alt = m.adjuntoNombreOriginal || "adjunto";
-            img.loading = "lazy";
-            previewWrap.appendChild(img);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) img.src = url;
-            });
-          } else if (mime.startsWith("video/")) {
-            const vid = document.createElement("video");
-            vid.controls = true;
-            vid.preload = "metadata";
-            vid.playsInline = true;
-            previewWrap.appendChild(vid);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) vid.src = url;
-            });
-          } else if (mime.startsWith("audio/")) {
-            const audio = document.createElement("audio");
-            audio.controls = true;
-            audio.preload = "metadata";
-            previewWrap.appendChild(audio);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) audio.src = url;
-            });
-          } else if (mime.includes("pdf")) {
-            const emb = document.createElement("embed");
-            emb.type = "application/pdf";
-            previewWrap.appendChild(emb);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) emb.src = url + "#page=1&view=FitH";
-            });
-          } else {
-            const fileCap = document.createElement("span");
-            fileCap.className = "chat-adjunto-preview--file";
-            fileCap.textContent = "Vista previa no disponible";
-            previewWrap.appendChild(fileCap);
-          }
-          body.appendChild(previewWrap);
-        }
-        const cap = document.createElement("div");
-        cap.style.marginTop = "0.2rem";
-        cap.style.whiteSpace = "pre-wrap";
-        cap.textContent = m.contenido || "";
-        body.appendChild(cap);
-
-        const midForReaction = m.mensajeId != null ? String(m.mensajeId) : "";
-        const summary = getMessageReactionSummary(m);
-        if (summary.length) {
-          const chips = document.createElement("div");
-          chips.className = "chat-msg__reactions";
-          summary.forEach((item) => {
-            const chip = document.createElement("button");
-            chip.type = "button";
-            chip.className = "chat-react-chip";
-            const myUid = String(currentUser?.usuarioId || "").trim().toLowerCase();
-            const mine = (item.users || []).some(
-              (u) => String(u?.usuarioId || "").trim().toLowerCase() === myUid
-            );
-            if (mine) chip.classList.add("chat-react-chip--mine");
-            chip.title = (item.users || []).map((u) => u?.nombre || "Usuario").join(", ");
-            chip.textContent = `${item.emoji} ${item.count}`;
-            chip.addEventListener("click", () => {
-              emitChatReactionToggle(midForReaction, item.emoji);
-            });
-            chips.appendChild(chip);
-          });
-          body.appendChild(chips);
-        }
-
-        if (midForReaction && !midForReaction.startsWith("local-")) {
-          const reactRow = document.createElement("div");
-          reactRow.className = "chat-msg__react-row";
-          const addBtn = document.createElement("button");
-          addBtn.type = "button";
-          addBtn.className = "chat-msg__react-add";
-          addBtn.textContent = "Reaccionar";
-          const picker = document.createElement("div");
-          picker.className = "chat-msg__react-picker";
-          CHAT_REACTION_EMOJIS.forEach((emoji) => {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.className = "chat-msg__react-emoji";
-            b.textContent = emoji;
-            b.addEventListener("click", () => {
-              emitChatReactionToggle(midForReaction, emoji);
-              picker.classList.remove("open");
-            });
-            picker.appendChild(b);
-          });
-          addBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            picker.classList.toggle("open");
-          });
-          reactRow.appendChild(addBtn);
-          reactRow.appendChild(picker);
-          body.appendChild(reactRow);
-        }
-
-        row.appendChild(body);
-        box.appendChild(row);
-      });
-      box.scrollTop = box.scrollHeight;
-    }
-
-    function refreshChatThreadPicker() {
-      const sel = $("chatThreadPicker");
-      if (!sel) return;
-      const previous = sel.value;
-      sel.innerHTML = "";
-      const general = document.createElement("option");
-      general.value = "general";
-      general.textContent = "General";
-      sel.appendChild(general);
-
-      const userOptions = [...participantsById.values()]
-        .filter((u) => u?.usuarioId && u.usuarioId !== currentUser?.usuarioId && connectedUserIds.has(u.usuarioId))
-        .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
-      userOptions.forEach((u) => {
-        const opt = document.createElement("option");
-        opt.value = u.usuarioId;
-        opt.textContent = u.nombre || u.email || u.usuarioId;
-        sel.appendChild(opt);
-      });
-      sel.value = previous && [...sel.options].some((o) => o.value === previous) ? previous : "general";
-    }
-
-    function openDmThreadByUserId(userId) {
-      if (!userId) return;
-      const key = `dm:${userId}`;
-      if (!chatThreads.has(key)) {
-        const u = participantsById.get(userId);
-        chatThreads.set(key, {
-          key,
-          type: "dm",
-          targetUserId: userId,
-          label: u?.nombre || `Usuario ${String(userId).slice(0, 8)}`,
-          messages: [],
-          unread: 0,
-        });
-      }
-      setActiveChatThread(key);
-    }
 
     async function loadParticipantsForRoom(roomId) {
       const roomData = await api("/api/reuniones/room/" + encodeURIComponent(roomId));
@@ -10041,8 +9303,7 @@ body.print-calendar-export {
           participantsById.set(p.usuario.usuarioId, p.usuario);
         }
       });
-      refreshChatThreadPicker();
-      renderChatThreadTabs();
+      if (typeof ChatModule !== "undefined") ChatModule.refreshAfterParticipants();
     }
 
     function connectSocketIfNeeded() {
@@ -10069,17 +9330,13 @@ body.print-calendar-export {
           reject(new Error(msg));
         });
         socket.on("chat:message", (payload) => {
-          if (typeof ChatModule !== "undefined") ChatModule.onIncomingMessage(payload);
-          else appendChatLine(payload);
+          ChatModule?.onIncomingMessage?.(payload);
         });
         socket.on("chat:messageDeleted", ({ mensajeId }) => {
-          if (mensajeId) removeChatMessageEverywhere(String(mensajeId));
+          if (mensajeId) ChatModule?.removeChatMessageEverywhere?.(String(mensajeId));
         });
         socket.on("chat:messageReaction", (payload) => {
-          if (typeof ChatModule !== "undefined") ChatModule.onIncomingReaction(payload);
-          else if (payload?.mensajeId) {
-            applyMessageReactionsUpdate(String(payload.mensajeId), payload.reactions);
-          }
+          ChatModule?.onIncomingReaction?.(payload);
         });
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
@@ -10245,7 +9502,7 @@ body.print-calendar-export {
             if (!participantsById.has(userId) && activeRoomId) {
               loadParticipantsForRoom(activeRoomId).catch((e) => console.warn(e));
             } else {
-              refreshChatThreadPicker();
+              ChatModule?.refreshAfterParticipants?.();
             }
           }
         });
@@ -10253,7 +9510,7 @@ body.print-calendar-export {
           if (socketId) peerSocketToUserId.delete(socketId);
           if (userId && userId !== currentUser?.usuarioId) {
             connectedUserIds.delete(userId);
-            refreshChatThreadPicker();
+            ChatModule?.refreshAfterParticipants?.();
           }
           if (socketId) cleanupPeer(socketId);
         });
@@ -10347,14 +9604,7 @@ body.print-calendar-export {
             _suppressHashRoute = true;
             location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
             _suppressHashRoute = false;
-            ensureGeneralThread();
-            if (typeof ChatModule !== "undefined") {
-              ChatModule.markAllRead();
-            } else {
-              chatThreads.forEach((t) => {
-                t.unread = 0;
-              });
-            }
+            ChatModule?.markAllRead?.();
             connectedUserIds.clear();
             peerSocketToUserId.clear();
             if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
@@ -10363,7 +9613,7 @@ body.print-calendar-export {
               if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
             });
             await loadParticipantsForRoom(activeRoomId);
-            setActiveChatThread("general");
+            ChatModule?.setActiveChatThread?.("general");
             log("En sala. Peers: " + JSON.stringify(resp.peers));
             const peers = resp.peers || [];
             for (const p of peers) {
@@ -10435,17 +9685,6 @@ body.print-calendar-export {
 
       activeRoomId = null;
       activeReunionId = null;
-      pendingChatAdjunto = null;
-      if (pendingChatPreviewUrl) {
-        URL.revokeObjectURL(pendingChatPreviewUrl);
-        pendingChatPreviewUrl = "";
-      }
-      for (const u of chatAdjuntoPreviewCache.values()) {
-        try { URL.revokeObjectURL(u); } catch (_) {}
-      }
-      chatAdjuntoPreviewCache.clear();
-      updateChatAdjuntoPendingUi();
-      $("chatDropZone")?.classList.remove("chat-drop-zone--over");
       lastKnownRoomIdForRecording = null;
       roomDocenteUsuarioId = null;
       updateTeacherRecordingControlsVisibility();
@@ -10468,15 +9707,9 @@ body.print-calendar-export {
       boardFuture.length = 0;
       updateBoardHistoryButtons();
       $("remotesContainer").innerHTML = "";
-      $("chatBox").innerHTML = "";
-      if (typeof ChatModule !== "undefined") ChatModule.markAllRead();
+      ChatModule?.resetRoomChat?.();
       if (typeof Notificaciones !== "undefined") Notificaciones.reset();
-      chatThreads.clear();
-      ensureGeneralThread();
-      activeChatThreadKey = "general";
       connectedUserIds.clear();
-      refreshChatThreadPicker();
-      renderChatThreadTabs();
       $("roomSection").classList.add("hidden");
       document.body.classList.remove("body--in-room", "app-route-meet");
       const shell = $("roomShell");
@@ -10506,16 +9739,6 @@ body.print-calendar-export {
       log("Saliste de la reunión. Cámara, micrófono y conexiones WebRTC liberados.");
       await reloadLobbyHomeData();
     }
-
-    $("chatThreadPicker").addEventListener("change", (e) => {
-      const val = e.target.value;
-      if (val === "general") {
-        setActiveChatThread("general");
-        return;
-      }
-      openDmThreadByUserId(val);
-      e.target.value = "general";
-    });
 
     $("btnProfileNameModalSave")?.addEventListener("click", () => {
       const input = $("profileNameModalInput");
@@ -11099,7 +10322,7 @@ body.print-calendar-export {
     document.addEventListener("click", (ev) => {
       const target = ev.target;
       if (!(target instanceof Element)) return;
-      if (!target.closest("#chatCtxMenu")) closeChatCtxMenu();
+      if (!target.closest("#chatCtxMenu")) ChatModule?.closeChatCtxMenu?.();
       if (!target.closest("#boardVToolbar") && !target.closest(".board-side-menu")) closeBoardSideMenus();
       if (target.closest(".room-tb-split")) return;
       closeToolbarMenus();
@@ -11107,11 +10330,10 @@ body.print-calendar-export {
     document.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") closeToolbarMenus();
       if (ev.key === "Escape") closeBoardSideMenus();
-      if (ev.key === "Escape") closeChatCtxMenu();
+      if (ev.key === "Escape") ChatModule?.closeChatCtxMenu?.();
     });
     syncShareButtonState();
     renderMediaMenus();
-    renderChatQuickReactionBar();
     refreshMediaDeviceSelectors().catch(() => {});
     $("btnLocalRecordings")?.addEventListener("click", async () => {
       const panel = $("localRecordingsPanel");
@@ -11120,210 +10342,6 @@ body.print-calendar-export {
       if (!panel.classList.contains("hidden")) {
         await renderLocalRecordingsPanel();
       }
-    });
-
-    function clearPendingChatAdjunto() {
-      pendingChatAdjunto = null;
-      if (pendingChatPreviewUrl) {
-        try {
-          URL.revokeObjectURL(pendingChatPreviewUrl);
-        } catch (_) {}
-        pendingChatPreviewUrl = "";
-      }
-      updateChatAdjuntoPendingUi();
-    }
-
-    function openPendingAdjuntoCtx(clientX, clientY) {
-      closeChatCtxMenu();
-      const menu = $("chatCtxMenu");
-      if (!menu || !pendingChatAdjunto?.adjuntoRelPath) return;
-      const addItem = (label, fn) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = label;
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          fn();
-          closeChatCtxMenu();
-        });
-        menu.appendChild(b);
-      };
-      addItem("Copiar nombre de archivo", () => {
-        void copyTextToClipboard(pendingChatAdjunto.adjuntoNombreOriginal || "");
-      });
-      addItem("Quitar adjunto", () => clearPendingChatAdjunto());
-      menu.classList.add("chat-ctx--open");
-      menu.setAttribute("aria-hidden", "false");
-      const mw = 200;
-      const mh = 120;
-      let x = clientX;
-      let y = clientY;
-      if (x + mw > window.innerWidth - 6) x = window.innerWidth - mw - 6;
-      if (y + mh > window.innerHeight - 6) y = window.innerHeight - mh - 6;
-      menu.style.left = Math.max(6, x) + "px";
-      menu.style.top = Math.max(6, y) + "px";
-    }
-
-    function updateChatAdjuntoPendingUi() {
-      const el = $("chatAdjuntoPending");
-      if (!el) return;
-      el.innerHTML = "";
-      if (pendingChatAdjunto?.adjuntoRelPath) {
-        const name = pendingChatAdjunto.adjuntoNombreOriginal || "archivo";
-        const head = document.createElement("div");
-        head.style.display = "flex";
-        head.style.alignItems = "flex-start";
-        head.style.justifyContent = "space-between";
-        head.style.gap = "8px";
-        head.style.width = "100%";
-        head.style.boxSizing = "border-box";
-        const cap = document.createElement("span");
-        cap.style.fontSize = "0.82rem";
-        cap.style.wordBreak = "break-word";
-        cap.textContent = "📎 Pendiente: " + name + " · pulsa Enviar";
-        const xbtn = document.createElement("button");
-        xbtn.type = "button";
-        xbtn.className = "chat-msg__del";
-        xbtn.title = "Quitar adjunto";
-        xbtn.setAttribute("aria-label", "Quitar adjunto");
-        xbtn.textContent = "×";
-        xbtn.addEventListener("click", (e) => {
-          e.preventDefault();
-          clearPendingChatAdjunto();
-        });
-        head.appendChild(cap);
-        head.appendChild(xbtn);
-        el.appendChild(head);
-        if (pendingChatPreviewUrl) {
-          const shell = document.createElement("div");
-          shell.style.marginTop = "6px";
-          shell.style.position = "relative";
-          shell.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            openPendingAdjuntoCtx(e.clientX, e.clientY);
-          });
-          const wrap = document.createElement("div");
-          wrap.className = "chat-adjunto-preview";
-          const mime = String(pendingChatAdjunto.adjuntoMime || "").toLowerCase();
-          if (mime.startsWith("image/")) {
-            const img = document.createElement("img");
-            img.alt = name;
-            img.src = pendingChatPreviewUrl;
-            wrap.appendChild(img);
-          } else if (mime.startsWith("video/")) {
-            const vid = document.createElement("video");
-            vid.controls = true;
-            vid.preload = "metadata";
-            vid.src = pendingChatPreviewUrl;
-            wrap.appendChild(vid);
-          } else if (mime.startsWith("audio/")) {
-            const audio = document.createElement("audio");
-            audio.controls = true;
-            audio.preload = "metadata";
-            audio.src = pendingChatPreviewUrl;
-            wrap.appendChild(audio);
-          } else if (mime.includes("pdf")) {
-            const emb = document.createElement("embed");
-            emb.type = "application/pdf";
-            emb.src = pendingChatPreviewUrl + "#page=1&view=FitH";
-            wrap.appendChild(emb);
-          }
-          shell.appendChild(wrap);
-          el.appendChild(shell);
-        }
-      } else {
-        if (pendingChatPreviewUrl) {
-          URL.revokeObjectURL(pendingChatPreviewUrl);
-          pendingChatPreviewUrl = "";
-        }
-      }
-    }
-
-    $("btnChatAdjunto")?.addEventListener("click", () => {
-      if (!activeRoomId) {
-        log("Entra en una sala antes de adjuntar archivos.");
-        return;
-      }
-      $("chatAdjuntoInput")?.click();
-    });
-
-    $("chatAdjuntoInput")?.addEventListener("change", async () => {
-      const inp = $("chatAdjuntoInput");
-      const file = inp?.files?.[0];
-      if (inp) inp.value = "";
-      if (!activeRoomId) {
-        log("Entra en una sala antes de adjuntar archivos.");
-        return;
-      }
-      if (!file) return;
-      await uploadPendingChatFile(file);
-    });
-
-    (function bindChatDropZone() {
-      const z = $("chatDropZone");
-      if (!z) return;
-      z.addEventListener("dragenter", (e) => {
-        if (!activeRoomId) return;
-        e.preventDefault();
-      });
-      z.addEventListener("dragover", (e) => {
-        if (!activeRoomId) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        z.classList.add("chat-drop-zone--over");
-      });
-      z.addEventListener("dragleave", (e) => {
-        if (!z.contains(e.relatedTarget)) z.classList.remove("chat-drop-zone--over");
-      });
-      z.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        z.classList.remove("chat-drop-zone--over");
-        if (!activeRoomId) {
-          log("Entra en una sala antes de adjuntar archivos.");
-          return;
-        }
-        const f = getFirstFileFromDataTransfer(e.dataTransfer);
-        if (!f) {
-          log(
-            "Soltar: no se recibió ningún archivo (algunos orígenes no envían el fichero al navegador). Prueba Adjunto o arrastra desde el Explorador de archivos."
-          );
-          setMediaStatus("No se pudo leer el archivo al soltar.");
-          return;
-        }
-        await uploadPendingChatFile(f);
-      });
-    })();
-
-    function sendChatMessageFromComposer(forcedContent = null) {
-      const raw = forcedContent != null ? String(forcedContent) : String($("chatInput").value || "");
-      const contenido = raw.trim();
-      if ((!contenido && !pendingChatAdjunto) || !activeRoomId || !socket) return;
-      const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
-      const payload = {
-        roomId: normRoomKey(activeRoomId),
-        contenido,
-        tipo: "general",
-        ...(pendingChatAdjunto || {}),
-      };
-      if (active?.type === "dm" && active.targetUserId) {
-        payload.tipo = "privado";
-        payload.destinatarioUsuarioId = active.targetUserId;
-      }
-      socket.emit("chat:message", payload, (r) => {
-        if (r && !r.ok) log("Chat: " + (r.error || "error"));
-      });
-      $("chatInput").value = "";
-      pendingChatAdjunto = null;
-      updateChatAdjuntoPendingUi();
-      setMediaStatus("");
-    }
-    $("btnEnviarChat").addEventListener("click", () => {
-      sendChatMessageFromComposer();
-    });
-    $("chatInput")?.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" || e.shiftKey) return;
-      e.preventDefault();
-      sendChatMessageFromComposer();
     });
 
     const canvas = $("board");
@@ -12608,12 +11626,13 @@ body.print-calendar-export {
       if (!activeRoomId) return;
       if (activeTextInput && document.activeElement === activeTextInput) return;
 
-      const clipFile = getClipboardFile(e.clipboardData);
-      const routeToChat = isChatPasteOrDropTarget(e.target) || chatInputHasFocus();
+      const clipFile = ChatModule?.getClipboardFile?.(e.clipboardData);
+      const routeToChat =
+        ChatModule?.isChatPasteOrDropTarget?.(e.target) || ChatModule?.chatInputHasFocus?.();
 
       if (routeToChat && clipFile) {
         e.preventDefault();
-        await uploadPendingChatFile(clipFile);
+        await ChatModule?.uploadPendingChatFile?.(clipFile);
         return;
       }
       if (routeToChat) {
@@ -13130,9 +12149,7 @@ body.print-calendar-export {
       updateBoardToolUi();
       updateBoardToolbarOverflow();
       updateBoardHistoryButtons();
-      ensureGeneralThread();
-      renderChatThreadTabs();
-      refreshChatThreadPicker();
+      initChatModule();
       if (getToken()) {
         try {
           const me = await api("/api/usuarios/me");
