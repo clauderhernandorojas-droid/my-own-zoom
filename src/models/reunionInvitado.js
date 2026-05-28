@@ -40,15 +40,12 @@ module.exports = (sequelize) => {
         defaultValue: 'pendiente',
         field: 'estado',
       },
-      creadoEn: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-        field: 'creado_en',
-      },
     },
     {
       tableName: 'reunion_invitados',
+      timestamps: true,
+      createdAt: 'creado_en',
+      updatedAt: 'actualizado_en',
       indexes: [{ fields: ['reunion_id'] }, { fields: ['email'] }],
     }
   );

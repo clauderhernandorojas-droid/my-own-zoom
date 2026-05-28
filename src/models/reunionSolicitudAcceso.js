@@ -35,15 +35,12 @@ module.exports = (sequelize) => {
         field: 'respondido_por_usuario_id',
         references: { model: 'usuarios', key: 'usuario_id' },
       },
-      creadoEn: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-        field: 'creado_en',
-      },
     },
     {
       tableName: 'reunion_solicitudes_acceso',
+      timestamps: true,
+      createdAt: 'creado_en',
+      updatedAt: 'actualizado_en',
       indexes: [
         { fields: ['reunion_id'] },
         { fields: ['usuario_id'] },

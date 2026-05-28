@@ -35,30 +35,16 @@ module.exports = (sequelize) => {
         allowNull: true,
         field: 'serie_id',
       },
-      creadoEn: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-        field: 'creado_en',
-      },
-      actualizadoEn: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-        field: 'actualizado_en',
-      },
     },
     {
       tableName: 'reunion_ocurrencias',
+      timestamps: true,
+      createdAt: 'creado_en',
+      updatedAt: 'actualizado_en',
       indexes: [
         { unique: true, fields: ['reunion_id', 'fecha_ocurrencia_original'] },
         { fields: ['serie_id'] },
       ],
-      hooks: {
-        beforeUpdate(row) {
-          row.actualizadoEn = new Date();
-        },
-      },
     }
   );
 

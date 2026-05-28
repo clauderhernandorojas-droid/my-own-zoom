@@ -152,10 +152,10 @@ async function main() {
   }
   const token = login.json.token;
 
-  const mis = await httpJson('GET', '/api/reuniones/mis', { token });
+  const cal = await httpJson('GET', '/api/reuniones/calendario', { token });
   const reunionId =
-    mis.json?.reuniones?.[0]?.reunionId ||
-    mis.json?.[0]?.reunionId ||
+    cal.json?.reuniones?.[0]?.reunionId ||
+    cal.json?.[0]?.reunionId ||
     '8c9714bb-2d97-43aa-a964-de58a4661065';
   console.log('[api-test] reunionId', reunionId);
 

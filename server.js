@@ -31,6 +31,8 @@ app.get('/health', (_req, res) => {
     body.copresenciaUmbralMs = cop.getUmbralMs();
     body.asistenciaLiveEnabled = cop.isAsistenciaLiveEnabled();
     body.asistenciaMetricasEnabled = metricas.isAsistenciaMetricasEnabled();
+    const persist = require('./src/services/asistenciaMsPersistencia');
+    body.asistenciaPersistenceEnabled = persist.isAsistenciaPersistenceEnabled();
   }
   res.json(body);
 });
@@ -103,6 +105,7 @@ async function ensureReunionExceptionColumns() {
   await tryAdd('parent_reunion_id', { type: DataTypes.UUID, allowNull: true });
   await tryAdd('es_excepcion', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false });
   await tryAdd('occurrence_day_key', { type: DataTypes.STRING(12), allowNull: true });
+  await tryAdd('eliminada_en', { type: DataTypes.DATE, allowNull: true });
 
   if (sequelize.getDialect() === 'sqlite') {
     try {
@@ -218,6 +221,34 @@ async function ensureReunionSolicitudesAccesoColumns() {
 }
 
 /** Si quedó un esquema viejo de asistencias, eliminar para que `sync()` recree la tabla. */
+async function ensureReunionAsistenciaMsTable() {
+  const qi = sequelize.getQueryInterface();
+  const tables = await qi.showAllTables();
+  const has = tables.some((t) => String(t).toLowerCase() === 'reunion_asistencia_ms');
+  if (has) return;
+  const migrationPath = path.join(__dirname, 'migrations', '2026_add_reunion_asistencia_ms.sql');
+  if (fs.existsSync(migrationPath)) {
+    const sql = fs.readFileSync(migrationPath, 'utf8');
+    const statements = sql
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && !s.startsWith('--'));
+    for (const stmt of statements) {
+      try {
+        await sequelize.query(`${stmt};`);
+      } catch (e) {
+        const m = String(e?.message || e?.parent?.message || '');
+        if (!/already exists|duplicate/i.test(m)) {
+          console.warn('ensureReunionAsistenciaMsTable:', m);
+        }
+      }
+    }
+    return;
+  }
+  const { ReunionAsistenciaMs } = require('./src/models');
+  await ReunionAsistenciaMs.sync();
+}
+
 async function ensureReunionAsistenciasSchema() {
   const qi = sequelize.getQueryInterface();
   const tables = await qi.showAllTables();
@@ -256,6 +287,7 @@ async function main() {
   await ensureReunionInvitadosColumns();
   await ensureReunionSolicitudesAccesoColumns();
   await ensureReunionAsistenciasSchema();
+  await ensureReunionAsistenciaMsTable();
   await sequelize.sync();
   await ensureMensajeAdjuntoColumns();
 

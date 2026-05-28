@@ -8,6 +8,27 @@ router.get('/me', authRequired, loadUsuario, (req, res) => {
   res.json({ usuario: req.usuario.toJSON() });
 });
 
+/** TEMPORAL (solo desarrollo): bootstrap del primer admin sin SQL. Eliminar tras usarlo. */
+if (process.env.NODE_ENV !== 'production') {
+  router.patch('/me/make-admin', authRequired, loadUsuario, async (req, res, next) => {
+    try {
+      const usuario = req.usuario;
+      if (usuario.rol !== 'admin') {
+        usuario.rol = 'admin';
+        await usuario.save();
+        console.info({
+          action: 'makeAdminBootstrap',
+          id: usuario.usuarioId,
+          email: usuario.email,
+        });
+      }
+      return res.json({ ok: true, id: usuario.usuarioId, rol: 'admin' });
+    } catch (e) {
+      next(e);
+    }
+  });
+}
+
 router.patch('/:usuarioId/rol', authRequired, loadUsuario, async (req, res, next) => {
   try {
     const actor = req.usuario;

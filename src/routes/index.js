@@ -3,6 +3,7 @@ const authRoutes = require('./auth');
 const usuariosRoutes = require('./usuarios');
 const reunionesRoutes = require('./reuniones');
 const mensajesRoutes = require('./mensajes');
+const adminRoutes = require('./admin');
 
 const router = express.Router();
 
@@ -10,5 +11,6 @@ router.use('/auth', authRoutes);
 router.use('/usuarios', usuariosRoutes);
 router.use('/reuniones', reunionesRoutes);
 router.use('/mensajes', mensajesRoutes);
+router.use('/admin', adminRoutes);
 
 module.exports = router;

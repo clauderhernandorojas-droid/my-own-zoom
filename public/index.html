@@ -6,9 +6,14 @@
   <title>My Own Zoom — Cliente</title>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="/js/helpers.js"></script>
+  <script src="/js/tableroSeleccion.js"></script>
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
   <script src="/js/asistenciaLive.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/notificaciones.js"></script>
+  <script src="/js/uiBarra.js"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -513,6 +518,7 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
       background: var(--z-chat-bg);
       color: var(--z-chat-text);
       border-left: 1px solid var(--z-border);
@@ -538,18 +544,32 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
       margin: 0;
       padding: 0.38rem 0.5rem;
       border-radius: 0;
     }
+    .room-chat-panel .chat-topbar,
+    .room-chat-panel #chatThreadTabs {
+      flex: 0 0 auto;
+    }
     .room-chat-panel #chatBox {
-      flex: 1 1 auto;
-      min-height: 120px;
-      height: auto !important;
+      flex: 1 1 0;
+      min-height: 0;
+      height: auto;
+      max-height: none;
+      overflow-y: auto;
       margin: 0.5rem 0;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
       background: #fafafa;
+    }
+    .room-chat-panel .chat-compose {
+      flex: 0 0 auto;
+    }
+    .room-chat-panel .chat-adjunto-pending-slot {
+      max-height: min(36vh, 220px);
+      overflow-y: auto;
     }
     .room-chat-panel #chatInput {
       background: #fff;
@@ -581,6 +601,28 @@
       padding: 0.3rem 0.45rem calc(0.3rem + env(safe-area-inset-bottom));
       background: #131313;
       border-top: 1px solid #2a2a2a;
+    }
+    .room-tb-badge {
+      position: absolute;
+      top: 2px;
+      right: 4px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: #e53935;
+      color: #fff;
+      font-size: 0.55rem;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+      pointer-events: none;
+      box-sizing: border-box;
+    }
+    .room-tb-btn__icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     .room-tb-btn {
       position: relative;
@@ -2382,6 +2424,7 @@
           <p class="home-subtitle">Gestiona tus reuniones y entra con un clic.</p>
         </div>
         <div class="home-header__actions">
+          <a id="linkAdminPanel" href="/admin.html" class="btn-ghost hidden">Panel admin</a>
           <span id="homeRoleBadge" class="role-badge">Rol</span>
           <button type="button" id="btnLogout" class="btn-ghost">Cerrar sesión</button>
         </div>
@@ -2418,6 +2461,12 @@
           <p id="cupoInfo" class="home-result"></p>
           <p id="scheduleHint" class="home-muted">Solo los profesores pueden agendar reuniones.</p>
           <div id="scheduledList" class="scheduled-list"></div>
+          <details id="scheduledPastWrap" class="scheduled-past hidden" style="margin-top:0.6rem">
+            <summary class="home-muted" style="cursor:pointer">
+              Reuniones anteriores <span id="scheduledPastCount" class="home-muted"></span>
+            </summary>
+            <div id="scheduledPastList" class="scheduled-list" style="margin-top:0.4rem"></div>
+          </details>
         </section>
 
         <section class="home-card">
@@ -3041,122 +3090,6 @@
 
     function getToken() { return localStorage.getItem(LS); }
 
-    async function uploadChatAdjuntoFile(file) {
-      if (!activeRoomId || !getToken()) throw new Error("Sin sala o sesión");
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await fetch(
-        toApiUrl("/api/reuniones/room/" + encodeURIComponent(activeRoomId) + "/chat-adjunto"),
-        {
-          method: "POST",
-          headers: { Authorization: "Bearer " + getToken() },
-          body: fd,
-        }
-      );
-      const text = await r.text();
-      let data;
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { raw: text };
-      }
-      if (!r.ok) throw new Error(data.error || r.statusText || "Error al subir");
-      return data;
-    }
-
-    async function downloadChatAdjunto(mensajeId, suggestedName) {
-      if (!getToken()) return;
-      const r = await fetch(toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(mensajeId)), {
-        headers: { Authorization: "Bearer " + getToken() },
-      });
-      if (!r.ok) {
-        log("No se pudo descargar el adjunto.");
-        return;
-      }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = suggestedName || "adjunto";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    /** Portapapeles o soltar (DnD): `files` a veces viene vacío; usar también `items`. */
-    function getFirstFileFromDataTransfer(dataTransfer) {
-      if (!dataTransfer) return null;
-      if (dataTransfer.files && dataTransfer.files.length) return dataTransfer.files[0];
-      const items = dataTransfer.items;
-      if (!items?.length) return null;
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        if (it.kind === "file") {
-          const f = it.getAsFile?.();
-          if (f) return f;
-        }
-      }
-      return null;
-    }
-
-    function getClipboardFile(dataTransfer) {
-      return getFirstFileFromDataTransfer(dataTransfer);
-    }
-
-    function isChatPasteOrDropTarget(el) {
-      return !!(el && el.closest && el.closest("#chatDropZone"));
-    }
-
-    function chatInputHasFocus() {
-      const ci = $("chatInput");
-      return !!(ci && document.activeElement === ci);
-    }
-
-    async function uploadPendingChatFile(file) {
-      if (!file) return;
-      if (!activeRoomId) {
-        log("Entra en una sala antes de adjuntar archivos.");
-        return;
-      }
-      if (!getToken()) {
-        log("Sesión requerida: inicia sesión para adjuntar archivos.");
-        setMediaStatus("Inicia sesión para adjuntar.");
-        return;
-      }
-      setMediaStatus("Subiendo adjunto…");
-      if (pendingChatPreviewUrl) {
-        URL.revokeObjectURL(pendingChatPreviewUrl);
-        pendingChatPreviewUrl = "";
-      }
-      try {
-        const data = await uploadChatAdjuntoFile(file);
-        const ft = String(file.type || "").toLowerCase();
-        if (ft.startsWith("image/") || ft.startsWith("video/") || ft.startsWith("audio/") || ft.includes("pdf")) {
-          pendingChatPreviewUrl = URL.createObjectURL(file);
-        }
-        pendingChatAdjunto = {
-          adjuntoRelPath: data.adjuntoRelPath,
-          adjuntoNombreOriginal: data.adjuntoNombreOriginal || file.name || "archivo",
-          adjuntoMime: data.adjuntoMime,
-          adjuntoBytes: data.adjuntoBytes,
-        };
-        updateChatAdjuntoPendingUi();
-        setMediaStatus("Adjunto listo. Pulsa Enviar (el mensaje de texto es opcional).");
-      } catch (e) {
-        pendingChatAdjunto = null;
-        if (pendingChatPreviewUrl) {
-          URL.revokeObjectURL(pendingChatPreviewUrl);
-          pendingChatPreviewUrl = "";
-        }
-        updateChatAdjuntoPendingUi();
-        const msg = e?.message || String(e);
-        log("Adjunto: " + msg);
-        setMediaStatus(msg);
-      }
-    }
-
     function setToken(t) { if (t) localStorage.setItem(LS, t); else localStorage.removeItem(LS); }
     function log(msg) {
       const text = typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
@@ -3202,16 +3135,11 @@
     let pendingNameModalResolver = null;
     const participantsById = new Map();
     const connectedUserIds = new Set();
-    const chatThreads = new Map();
-    let activeChatThreadKey = "general";
     let activeRoomId = null;
     /** Room id mostrado en sala de espera (antes de `enterRoom`). */
     let meetWaitingRoomId = "";
     /** UUID de reunión en BD (p. ej. historial / adjuntos); la sala Socket usa `activeRoomId` (room_id). */
     let activeReunionId = null;
-    /** Tras subir archivo al servidor, se envía con el siguiente «Enviar». */
-    let pendingChatAdjunto = null;
-    let pendingChatPreviewUrl = "";
     /** Sala de espera: solicitud de ingreso pendiente para el usuario actual. */
     let waitingRoomJoinRequestPending = false;
     let boardState = { elementos: [] };
@@ -3228,7 +3156,27 @@
     let drawing = false;
     let currentStroke = null;
     const boardImageCache = new Map();
+    /**
+     * Selección del tablero (multiselección con Shift+click y drag-box).
+     * El estado real vive en window.TableroSeleccion; este alias se mantiene
+     * para los sitios que esperan "el único seleccionado o -1" (compat con
+     * resize de un elemento, edición de texto, lock UI, Ctrl+C). Cuando hay
+     * 0 o >1 seleccionados, queda en -1.
+     */
     let selectedElementIndex = -1;
+    function syncSelectedSingle() {
+      const ids = TableroSeleccion.getSelectedIndices();
+      selectedElementIndex = ids.length === 1 ? ids[0] : -1;
+      return selectedElementIndex;
+    }
+    function selectSingle(idx) {
+      TableroSeleccion.selectOne(idx);
+      return syncSelectedSingle();
+    }
+    function clearBoardSelection() {
+      TableroSeleccion.clearSelection();
+      selectedElementIndex = -1;
+    }
     let pointerAction = null;
     /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
     let clipboardBoardElement = null;
@@ -3374,15 +3322,10 @@
       });
     }
     let boardSideMenuOpen = "";
-    const chatAdjuntoPreviewCache = new Map();
-    /** @type {{ mensajeId: string, mensaje: object } | null} */
-    let chatCtxMenuTarget = null;
-
     const IDB_NAME = "my-own-zoom";
     const IDB_VERSION = 1;
     const IDB_RECORDINGS = "recordings";
     const CHAT_REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
-    const CHAT_EXTRA_EMOJIS = ["🔥", "👏", "🤝", "🙏", "💡", "✅", "❓", "😎", "🤔", "💯"];
 
     const $ = (id) => document.getElementById(id);
 
@@ -4609,82 +4552,7 @@
     }
 
     function appendRecordingNotice(text) {
-      ensureGeneralThread();
-      const thread = chatThreads.get("general");
-      if (!thread) return;
-      thread.messages.push({
-        mensajeId: "local-sys-" + Date.now(),
-        contenido: text,
-        tipo: "general",
-        marcaTiempo: new Date().toISOString(),
-        autor: { nombre: "Sala", usuarioId: null },
-      });
-      if (activeChatThreadKey !== "general") {
-        thread.unread = (thread.unread || 0) + 1;
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-      log(text);
-    }
-
-    function renderChatQuickReactionBar() {
-      const bar = $("chatQuickReactionBar");
-      if (!bar) return;
-      bar.innerHTML = "";
-      const handleQuickReaction = (emoji) => {
-        if (!activeRoomId) return;
-        const input = $("chatInput");
-        const current = String(input?.value || "");
-        if (!current.trim() && !pendingChatAdjunto) {
-          sendChatMessageFromComposer(emoji);
-          return;
-        }
-        if (!input) return;
-        const start = Number.isFinite(input.selectionStart) ? input.selectionStart : current.length;
-        const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : current.length;
-        const next = current.slice(0, start) + emoji + current.slice(end);
-        input.value = next;
-        const pos = start + emoji.length;
-        try {
-          input.setSelectionRange(pos, pos);
-        } catch (_) {}
-        input.focus();
-      };
-      CHAT_REACTION_EMOJIS.forEach((emoji) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "chat-quick-reaction-btn";
-        b.textContent = emoji;
-        b.title = `Agregar ${emoji}`;
-        b.addEventListener("click", () => handleQuickReaction(emoji));
-        bar.appendChild(b);
-      });
-      const moreBtn = document.createElement("button");
-      moreBtn.type = "button";
-      moreBtn.className = "chat-quick-reaction-btn";
-      moreBtn.textContent = "...";
-      moreBtn.title = "Más emojis";
-      moreBtn.addEventListener("click", () => {
-        const picker = document.createElement("div");
-        picker.className = "chat-msg__react-picker open";
-        CHAT_EXTRA_EMOJIS.forEach((emoji) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "chat-msg__react-emoji";
-          b.textContent = emoji;
-          b.addEventListener("click", () => {
-            handleQuickReaction(emoji);
-            picker.remove();
-          });
-          picker.appendChild(b);
-        });
-        if (bar.querySelector(".chat-msg__react-picker")) {
-          bar.querySelector(".chat-msg__react-picker")?.remove();
-          return;
-        }
-        bar.appendChild(picker);
-      });
-      bar.appendChild(moreBtn);
+      if (typeof ChatModule !== "undefined") ChatModule.appendRecordingNotice(text);
     }
 
     function renderRoomReactionMenu() {
@@ -4725,17 +4593,6 @@
     function normRoomKey(id) {
       if (id == null || id === "") return "";
       return String(id).trim().toLowerCase();
-    }
-
-    function isTeacherRole(rol) {
-      const normalized = String(rol || "")
-        .trim()
-        .toLowerCase();
-      return normalized === "docente" || normalized === "profesor";
-    }
-
-    function getUserRoleLabel(rol) {
-      return isTeacherRole(rol) ? "Profesor" : "Estudiante";
     }
 
     function getStoredDisplayName() {
@@ -5233,11 +5090,11 @@
         label: snap.titulo || "Reunión",
         undo: async () => {
           await api(`/api/reuniones/${encodeURIComponent(pk)}`, { method: "DELETE" });
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await applyAgendaCreate(snap);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5252,11 +5109,11 @@
         label: a.titulo || b.titulo || "Reunión",
         undo: async () => {
           await applyAgendaPatch(pk, b);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await applyAgendaPatch(pk, a);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5276,7 +5133,7 @@
             body: JSON.stringify({ occurrenceId: occId, newDate: fromIso }),
           });
           if (bPatch) await applyAgendaPatch(pk, bPatch);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await api(`/api/reuniones/${encodeURIComponent(pk)}/reagendar`, {
@@ -5284,7 +5141,7 @@
             body: JSON.stringify({ occurrenceId: occId, newDate: toIso }),
           });
           if (aPatch) await applyAgendaPatch(pk, aPatch);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5298,11 +5155,11 @@
         label: snap.titulo || "Reunión eliminada",
         undo: async () => {
           await applyAgendaCreate(snap);
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
         redo: async () => {
           await api(`/api/reuniones/${encodeURIComponent(pk)}`, { method: "DELETE" });
-          await loadHomeMeetings();
+          await reloadLobbyHomeData();
         },
       });
     }
@@ -5320,6 +5177,9 @@
         "";
       if (status === 409) {
         return serverMsg || "Esta sesión se solapa con otra. Elige otro horario.";
+      }
+      if (status === 500) {
+        return serverMsg || "Error interno del servidor. Revisa la consola del servidor o intenta de nuevo.";
       }
       return serverMsg || (status ? `Error ${status}` : "") || "No se pudo agendar la reunión.";
     }
@@ -5403,7 +5263,7 @@
 
     function applyScheduleModalStudentView(meetingCtx, reunion) {
       resetScheduleModalAccessMode();
-      const isViewer = !isTeacherRole(currentUser?.rol) && reunion;
+      const isViewer = !canManageScheduleRole(currentUser?.rol) && reunion;
       if (!isViewer) return;
       $("scheduleModal")?.classList.add("schedule-modal--viewer");
       const slot = resolveMeetingOccurrenceSlot(reunion, {
@@ -6227,7 +6087,7 @@ body.print-calendar-export {
               });
             });
             rowItem.appendChild(b);
-            if (isTeacherRole(currentUser?.rol)) {
+            if (canManageScheduleRole(currentUser?.rol)) {
             const del = document.createElement("button");
             del.type = "button";
             del.className = "schedule-day-roster__del";
@@ -6247,6 +6107,10 @@ body.print-calendar-export {
                 if (cr) cr.textContent = "Reunión eliminada.";
                 CalendarController.setMeetings(
                   (CalendarController.getMeetings() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel))
+                );
+                CalendarController.setMisBuckets(
+                  (CalendarController.getMisProximas() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel)),
+                  (CalendarController.getMisAnteriores() || []).filter((x) => String(getReunionPk(x)) !== String(pkDel))
                 );
                 if (String(homeQuickSelectedReunionId || "") === String(pkDel)) {
                   homeQuickSelectedReunionId = null;
@@ -6314,7 +6178,7 @@ body.print-calendar-export {
       requestAnimationFrame(() => {
         const card = getScheduleModalCard();
         if (card) card.scrollTop = scheduleModalScrollTop || 0;
-        const focusEl = !isTeacherRole(currentUser?.rol) && mWork ? $("btnScheduleModalCancel") : title;
+        const focusEl = !canManageScheduleRole(currentUser?.rol) && mWork ? $("btnScheduleModalCancel") : title;
         focusEl?.focus({ preventScroll: true });
       });
     }
@@ -6372,6 +6236,47 @@ body.print-calendar-export {
       }
     }
 
+    /**
+     * Estrategia (2): poblar currentUser antes de socket/chat en sala.
+     * Si falla, el chat aplica degradación segura (5) en chat.js.
+     */
+    async function ensureCurrentUserLoaded() {
+      if (currentUser?.usuarioId) return true;
+      if (!getToken()) return false;
+      try {
+        const me = await api("/api/usuarios/me");
+        currentUser = me.usuario;
+        if (currentUser?.nombre) {
+          setCurrentDisplayName(currentUser.nombre || getStoredDisplayName());
+        }
+        return !!currentUser?.usuarioId;
+      } catch (e) {
+        log(e?.message || "No se pudo cargar el perfil de usuario.");
+        return false;
+      }
+    }
+
+    function initChatModule() {
+      if (typeof ChatModule === "undefined") return;
+      ChatModule.initChatRoom({
+        $,
+        api,
+        getToken,
+        toApiUrl,
+        normRoomKey,
+        log,
+        copyTextToClipboard,
+        getSocket: () => socket,
+        getCurrentUser: () => currentUser,
+        getActiveRoomId: () => activeRoomId,
+        getChatPanelHidden: () => chatPanelHidden,
+        setChatPanelHidden: (hidden) => setChatPanelHidden(hidden),
+        getParticipantsById: () => participantsById,
+        getConnectedUserIds: () => connectedUserIds,
+        setMediaStatus,
+      });
+    }
+
     async function showCupoByRoomId(roomId) {
       const rid = String(roomId || "").trim();
       if (!rid) return;
@@ -6389,21 +6294,197 @@ body.print-calendar-export {
       }
     }
 
-    function renderScheduledMeetings() {
-      const host = $("scheduledList");
+    function parseScheduledRef(raw) {
+      if (raw == null) return null;
+      if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw;
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    /**
+     * Construye el <div class="scheduled-item"> para un registro `r` con su `_ref`
+     * (fecha mostrada). `mode` distingue "upcoming" (aplica clases de foco de calendario)
+     * de "past" (mismo template, sin foco visual). Acciones idénticas: Entrar, Asistencia,
+     * Agendamiento, Editar, Cupo, Eliminar, Copiar código (con los guards de rol/owner).
+     */
+    function buildScheduledItem(r, mode) {
+      const rid = getReunionPk(r);
+      const item = document.createElement("div");
+      item.className = "scheduled-item";
+      if (mode === "upcoming") {
+        const inAsistenciaFocus =
+          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId);
+        const inAgendamientoFocus =
+          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId);
+        if (inAsistenciaFocus || inAgendamientoFocus) {
+          item.classList.add("scheduled-item--cal-selected");
+        }
+      }
+      const main = document.createElement("div");
+      main.className = "scheduled-item__main";
+      const title = document.createElement("div");
+      title.className = "scheduled-item__title";
+      title.textContent = r.titulo || "Reunión";
+      const meta = document.createElement("div");
+      meta.className = "scheduled-item__meta";
+      const refDate = parseScheduledRef(r._ref);
+      const when = refDate
+        ? refDate.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })
+        : "—";
+      meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
+      main.appendChild(title);
+      main.appendChild(meta);
+      const actions = document.createElement("div");
+      actions.className = "scheduled-item__actions";
+      const btnEnter = document.createElement("button");
+      btnEnter.type = "button";
+      btnEnter.className = "btn-primary";
+      btnEnter.textContent = "Entrar";
+      btnEnter.addEventListener("click", () => {
+        void enterRoom(r.roomId).catch(() => {});
+      });
+      actions.appendChild(btnEnter);
+      const btnAsist = document.createElement("button");
+      btnAsist.type = "button";
+      btnAsist.className = "btn-ghost";
+      btnAsist.textContent =
+        rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId)
+          ? "Quitar vista"
+          : "Asistencia";
+      btnAsist.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = getReunionPk(r);
+        if (id == null) return;
+        if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(id)) {
+          homeQuickSelectedReunionId = null;
+          homeAsistenciaPayload = null;
+          if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
+          renderScheduledMeetings();
+          renderHomeCalendar();
+          return;
+        }
+        homeAgendamientoReunionId = null;
+        homeQuickSelectedReunionId = id;
+        renderScheduledMeetings();
+        await loadAsistenciaForCalendar(id);
+        renderScheduledMeetings();
+      });
+      actions.appendChild(btnAsist);
+      const btnAgend = document.createElement("button");
+      btnAgend.type = "button";
+      btnAgend.className = "btn-ghost";
+      btnAgend.textContent =
+        rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId)
+          ? "Quitar vista"
+          : "Agendamiento";
+      btnAgend.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = getReunionPk(r);
+        if (id == null) return;
+        if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(id)) {
+          homeAgendamientoReunionId = null;
+          renderScheduledMeetings();
+          renderHomeCalendar();
+          return;
+        }
+        homeQuickSelectedReunionId = null;
+        homeAsistenciaPayload = null;
+        homeAgendamientoReunionId = id;
+        renderScheduledMeetings();
+        renderHomeCalendar();
+      });
+      actions.appendChild(btnAgend);
+      const canManageSchedule = canManageScheduleRole(currentUser?.rol);
+      if (canManageSchedule) {
+        const btnEdit = document.createElement("button");
+        btnEdit.type = "button";
+        btnEdit.className = "btn-ghost";
+        btnEdit.textContent = "Editar";
+        btnEdit.addEventListener("click", () => openScheduleModal(r));
+        actions.appendChild(btnEdit);
+        const btnCupo = document.createElement("button");
+        btnCupo.type = "button";
+        btnCupo.className = "btn-ghost";
+        btnCupo.textContent = "Cupo";
+        btnCupo.addEventListener("click", () => {
+          void showCupoByRoomId(r.roomId);
+        });
+        actions.appendChild(btnCupo);
+        const ownerId = r?.docenteUsuarioId ?? r?.docente_usuario_id ?? null;
+        const isOwner = ownerId != null && currentUser?.usuarioId != null && String(ownerId) === String(currentUser.usuarioId);
+        const isAdmin = typeof isAdminRole === "function" ? isAdminRole(currentUser?.rol) : false;
+        if (isOwner || isAdmin) {
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn-ghost";
+          btnDelete.textContent = "Eliminar";
+          btnDelete.addEventListener("click", async () => {
+            if (btnDelete.disabled) return;
+            if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
+            const pkDel = getReunionPk(r);
+            if (pkDel == null) {
+              $("crearResult").textContent = "No se pudo determinar la reunión a eliminar.";
+              return;
+            }
+            btnDelete.disabled = true;
+            const snapDel = snapshotReunionAgenda(r);
+            try {
+              await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
+              if (snapDel) pushHistorialCancelar(snapDel, pkDel);
+              try {
+                const currentList = CalendarController.getMeetings() || [];
+                const nextList = currentList.filter((m) => String(getReunionPk(m)) !== String(pkDel));
+                CalendarController.setMeetings(nextList);
+                CalendarController.setMisBuckets(
+                  (CalendarController.getMisProximas() || []).filter((m) => String(getReunionPk(m)) !== String(pkDel)),
+                  (CalendarController.getMisAnteriores() || []).filter((m) => String(getReunionPk(m)) !== String(pkDel))
+                );
+                if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(pkDel)) {
+                  homeQuickSelectedReunionId = null;
+                  homeAsistenciaPayload = null;
+                  if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
+                }
+                if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(pkDel)) {
+                  homeAgendamientoReunionId = null;
+                }
+              } catch (_optErr) {}
+              renderScheduledMeetings();
+              renderHomeCalendar();
+              $("crearResult").textContent = "Reunión eliminada.";
+              void reloadLobbyHomeData();
+            } catch (e) {
+              const apiMsg = e?.data?.error || e?.message || "Error al eliminar la reunión.";
+              $("crearResult").textContent = "No se pudo eliminar: " + apiMsg;
+              log("Eliminar reunión: " + apiMsg);
+              btnDelete.disabled = false;
+            }
+          });
+          actions.appendChild(btnDelete);
+        }
+        const btnLink = document.createElement("button");
+        btnLink.type = "button";
+        btnLink.className = "btn-ghost";
+        btnLink.textContent = "Copiar código";
+        btnLink.addEventListener("click", async () => {
+          const ok = await copyTextToClipboard(getMeetingShareCode(r.roomId));
+          $("crearResult").textContent = ok ? "Código copiado al portapapeles." : "No se pudo copiar el código.";
+        });
+        actions.appendChild(btnLink);
+      }
+      item.appendChild(main);
+      item.appendChild(actions);
+      return item;
+    }
+
+    /**
+     * Pinta `list` en `host` para el modo dado. En "upcoming" se renderiza el banner de
+     * foco de calendario y el mensaje vacío estándar; "past" omite ambos (lo gestiona el
+     * <details> exterior que se oculta cuando no hay pasadas).
+     */
+    function renderBucket(host, list, mode) {
       if (!host) return;
-      const now = Date.now();
-      const upcoming = (CalendarController.getMeetings() || [])
-        .filter((r) => r?.fechaHora && r?.estado !== "finalizada")
-        .map((r) => {
-          const next = getNextMeetingOccurrence(r, new Date(now - 10 * 60_000));
-          return { ...r, _next: next, _ts: next?.getTime?.() || NaN };
-        })
-        .filter((r) => Number.isFinite(r._ts))
-        .sort((a, b) => a._ts - b._ts)
-        .slice(0, 10);
       host.innerHTML = "";
-      if (homeQuickSelectedReunionId != null || homeAgendamientoReunionId != null) {
+      if (mode === "upcoming" && (homeQuickSelectedReunionId != null || homeAgendamientoReunionId != null)) {
         const banner = document.createElement("div");
         banner.style.cssText =
           "display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-bottom:0.45rem";
@@ -6428,143 +6509,30 @@ body.print-calendar-export {
         banner.appendChild(btnClr);
         host.appendChild(banner);
       }
-      if (upcoming.length === 0) {
-        const empty = document.createElement("p");
-        empty.className = "home-muted";
-        empty.textContent = "No hay reuniones programadas próximas.";
-        host.appendChild(empty);
+      if (list.length === 0) {
+        if (mode === "upcoming") {
+          const empty = document.createElement("p");
+          empty.className = "home-muted";
+          empty.textContent = "No hay reuniones programadas próximas.";
+          host.appendChild(empty);
+        }
         return;
       }
-      upcoming.forEach((r) => {
-        const rid = getReunionPk(r);
-        const item = document.createElement("div");
-        item.className = "scheduled-item";
-        const inAsistenciaFocus =
-          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId);
-        const inAgendamientoFocus =
-          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId);
-        if (inAsistenciaFocus || inAgendamientoFocus) {
-          item.classList.add("scheduled-item--cal-selected");
-        }
-        const main = document.createElement("div");
-        main.className = "scheduled-item__main";
-        const title = document.createElement("div");
-        title.className = "scheduled-item__title";
-        title.textContent = r.titulo || "Reunión";
-        const meta = document.createElement("div");
-        meta.className = "scheduled-item__meta";
-        const when = r._next.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-        meta.textContent = `${when} · ${recurrenceSummaryLabel(parseMeetingRecurrence(r.recurrencia))} · room ${r.roomId}`;
-        main.appendChild(title);
-        main.appendChild(meta);
-        const actions = document.createElement("div");
-        actions.className = "scheduled-item__actions";
-        const btnEnter = document.createElement("button");
-        btnEnter.type = "button";
-        btnEnter.className = "btn-primary";
-        btnEnter.textContent = "Entrar";
-        btnEnter.addEventListener("click", () => {
-          void enterRoom(r.roomId).catch(() => {});
-        });
-        actions.appendChild(btnEnter);
-        const btnAsist = document.createElement("button");
-        btnAsist.type = "button";
-        btnAsist.className = "btn-ghost";
-        btnAsist.textContent =
-          rid != null && homeQuickSelectedReunionId != null && String(rid) === String(homeQuickSelectedReunionId)
-            ? "Quitar vista"
-            : "Asistencia";
-        btnAsist.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          const id = getReunionPk(r);
-          if (id == null) return;
-          if (homeQuickSelectedReunionId != null && String(homeQuickSelectedReunionId) === String(id)) {
-            homeQuickSelectedReunionId = null;
-            homeAsistenciaPayload = null;
-            if (typeof AsistenciaLive !== "undefined") AsistenciaLive.unsubscribe();
-            renderScheduledMeetings();
-            renderHomeCalendar();
-            return;
-          }
-          homeAgendamientoReunionId = null;
-          homeQuickSelectedReunionId = id;
-          renderScheduledMeetings();
-          await loadAsistenciaForCalendar(id);
-          renderScheduledMeetings();
-        });
-        actions.appendChild(btnAsist);
-        const btnAgend = document.createElement("button");
-        btnAgend.type = "button";
-        btnAgend.className = "btn-ghost";
-        btnAgend.textContent =
-          rid != null && homeAgendamientoReunionId != null && String(rid) === String(homeAgendamientoReunionId)
-            ? "Quitar vista"
-            : "Agendamiento";
-        btnAgend.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const id = getReunionPk(r);
-          if (id == null) return;
-          if (homeAgendamientoReunionId != null && String(homeAgendamientoReunionId) === String(id)) {
-            homeAgendamientoReunionId = null;
-            renderScheduledMeetings();
-            renderHomeCalendar();
-            return;
-          }
-          homeQuickSelectedReunionId = null;
-          homeAsistenciaPayload = null;
-          homeAgendamientoReunionId = id;
-          renderScheduledMeetings();
-          renderHomeCalendar();
-        });
-        actions.appendChild(btnAgend);
-        const canManageSchedule = isTeacherRole(currentUser?.rol);
-        if (canManageSchedule) {
-          const btnEdit = document.createElement("button");
-          btnEdit.type = "button";
-          btnEdit.className = "btn-ghost";
-          btnEdit.textContent = "Editar";
-          btnEdit.addEventListener("click", () => openScheduleModal(r));
-          actions.appendChild(btnEdit);
-          const btnCupo = document.createElement("button");
-          btnCupo.type = "button";
-          btnCupo.className = "btn-ghost";
-          btnCupo.textContent = "Cupo";
-          btnCupo.addEventListener("click", () => {
-            void showCupoByRoomId(r.roomId);
-          });
-          actions.appendChild(btnCupo);
-          const btnDelete = document.createElement("button");
-          btnDelete.type = "button";
-          btnDelete.className = "btn-ghost";
-          btnDelete.textContent = "Eliminar";
-          btnDelete.addEventListener("click", async () => {
-            if (!confirm(`¿Eliminar la reunión "${r.titulo || "sin título"}"?`)) return;
-            try {
-              const snapDel = snapshotReunionAgenda(r);
-              const pkDel = r.reunionId;
-              await api("/api/reuniones/" + encodeURIComponent(pkDel), { method: "DELETE" });
-              if (snapDel) pushHistorialCancelar(snapDel, pkDel);
-              $("crearResult").textContent = "Reunión eliminada.";
-              void loadHomeMeetings();
-            } catch (e) {
-              log("Eliminar reunión: " + e.message);
-            }
-          });
-          actions.appendChild(btnDelete);
-          const btnLink = document.createElement("button");
-          btnLink.type = "button";
-          btnLink.className = "btn-ghost";
-          btnLink.textContent = "Copiar código";
-          btnLink.addEventListener("click", async () => {
-            const ok = await copyTextToClipboard(getMeetingShareCode(r.roomId));
-            $("crearResult").textContent = ok ? "Código copiado al portapapeles." : "No se pudo copiar el código.";
-          });
-          actions.appendChild(btnLink);
-        }
-        item.appendChild(main);
-        item.appendChild(actions);
-        host.appendChild(item);
-      });
+      list.forEach((r) => host.appendChild(buildScheduledItem(r, mode)));
+    }
+
+    function renderScheduledMeetings() {
+      const host = $("scheduledList");
+      const pastHost = $("scheduledPastList");
+      if (!host) return;
+      const upcoming = CalendarController.getMisProximas() || [];
+      const past = CalendarController.getMisAnteriores() || [];
+      renderBucket(host, upcoming, "upcoming");
+      renderBucket(pastHost, past, "past");
+      const pastCountEl = $("scheduledPastCount");
+      if (pastCountEl) pastCountEl.textContent = past.length ? `(${past.length})` : "";
+      const pastWrap = $("scheduledPastWrap");
+      if (pastWrap) pastWrap.classList.toggle("hidden", past.length === 0);
     }
 
     function getReunionDurationMinutesFromData(reunion) {
@@ -6811,7 +6779,7 @@ body.print-calendar-export {
 
     function updateLobbyRoleUi() {
       const role = currentUser?.rol || "";
-      const isTeacher = isTeacherRole(role);
+      const isTeacher = canManageScheduleRole(role);
       const createBtn = $("btnCrearReunion");
       const roleBadge = $("homeRoleBadge");
       const hint = $("scheduleHint");
@@ -6829,6 +6797,10 @@ body.print-calendar-export {
       const btnRedo = $("btnCalendarRedo");
       if (btnUndo) btnUndo.classList.toggle("hidden", !isTeacher);
       if (btnRedo) btnRedo.classList.toggle("hidden", !isTeacher);
+      const linkAdmin = $("linkAdminPanel");
+      if (linkAdmin) {
+        linkAdmin.classList.toggle("hidden", !isAdminRole(role));
+      }
     }
 
     function appendCalendarDayTimeLabel(inner, reunion, year, month, day) {
@@ -6880,7 +6852,7 @@ body.print-calendar-export {
 
     function openDayRosterFromCell(ev, y, mo, d) {
       ev?.stopPropagation?.();
-      if (!isTeacherRole(currentUser?.rol)) return;
+      if (!canManageScheduleRole(currentUser?.rol)) return;
       homeCalendarSelectedDate = new Date(y, mo, d, 12, 0, 0, 0);
       const dayList = listMeetingsOnCalendarDay(y, mo, d);
       const dayLabel = new Date(y, mo, d).toLocaleDateString("es-CO", {
@@ -6909,7 +6881,7 @@ body.print-calendar-export {
     }
 
     function appendCalendarDayVerButton(inner, year, month, day) {
-      if (!isTeacherRole(currentUser?.rol)) return;
+      if (!canManageScheduleRole(currentUser?.rol)) return;
       const ver = document.createElement("button");
       ver.type = "button";
       ver.className = "btn-calendar-ver";
@@ -6998,7 +6970,7 @@ body.print-calendar-export {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const offset = (firstDay.getDay() + 6) % 7;
         const today = new Date();
-        const isTeacherCal = isTeacherRole(currentUser?.rol);
+        const isTeacherCal = canManageScheduleRole(currentUser?.rol);
 
         for (let i = 0; i < offset; i++) {
           const cell = document.createElement("div");
@@ -7073,6 +7045,16 @@ body.print-calendar-export {
       appendMonthBlock(y1, m1);
     }
 
+    async function loadHomeMisBuckets() {
+      if (typeof CalendarController === "undefined") return;
+      await CalendarController.loadHomeMisBuckets({ getToken, api });
+      renderScheduledMeetings();
+    }
+
+    async function reloadLobbyHomeData() {
+      await Promise.all([loadHomeMeetings(), loadHomeMisBuckets()]);
+    }
+
     async function loadHomeMeetings() {
       if (typeof CalendarController === "undefined") {
         console.warn("CalendarController no cargado (/js/calendarController.js).");
@@ -7086,7 +7068,9 @@ body.print-calendar-export {
           homeAsistenciaPayload = null;
           homeAgendamientoReunionId = null;
           homeCalendarViewDate = new Date();
+          CalendarController.setMisBuckets([], []);
           renderHomeCalendar(homeCalendarViewDate);
+          renderScheduledMeetings();
         },
         async onAfterLoad(meetings) {
           homeCalendarViewDate = new Date();
@@ -7109,14 +7093,13 @@ body.print-calendar-export {
           } else {
             renderHomeCalendar(homeCalendarViewDate);
           }
-          renderScheduledMeetings();
         },
       });
     }
 
     function renderLobbyHome() {
       updateLobbyRoleUi();
-      void loadHomeMeetings();
+      void reloadLobbyHomeData();
     }
 
     async function loadIce() {
@@ -7174,6 +7157,7 @@ body.print-calendar-export {
       $("roomSection")?.classList.remove("hidden");
       document.body.classList.add("body--in-room", "app-route-meet");
       document.body.classList.remove("app-route-login", "app-route-lobby");
+      initRoomChatBarModules();
       setChatPanelHidden(false);
       requestAnimationFrame(() => {
         applyRoomVideoStripSizing();
@@ -7300,9 +7284,28 @@ body.print-calendar-export {
       if (btn) { btn.textContent = text; btn.setAttribute("aria-pressed", pressed); }
       const btnInline = $("btnToggleChatInline");
       if (btnInline) { btnInline.textContent = text; btnInline.setAttribute("aria-pressed", pressed); }
+      if (!chatPanelHidden && typeof ChatModule !== "undefined") {
+        ChatModule.onActiveThreadChanged(ChatModule.getActiveChatThreadKey());
+      }
       requestAnimationFrame(() => {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
+    }
+
+    let roomChatBarModulesReady = false;
+    function initRoomChatBarModules() {
+      if (roomChatBarModulesReady) return;
+      if (typeof ChatModule === "undefined" || typeof Notificaciones === "undefined" || typeof UiBarra === "undefined") {
+        return;
+      }
+      roomChatBarModulesReady = true;
+      Notificaciones.initNotificaciones({
+        getChatThreads: () => ChatModule.getChatThreads(),
+        onUpdate: (state) => {
+          UiBarra.updateBadge(state?.totalUnread);
+        },
+      });
+      UiBarra.mountRoomBottomBar({ onOpenChat: () => ChatModule.openChatFromBar() });
     }
 
     function closeBoardSideMenus() {
@@ -8719,10 +8722,12 @@ body.print-calendar-export {
       const next = cloneBoardState(boardState);
       const idx = selectedElementIndex;
       next.elementos[idx] = { ...next.elementos[idx], locked: !el.locked };
-      if (next.elementos[idx].locked) {
-        selectedElementIndex = -1;
-      }
+      const willLock = !!next.elementos[idx].locked;
       applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+      if (willLock) {
+        clearBoardSelection();
+        drawBoard();
+      }
     }
 
     function getBoardElementBounds(el) {
@@ -9261,7 +9266,8 @@ body.print-calendar-export {
         boardFuture.length = 0;
       }
       boardState = cloneBoardState(nextState || { elementos: [] });
-      if (selectedElementIndex >= boardState.elementos.length) selectedElementIndex = -1;
+      TableroSeleccion.reconcileAfterStateChange(boardState.elementos.length);
+      syncSelectedSingle();
       drawBoard();
       updateBoardHistoryButtons();
       if (emit) emitBoardUpdate();
@@ -9314,513 +9320,6 @@ body.print-calendar-export {
       applyBoardState(next, { emit: true });
     }
 
-    function appendChatLine(payload) {
-      const m = payload.mensaje;
-      if (!m) return;
-      const autor = m.autor || null;
-      const destinatario = m.destinatario || null;
-      if (autor?.usuarioId) {
-        participantsById.set(autor.usuarioId, autor);
-      }
-      if (destinatario?.usuarioId) {
-        participantsById.set(destinatario.usuarioId, destinatario);
-      }
-
-      let threadKey = "general";
-      if (m.tipo === "privado") {
-        const selfId = currentUser?.usuarioId;
-        const isMine = selfId && autor?.usuarioId === selfId;
-        const peerId = isMine
-          ? (m.destinatarioUsuarioId || destinatario?.usuarioId)
-          : autor?.usuarioId;
-        if (peerId) {
-          threadKey = `dm:${peerId}`;
-          if (!chatThreads.has(threadKey)) {
-            const peer = participantsById.get(peerId);
-            const label = peer?.nombre || `Usuario ${String(peerId).slice(0, 8)}`;
-            chatThreads.set(threadKey, {
-              key: threadKey,
-              type: "dm",
-              targetUserId: peerId,
-              label,
-              messages: [],
-              unread: 0,
-            });
-          }
-        }
-      } else {
-        ensureGeneralThread();
-      }
-
-      const thread = chatThreads.get(threadKey);
-      if (!thread) return;
-      thread.messages.push(m);
-      if (activeChatThreadKey !== threadKey) {
-        thread.unread = (thread.unread || 0) + 1;
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-      refreshChatThreadPicker();
-    }
-
-    function ensureGeneralThread() {
-      if (!chatThreads.has("general")) {
-        chatThreads.set("general", {
-          key: "general",
-          type: "general",
-          label: "General",
-          targetUserId: null,
-          messages: [],
-          unread: 0,
-        });
-      }
-    }
-
-    function setActiveChatThread(threadKey) {
-      if (!chatThreads.has(threadKey)) return;
-      activeChatThreadKey = threadKey;
-      const thread = chatThreads.get(threadKey);
-      thread.unread = 0;
-      renderChatThreadTabs();
-      renderChatMessages();
-    }
-
-    function closeChatThread(threadKey) {
-      const thread = chatThreads.get(threadKey);
-      if (!thread || thread.type !== "dm") return;
-      chatThreads.delete(threadKey);
-      if (activeChatThreadKey === threadKey) {
-        activeChatThreadKey = "general";
-      }
-      renderChatThreadTabs();
-      renderChatMessages();
-      refreshChatThreadPicker();
-    }
-
-    function renderChatThreadTabs() {
-      const container = $("chatThreadTabs");
-      if (!container) return;
-      container.innerHTML = "";
-      const ordered = [...chatThreads.values()].sort((a, b) => {
-        if (a.key === "general") return -1;
-        if (b.key === "general") return 1;
-        return a.label.localeCompare(b.label, "es");
-      });
-      ordered.forEach((t) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "chat-tab" + (t.key === activeChatThreadKey ? " active" : "");
-        btn.textContent = t.label;
-        if (t.unread > 0) {
-          const badge = document.createElement("span");
-          badge.className = "badge";
-          badge.textContent = String(t.unread);
-          btn.appendChild(badge);
-        }
-        if (t.type === "dm") {
-          const closeBtn = document.createElement("button");
-          closeBtn.type = "button";
-          closeBtn.className = "chat-tab-close";
-          closeBtn.title = `Cerrar chat con ${t.label}`;
-          closeBtn.textContent = "×";
-          closeBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            closeChatThread(t.key);
-          });
-          btn.appendChild(closeBtn);
-        }
-        btn.addEventListener("click", () => setActiveChatThread(t.key));
-        container.appendChild(btn);
-      });
-    }
-
-    function removeChatMessageEverywhere(mensajeId) {
-      const id = String(mensajeId || "").trim();
-      if (!id) return;
-      const url = chatAdjuntoPreviewCache.get(id);
-      if (url) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (_) {}
-      }
-      chatAdjuntoPreviewCache.delete(id);
-      chatThreads.forEach((t) => {
-        t.messages = t.messages.filter((mm) => String(mm.mensajeId) !== id);
-      });
-      renderChatMessages();
-    }
-
-    function buildReactionSummaryFromRows(rows = []) {
-      const grouped = new Map();
-      rows.forEach((row) => {
-        const emoji = String(row?.emoji || "");
-        if (!emoji) return;
-        if (!grouped.has(emoji)) grouped.set(emoji, []);
-        grouped.get(emoji).push({
-          usuarioId: row?.reactor?.usuarioId || row?.usuarioId || null,
-          nombre: row?.reactor?.nombre || "",
-        });
-      });
-      return [...grouped.entries()].map(([emoji, users]) => ({
-        emoji,
-        count: users.length,
-        users,
-      }));
-    }
-
-    function getMessageReactionSummary(m) {
-      if (!m || typeof m !== "object") return [];
-      if (Array.isArray(m.reaccionesResumen)) return m.reaccionesResumen;
-      if (Array.isArray(m.reacciones)) return buildReactionSummaryFromRows(m.reacciones);
-      return [];
-    }
-
-    function applyMessageReactionsUpdate(mensajeId, reactions) {
-      const id = String(mensajeId || "").trim();
-      if (!id) return;
-      chatThreads.forEach((t) => {
-        t.messages.forEach((m) => {
-          if (String(m?.mensajeId || "") === id) {
-            m.reaccionesResumen = Array.isArray(reactions) ? reactions : [];
-          }
-        });
-      });
-      renderChatMessages();
-    }
-
-    function emitChatReactionToggle(mensajeId, emoji) {
-      if (!socket || !activeRoomId || !mensajeId || !emoji) return;
-      socket.emit(
-        "chat:reaction:toggle",
-        { roomId: normRoomKey(activeRoomId), mensajeId, emoji },
-        (r) => {
-          if (!r || r.ok === false) {
-            appendRecordingNotice("Reacción: " + (r?.error || "No se pudo actualizar"));
-            return;
-          }
-          if (Array.isArray(r.reactions)) {
-            applyMessageReactionsUpdate(String(mensajeId), r.reactions);
-          }
-        }
-      );
-    }
-
-    function closeChatCtxMenu() {
-      const menu = $("chatCtxMenu");
-      if (menu) {
-        menu.classList.remove("chat-ctx--open");
-        menu.innerHTML = "";
-        menu.setAttribute("aria-hidden", "true");
-      }
-      chatCtxMenuTarget = null;
-    }
-
-    function openChatCtxMenu(clientX, clientY, m) {
-      closeChatCtxMenu();
-      const menu = $("chatCtxMenu");
-      if (!menu || !m) return;
-      const midRaw = m.mensajeId;
-      const mid = midRaw != null ? String(midRaw) : "";
-      const isLocal = mid.startsWith("local-");
-      const selfId = currentUser?.usuarioId;
-      const authorId = m.autor?.usuarioId;
-      const isAdmin = String(currentUser?.rol || "").toLowerCase() === "admin";
-      const canDelete =
-        !!mid &&
-        !isLocal &&
-        (isAdmin ||
-          (selfId &&
-            authorId &&
-            String(authorId).toLowerCase() === String(selfId).toLowerCase()));
-
-      const addItem = (label, fn) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = label;
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          fn();
-          closeChatCtxMenu();
-        });
-        menu.appendChild(b);
-      };
-
-      addItem("Copiar texto", () => {
-        void copyTextToClipboard(m.contenido || "");
-      });
-      if (m.adjuntoNombreOriginal) {
-        addItem("Copiar nombre de archivo", () => {
-          void copyTextToClipboard(String(m.adjuntoNombreOriginal));
-        });
-      }
-      if (mid && !isLocal && m.adjuntoRelPath) {
-        addItem("Copiar enlace de descarga", () => {
-          const path = toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(mid));
-          void copyTextToClipboard(path);
-        });
-      }
-      if (canDelete) {
-        addItem("Eliminar mensaje", async () => {
-          if (!confirm("¿Eliminar este mensaje" + (m.adjuntoRelPath ? " y su archivo" : "") + "?")) return;
-          try {
-            await api("/api/mensajes/" + encodeURIComponent(mid), { method: "DELETE" });
-            removeChatMessageEverywhere(mid);
-          } catch (err) {
-            log(err?.message || "No se pudo eliminar");
-          }
-        });
-      }
-
-      chatCtxMenuTarget = { mensajeId: mid, mensaje: m };
-      menu.classList.add("chat-ctx--open");
-      menu.setAttribute("aria-hidden", "false");
-      const mw = 200;
-      const mh = 180;
-      let x = clientX;
-      let y = clientY;
-      if (x + mw > window.innerWidth - 6) x = window.innerWidth - mw - 6;
-      if (y + mh > window.innerHeight - 6) y = window.innerHeight - mh - 6;
-      menu.style.left = Math.max(6, x) + "px";
-      menu.style.top = Math.max(6, y) + "px";
-    }
-
-    function renderChatMessages() {
-      const box = $("chatBox");
-      if (!box) return;
-      box.innerHTML = "";
-      closeChatCtxMenu();
-      const thread = chatThreads.get(activeChatThreadKey);
-      if (!thread) return;
-      const getChatAdjuntoFileUrl = async (m) => {
-        if (!m?.adjuntoRelPath || !m?.mensajeId) return "";
-        const cacheKey = String(m.mensajeId);
-        if (chatAdjuntoPreviewCache.has(cacheKey)) {
-          return chatAdjuntoPreviewCache.get(cacheKey);
-        }
-        try {
-          const r = await fetch(toApiUrl("/api/mensajes/adjunto/" + encodeURIComponent(m.mensajeId)), {
-            headers: { Authorization: "Bearer " + getToken() },
-          });
-          if (!r.ok) return "";
-          const blob = await r.blob();
-          const url = URL.createObjectURL(blob);
-          chatAdjuntoPreviewCache.set(cacheKey, url);
-          return url;
-        } catch (_) {
-          return "";
-        }
-      };
-      thread.messages.forEach((m) => {
-        const row = document.createElement("div");
-        const autor = m.autor?.nombre || m.autor?.usuarioId || "?";
-        const tipo = m.tipo === "privado" ? " (privado)" : "";
-        row.className = "chat-msg" + (m.tipo === "privado" ? " msg-privado" : "");
-        const mid = m.mensajeId != null ? String(m.mensajeId) : "";
-        if (mid) row.dataset.mensajeId = mid;
-        const tstr = new Date(m.marcaTiempo || Date.now()).toLocaleTimeString();
-
-        const hdr = document.createElement("div");
-        hdr.className = "chat-msg__hdr";
-        hdr.textContent = `[${tstr}] ${autor}${tipo}`;
-        row.appendChild(hdr);
-
-        const body = document.createElement("div");
-        body.className =
-          "chat-msg__body" + (m.adjuntoRelPath && m.mensajeId ? " chat-msg__body--adjunto" : "");
-
-        const selfId = currentUser?.usuarioId;
-        const authorId = m.autor?.usuarioId;
-        const isAdmin = String(currentUser?.rol || "").toLowerCase() === "admin";
-        const canDelete =
-          !!mid &&
-          !mid.startsWith("local-") &&
-          (isAdmin ||
-            (selfId &&
-              authorId &&
-              String(authorId).toLowerCase() === String(selfId).toLowerCase()));
-
-        if (canDelete) {
-          const del = document.createElement("button");
-          del.type = "button";
-          del.className = "chat-msg__del";
-          del.title = "Eliminar mensaje";
-          del.setAttribute("aria-label", "Eliminar mensaje");
-          del.textContent = "×";
-          del.addEventListener("click", async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (!confirm("¿Eliminar este mensaje" + (m.adjuntoRelPath ? " y su archivo" : "") + "?")) return;
-            try {
-              await api("/api/mensajes/" + encodeURIComponent(mid), { method: "DELETE" });
-              removeChatMessageEverywhere(mid);
-            } catch (err) {
-              log(err?.message || "No se pudo eliminar");
-            }
-          });
-          body.appendChild(del);
-        }
-
-        body.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          openChatCtxMenu(e.clientX, e.clientY, m);
-        });
-
-        if (m.adjuntoRelPath && m.mensajeId) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "chat-adjunto-btn";
-          btn.textContent = `📎 ${m.adjuntoNombreOriginal || "archivo"}`;
-          btn.title = "Descargar adjunto";
-          btn.addEventListener("click", () =>
-            downloadChatAdjunto(m.mensajeId, m.adjuntoNombreOriginal || "adjunto")
-          );
-          body.appendChild(btn);
-          const previewWrap = document.createElement("div");
-          previewWrap.className = "chat-adjunto-preview";
-          const mime = String(m.adjuntoMime || "").toLowerCase();
-          if (mime.startsWith("image/")) {
-            const img = document.createElement("img");
-            img.alt = m.adjuntoNombreOriginal || "adjunto";
-            img.loading = "lazy";
-            previewWrap.appendChild(img);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) img.src = url;
-            });
-          } else if (mime.startsWith("video/")) {
-            const vid = document.createElement("video");
-            vid.controls = true;
-            vid.preload = "metadata";
-            vid.playsInline = true;
-            previewWrap.appendChild(vid);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) vid.src = url;
-            });
-          } else if (mime.startsWith("audio/")) {
-            const audio = document.createElement("audio");
-            audio.controls = true;
-            audio.preload = "metadata";
-            previewWrap.appendChild(audio);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) audio.src = url;
-            });
-          } else if (mime.includes("pdf")) {
-            const emb = document.createElement("embed");
-            emb.type = "application/pdf";
-            previewWrap.appendChild(emb);
-            void getChatAdjuntoFileUrl(m).then((url) => {
-              if (url) emb.src = url + "#page=1&view=FitH";
-            });
-          } else {
-            const fileCap = document.createElement("span");
-            fileCap.className = "chat-adjunto-preview--file";
-            fileCap.textContent = "Vista previa no disponible";
-            previewWrap.appendChild(fileCap);
-          }
-          body.appendChild(previewWrap);
-        }
-        const cap = document.createElement("div");
-        cap.style.marginTop = "0.2rem";
-        cap.style.whiteSpace = "pre-wrap";
-        cap.textContent = m.contenido || "";
-        body.appendChild(cap);
-
-        const midForReaction = m.mensajeId != null ? String(m.mensajeId) : "";
-        const summary = getMessageReactionSummary(m);
-        if (summary.length) {
-          const chips = document.createElement("div");
-          chips.className = "chat-msg__reactions";
-          summary.forEach((item) => {
-            const chip = document.createElement("button");
-            chip.type = "button";
-            chip.className = "chat-react-chip";
-            const myUid = String(currentUser?.usuarioId || "").trim().toLowerCase();
-            const mine = (item.users || []).some(
-              (u) => String(u?.usuarioId || "").trim().toLowerCase() === myUid
-            );
-            if (mine) chip.classList.add("chat-react-chip--mine");
-            chip.title = (item.users || []).map((u) => u?.nombre || "Usuario").join(", ");
-            chip.textContent = `${item.emoji} ${item.count}`;
-            chip.addEventListener("click", () => {
-              emitChatReactionToggle(midForReaction, item.emoji);
-            });
-            chips.appendChild(chip);
-          });
-          body.appendChild(chips);
-        }
-
-        if (midForReaction && !midForReaction.startsWith("local-")) {
-          const reactRow = document.createElement("div");
-          reactRow.className = "chat-msg__react-row";
-          const addBtn = document.createElement("button");
-          addBtn.type = "button";
-          addBtn.className = "chat-msg__react-add";
-          addBtn.textContent = "Reaccionar";
-          const picker = document.createElement("div");
-          picker.className = "chat-msg__react-picker";
-          CHAT_REACTION_EMOJIS.forEach((emoji) => {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.className = "chat-msg__react-emoji";
-            b.textContent = emoji;
-            b.addEventListener("click", () => {
-              emitChatReactionToggle(midForReaction, emoji);
-              picker.classList.remove("open");
-            });
-            picker.appendChild(b);
-          });
-          addBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            picker.classList.toggle("open");
-          });
-          reactRow.appendChild(addBtn);
-          reactRow.appendChild(picker);
-          body.appendChild(reactRow);
-        }
-
-        row.appendChild(body);
-        box.appendChild(row);
-      });
-      box.scrollTop = box.scrollHeight;
-    }
-
-    function refreshChatThreadPicker() {
-      const sel = $("chatThreadPicker");
-      if (!sel) return;
-      const previous = sel.value;
-      sel.innerHTML = "";
-      const general = document.createElement("option");
-      general.value = "general";
-      general.textContent = "General";
-      sel.appendChild(general);
-
-      const userOptions = [...participantsById.values()]
-        .filter((u) => u?.usuarioId && u.usuarioId !== currentUser?.usuarioId && connectedUserIds.has(u.usuarioId))
-        .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
-      userOptions.forEach((u) => {
-        const opt = document.createElement("option");
-        opt.value = u.usuarioId;
-        opt.textContent = u.nombre || u.email || u.usuarioId;
-        sel.appendChild(opt);
-      });
-      sel.value = previous && [...sel.options].some((o) => o.value === previous) ? previous : "general";
-    }
-
-    function openDmThreadByUserId(userId) {
-      if (!userId) return;
-      const key = `dm:${userId}`;
-      if (!chatThreads.has(key)) {
-        const u = participantsById.get(userId);
-        chatThreads.set(key, {
-          key,
-          type: "dm",
-          targetUserId: userId,
-          label: u?.nombre || `Usuario ${String(userId).slice(0, 8)}`,
-          messages: [],
-          unread: 0,
-        });
-      }
-      setActiveChatThread(key);
-    }
 
     async function loadParticipantsForRoom(roomId) {
       const roomData = await api("/api/reuniones/room/" + encodeURIComponent(roomId));
@@ -9839,8 +9338,7 @@ body.print-calendar-export {
           participantsById.set(p.usuario.usuarioId, p.usuario);
         }
       });
-      refreshChatThreadPicker();
-      renderChatThreadTabs();
+      if (typeof ChatModule !== "undefined") ChatModule.refreshAfterParticipants();
     }
 
     function connectSocketIfNeeded() {
@@ -9866,12 +9364,14 @@ body.print-calendar-export {
           log(msg);
           reject(new Error(msg));
         });
-        socket.on("chat:message", appendChatLine);
-        socket.on("chat:messageDeleted", ({ mensajeId }) => {
-          if (mensajeId) removeChatMessageEverywhere(String(mensajeId));
+        socket.on("chat:message", (payload) => {
+          ChatModule?.onIncomingMessage?.(payload);
         });
-        socket.on("chat:messageReaction", ({ mensajeId, reactions }) => {
-          if (mensajeId) applyMessageReactionsUpdate(String(mensajeId), reactions);
+        socket.on("chat:messageDeleted", ({ mensajeId }) => {
+          if (mensajeId) ChatModule?.removeChatMessageEverywhere?.(String(mensajeId));
+        });
+        socket.on("chat:messageReaction", (payload) => {
+          ChatModule?.onIncomingReaction?.(payload);
         });
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
@@ -10037,7 +9537,7 @@ body.print-calendar-export {
             if (!participantsById.has(userId) && activeRoomId) {
               loadParticipantsForRoom(activeRoomId).catch((e) => console.warn(e));
             } else {
-              refreshChatThreadPicker();
+              ChatModule?.refreshAfterParticipants?.();
             }
           }
         });
@@ -10045,7 +9545,7 @@ body.print-calendar-export {
           if (socketId) peerSocketToUserId.delete(socketId);
           if (userId && userId !== currentUser?.usuarioId) {
             connectedUserIds.delete(userId);
-            refreshChatThreadPicker();
+            ChatModule?.refreshAfterParticipants?.();
           }
           if (socketId) cleanupPeer(socketId);
         });
@@ -10094,6 +9594,7 @@ body.print-calendar-export {
       try {
         await loadIce();
         await ensureLocalStream({ allowSilentJoin: true });
+        await ensureCurrentUserLoaded();
         await connectSocketIfNeeded();
       } catch (e) {
         const msg = e?.name === "NotAllowedError" || e?.message?.includes("Permiso")
@@ -10139,10 +9640,7 @@ body.print-calendar-export {
             _suppressHashRoute = true;
             location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
             _suppressHashRoute = false;
-            ensureGeneralThread();
-            chatThreads.forEach((t) => {
-              t.unread = 0;
-            });
+            ChatModule?.markAllRead?.();
             connectedUserIds.clear();
             peerSocketToUserId.clear();
             if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
@@ -10151,7 +9649,7 @@ body.print-calendar-export {
               if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
             });
             await loadParticipantsForRoom(activeRoomId);
-            setActiveChatThread("general");
+            ChatModule?.setActiveChatThread?.("general");
             log("En sala. Peers: " + JSON.stringify(resp.peers));
             const peers = resp.peers || [];
             for (const p of peers) {
@@ -10223,17 +9721,6 @@ body.print-calendar-export {
 
       activeRoomId = null;
       activeReunionId = null;
-      pendingChatAdjunto = null;
-      if (pendingChatPreviewUrl) {
-        URL.revokeObjectURL(pendingChatPreviewUrl);
-        pendingChatPreviewUrl = "";
-      }
-      for (const u of chatAdjuntoPreviewCache.values()) {
-        try { URL.revokeObjectURL(u); } catch (_) {}
-      }
-      chatAdjuntoPreviewCache.clear();
-      updateChatAdjuntoPendingUi();
-      $("chatDropZone")?.classList.remove("chat-drop-zone--over");
       lastKnownRoomIdForRecording = null;
       roomDocenteUsuarioId = null;
       updateTeacherRecordingControlsVisibility();
@@ -10256,13 +9743,9 @@ body.print-calendar-export {
       boardFuture.length = 0;
       updateBoardHistoryButtons();
       $("remotesContainer").innerHTML = "";
-      $("chatBox").innerHTML = "";
-      chatThreads.clear();
-      ensureGeneralThread();
-      activeChatThreadKey = "general";
+      ChatModule?.resetRoomChat?.();
+      if (typeof Notificaciones !== "undefined") Notificaciones.reset();
       connectedUserIds.clear();
-      refreshChatThreadPicker();
-      renderChatThreadTabs();
       $("roomSection").classList.add("hidden");
       document.body.classList.remove("body--in-room", "app-route-meet");
       const shell = $("roomShell");
@@ -10290,18 +9773,8 @@ body.print-calendar-export {
       const lc = $("localConnStatus");
       if (lc) lc.textContent = "";
       log("Saliste de la reunión. Cámara, micrófono y conexiones WebRTC liberados.");
-      await loadHomeMeetings();
+      await reloadLobbyHomeData();
     }
-
-    $("chatThreadPicker").addEventListener("change", (e) => {
-      const val = e.target.value;
-      if (val === "general") {
-        setActiveChatThread("general");
-        return;
-      }
-      openDmThreadByUserId(val);
-      e.target.value = "general";
-    });
 
     $("btnProfileNameModalSave")?.addEventListener("click", () => {
       const input = $("profileNameModalInput");
@@ -10464,10 +9937,10 @@ body.print-calendar-export {
     });
 
     $("btnCrearReunion").addEventListener("click", async () => {
-      if (!isTeacherRole(currentUser?.rol)) {
-        log("Solo los profesores pueden agendar reuniones.");
+      if (!canManageScheduleRole(currentUser?.rol)) {
+        log("Solo profesores o administradores pueden agendar reuniones.");
         const r = $("crearResult");
-        if (r) r.textContent = "No autorizado: solo profesores.";
+        if (r) r.textContent = "No autorizado: solo profesores o administradores.";
         return;
       }
       openScheduleModal();
@@ -10540,7 +10013,7 @@ body.print-calendar-export {
         const rid = data?.roomId != null ? String(data.roomId).trim() : "";
         if (!rid) throw new Error("Respuesta sin sala");
         if (st) st.textContent = "";
-        await loadHomeMeetings();
+        await reloadLobbyHomeData();
         if (input) input.value = "";
         void enterRoom(rid).catch((e) => {
           if (st) st.textContent = e?.message || "No se pudo entrar a la sala.";
@@ -10736,7 +10209,7 @@ body.print-calendar-export {
           : `Reunión agendada. Código: ${shareCode}`;
         log(isEditing ? "Reunión actualizada correctamente." : "Reunión agendada correctamente.");
         if (err) err.textContent = "";
-        void loadHomeMeetings();
+        void reloadLobbyHomeData();
         closeScheduleModal();
       } catch (e) {
         const msg = scheduleApiErrorMessage(e);
@@ -10885,7 +10358,7 @@ body.print-calendar-export {
     document.addEventListener("click", (ev) => {
       const target = ev.target;
       if (!(target instanceof Element)) return;
-      if (!target.closest("#chatCtxMenu")) closeChatCtxMenu();
+      if (!target.closest("#chatCtxMenu")) ChatModule?.closeChatCtxMenu?.();
       if (!target.closest("#boardVToolbar") && !target.closest(".board-side-menu")) closeBoardSideMenus();
       if (target.closest(".room-tb-split")) return;
       closeToolbarMenus();
@@ -10893,11 +10366,10 @@ body.print-calendar-export {
     document.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") closeToolbarMenus();
       if (ev.key === "Escape") closeBoardSideMenus();
-      if (ev.key === "Escape") closeChatCtxMenu();
+      if (ev.key === "Escape") ChatModule?.closeChatCtxMenu?.();
     });
     syncShareButtonState();
     renderMediaMenus();
-    renderChatQuickReactionBar();
     refreshMediaDeviceSelectors().catch(() => {});
     $("btnLocalRecordings")?.addEventListener("click", async () => {
       const panel = $("localRecordingsPanel");
@@ -10906,210 +10378,6 @@ body.print-calendar-export {
       if (!panel.classList.contains("hidden")) {
         await renderLocalRecordingsPanel();
       }
-    });
-
-    function clearPendingChatAdjunto() {
-      pendingChatAdjunto = null;
-      if (pendingChatPreviewUrl) {
-        try {
-          URL.revokeObjectURL(pendingChatPreviewUrl);
-        } catch (_) {}
-        pendingChatPreviewUrl = "";
-      }
-      updateChatAdjuntoPendingUi();
-    }
-
-    function openPendingAdjuntoCtx(clientX, clientY) {
-      closeChatCtxMenu();
-      const menu = $("chatCtxMenu");
-      if (!menu || !pendingChatAdjunto?.adjuntoRelPath) return;
-      const addItem = (label, fn) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = label;
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          fn();
-          closeChatCtxMenu();
-        });
-        menu.appendChild(b);
-      };
-      addItem("Copiar nombre de archivo", () => {
-        void copyTextToClipboard(pendingChatAdjunto.adjuntoNombreOriginal || "");
-      });
-      addItem("Quitar adjunto", () => clearPendingChatAdjunto());
-      menu.classList.add("chat-ctx--open");
-      menu.setAttribute("aria-hidden", "false");
-      const mw = 200;
-      const mh = 120;
-      let x = clientX;
-      let y = clientY;
-      if (x + mw > window.innerWidth - 6) x = window.innerWidth - mw - 6;
-      if (y + mh > window.innerHeight - 6) y = window.innerHeight - mh - 6;
-      menu.style.left = Math.max(6, x) + "px";
-      menu.style.top = Math.max(6, y) + "px";
-    }
-
-    function updateChatAdjuntoPendingUi() {
-      const el = $("chatAdjuntoPending");
-      if (!el) return;
-      el.innerHTML = "";
-      if (pendingChatAdjunto?.adjuntoRelPath) {
-        const name = pendingChatAdjunto.adjuntoNombreOriginal || "archivo";
-        const head = document.createElement("div");
-        head.style.display = "flex";
-        head.style.alignItems = "flex-start";
-        head.style.justifyContent = "space-between";
-        head.style.gap = "8px";
-        head.style.width = "100%";
-        head.style.boxSizing = "border-box";
-        const cap = document.createElement("span");
-        cap.style.fontSize = "0.82rem";
-        cap.style.wordBreak = "break-word";
-        cap.textContent = "📎 Pendiente: " + name + " · pulsa Enviar";
-        const xbtn = document.createElement("button");
-        xbtn.type = "button";
-        xbtn.className = "chat-msg__del";
-        xbtn.title = "Quitar adjunto";
-        xbtn.setAttribute("aria-label", "Quitar adjunto");
-        xbtn.textContent = "×";
-        xbtn.addEventListener("click", (e) => {
-          e.preventDefault();
-          clearPendingChatAdjunto();
-        });
-        head.appendChild(cap);
-        head.appendChild(xbtn);
-        el.appendChild(head);
-        if (pendingChatPreviewUrl) {
-          const shell = document.createElement("div");
-          shell.style.marginTop = "6px";
-          shell.style.position = "relative";
-          shell.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            openPendingAdjuntoCtx(e.clientX, e.clientY);
-          });
-          const wrap = document.createElement("div");
-          wrap.className = "chat-adjunto-preview";
-          const mime = String(pendingChatAdjunto.adjuntoMime || "").toLowerCase();
-          if (mime.startsWith("image/")) {
-            const img = document.createElement("img");
-            img.alt = name;
-            img.src = pendingChatPreviewUrl;
-            wrap.appendChild(img);
-          } else if (mime.startsWith("video/")) {
-            const vid = document.createElement("video");
-            vid.controls = true;
-            vid.preload = "metadata";
-            vid.src = pendingChatPreviewUrl;
-            wrap.appendChild(vid);
-          } else if (mime.startsWith("audio/")) {
-            const audio = document.createElement("audio");
-            audio.controls = true;
-            audio.preload = "metadata";
-            audio.src = pendingChatPreviewUrl;
-            wrap.appendChild(audio);
-          } else if (mime.includes("pdf")) {
-            const emb = document.createElement("embed");
-            emb.type = "application/pdf";
-            emb.src = pendingChatPreviewUrl + "#page=1&view=FitH";
-            wrap.appendChild(emb);
-          }
-          shell.appendChild(wrap);
-          el.appendChild(shell);
-        }
-      } else {
-        if (pendingChatPreviewUrl) {
-          URL.revokeObjectURL(pendingChatPreviewUrl);
-          pendingChatPreviewUrl = "";
-        }
-      }
-    }
-
-    $("btnChatAdjunto")?.addEventListener("click", () => {
-      if (!activeRoomId) {
-        log("Entra en una sala antes de adjuntar archivos.");
-        return;
-      }
-      $("chatAdjuntoInput")?.click();
-    });
-
-    $("chatAdjuntoInput")?.addEventListener("change", async () => {
-      const inp = $("chatAdjuntoInput");
-      const file = inp?.files?.[0];
-      if (inp) inp.value = "";
-      if (!activeRoomId) {
-        log("Entra en una sala antes de adjuntar archivos.");
-        return;
-      }
-      if (!file) return;
-      await uploadPendingChatFile(file);
-    });
-
-    (function bindChatDropZone() {
-      const z = $("chatDropZone");
-      if (!z) return;
-      z.addEventListener("dragenter", (e) => {
-        if (!activeRoomId) return;
-        e.preventDefault();
-      });
-      z.addEventListener("dragover", (e) => {
-        if (!activeRoomId) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        z.classList.add("chat-drop-zone--over");
-      });
-      z.addEventListener("dragleave", (e) => {
-        if (!z.contains(e.relatedTarget)) z.classList.remove("chat-drop-zone--over");
-      });
-      z.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        z.classList.remove("chat-drop-zone--over");
-        if (!activeRoomId) {
-          log("Entra en una sala antes de adjuntar archivos.");
-          return;
-        }
-        const f = getFirstFileFromDataTransfer(e.dataTransfer);
-        if (!f) {
-          log(
-            "Soltar: no se recibió ningún archivo (algunos orígenes no envían el fichero al navegador). Prueba Adjunto o arrastra desde el Explorador de archivos."
-          );
-          setMediaStatus("No se pudo leer el archivo al soltar.");
-          return;
-        }
-        await uploadPendingChatFile(f);
-      });
-    })();
-
-    function sendChatMessageFromComposer(forcedContent = null) {
-      const raw = forcedContent != null ? String(forcedContent) : String($("chatInput").value || "");
-      const contenido = raw.trim();
-      if ((!contenido && !pendingChatAdjunto) || !activeRoomId || !socket) return;
-      const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
-      const payload = {
-        roomId: normRoomKey(activeRoomId),
-        contenido,
-        tipo: "general",
-        ...(pendingChatAdjunto || {}),
-      };
-      if (active?.type === "dm" && active.targetUserId) {
-        payload.tipo = "privado";
-        payload.destinatarioUsuarioId = active.targetUserId;
-      }
-      socket.emit("chat:message", payload, (r) => {
-        if (r && !r.ok) log("Chat: " + (r.error || "error"));
-      });
-      $("chatInput").value = "";
-      pendingChatAdjunto = null;
-      updateChatAdjuntoPendingUi();
-      setMediaStatus("");
-    }
-    $("btnEnviarChat").addEventListener("click", () => {
-      sendChatMessageFromComposer();
-    });
-    $("chatInput")?.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" || e.shiftKey) return;
-      e.preventDefault();
-      sendChatMessageFromComposer();
     });
 
     const canvas = $("board");
@@ -11417,6 +10685,50 @@ body.print-calendar-export {
       };
     }
 
+    /**
+     * Aplica una transformación de escala (anchor + sx + sy) a un elemento del
+     * tablero. Usada por resize individual de stroke y por resize de grupo
+     * (todos los tipos). Para texto, fontSize escala por la media absoluta de
+     * |sx|,|sy| para mantenerlo legible; la posición escala respecto al anchor.
+     * Respeta `locked`: devuelve el elemento sin cambios si está bloqueado.
+     */
+    function applyResizeTransform(el, anchor, sx, sy) {
+      if (!el || el.locked) return el;
+      const tp = (p) => ({
+        x: anchor.x + (p.x - anchor.x) * sx,
+        y: anchor.y + (p.y - anchor.y) * sy,
+      });
+      if (el.type === "stroke" && Array.isArray(el.points)) {
+        const points = el.points.map((p) => {
+          const t = tp(p);
+          return { x: Math.round(t.x * 100) / 100, y: Math.round(t.y * 100) / 100 };
+        });
+        const lineScale = Math.max(0.1, (Math.abs(sx) + Math.abs(sy)) / 2);
+        const baseLW = Number(el.lineWidth) || 2;
+        const newLW = Math.max(0.5, baseLW * lineScale);
+        return { ...el, points, lineWidth: newLW };
+      }
+      if (el.type === "image") {
+        const ox = Number(el.x) || 0;
+        const oy = Number(el.y) || 0;
+        const ow = Math.max(1, Number(el.w) || 100);
+        const oh = Math.max(1, Number(el.h) || 100);
+        const t = tp({ x: ox, y: oy });
+        const nw = Math.max(8, ow * Math.abs(sx));
+        const nh = Math.max(8, oh * Math.abs(sy));
+        return { ...el, x: Math.round(t.x), y: Math.round(t.y), w: Math.round(nw), h: Math.round(nh) };
+      }
+      if (el.type === "text") {
+        const ox = Number(el.x) || 0;
+        const oy = Number(el.y) || 0;
+        const t = tp({ x: ox, y: oy });
+        const fontScale = Math.max(0.1, (Math.abs(sx) + Math.abs(sy)) / 2);
+        const newFs = clampTextFontSize((Number(el.fontSize) || 16) * fontScale);
+        return { ...el, x: Math.round(t.x), y: Math.round(t.y), fontSize: newFs };
+      }
+      return el;
+    }
+
     function applyImageResize(handleId, ox, oy, ow, oh, dx, dy, shiftKey) {
       let x = ox;
       let y = oy;
@@ -11478,80 +10790,24 @@ body.print-calendar-export {
       return { x, y, w, h };
     }
 
+    /** Wrappers que delegan en window.TableroSeleccion (ver public/js/tableroSeleccion.js). */
     function hitTestEditableElement(p, includeLocked) {
       const context = $("board").getContext("2d");
-      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
-        const el = boardState.elementos[i];
-        if (!(el?.type === "text" || el?.type === "image")) continue;
-        if (el.locked && !includeLocked) continue;
-        const b = getElementBounds(el, context);
-        if (!b) continue;
-        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
-      }
-      return null;
+      return TableroSeleccion.hitTestEditable(p, boardState.elementos, context, !!includeLocked, getElementBounds);
     }
 
     function hitTestTextElement(p) {
       const context = $("board").getContext("2d");
-      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
-        const el = boardState.elementos[i];
-        if (el?.type !== "text") continue;
-        if (el.locked) continue;
-        const b = getElementBounds(el, context);
-        if (!b) continue;
-        if (pointInRect(p, b)) return { index: i, bounds: b, element: el };
-      }
-      return null;
-    }
-
-    function distancePointToSegment(px, py, ax, ay, bx, by) {
-      const abx = bx - ax;
-      const aby = by - ay;
-      const apx = px - ax;
-      const apy = py - ay;
-      const ab2 = abx * abx + aby * aby;
-      if (ab2 <= 1e-8) return Math.hypot(px - ax, py - ay);
-      const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / ab2));
-      const cx = ax + abx * t;
-      const cy = ay + aby * t;
-      return Math.hypot(px - cx, py - cy);
+      return TableroSeleccion.hitTestTextElement(p, boardState.elementos, context, getElementBounds);
     }
 
     function hitTestStrokeAtPoint(el, p, extraRadius = 6) {
-      if (!el || el.type !== "stroke" || !Array.isArray(el.points) || el.points.length === 0) return false;
-      const pts = el.points;
-      const radius = Math.max(6, Number(el.lineWidth || 2) * 0.5 + extraRadius);
-      if (pts.length === 1) {
-        return Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= radius;
-      }
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1];
-        const b = pts[i];
-        if (!isFiniteWorldPoint(a) || !isFiniteWorldPoint(b)) continue;
-        if (distancePointToSegment(p.x, p.y, a.x, a.y, b.x, b.y) <= radius) return true;
-      }
-      return false;
+      return TableroSeleccion.hitTestStrokeAtPoint(el, p, extraRadius);
     }
 
     function hitTestAnyElementAtPoint(p) {
       const context = $("board")?.getContext("2d");
-      for (let i = (boardState.elementos?.length || 0) - 1; i >= 0; i--) {
-        const el = boardState.elementos[i];
-        if (!el) continue;
-        if (el.type === "stroke") {
-          if (hitTestStrokeAtPoint(el, p)) return i;
-          continue;
-        }
-        if (el.type === "text" || el.type === "image") {
-          const b = context ? getElementBounds(el, context) : null;
-          if (!b) continue;
-          const pad = 6;
-          if (pointInRect(p, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 })) {
-            return i;
-          }
-        }
-      }
-      return -1;
+      return TableroSeleccion.hitTestAnyAtPoint(p, boardState.elementos, context, getElementBounds);
     }
 
     function eraseWholeElementsByStroke(points) {
@@ -11629,25 +10885,65 @@ body.print-calendar-export {
     }
 
     function drawSelectionOverlay(ctx) {
-      if (selectedElementIndex < 0) return;
-      const el = boardState.elementos?.[selectedElementIndex];
-      if (!el || (el.type !== "text" && el.type !== "image")) return;
-      const b = getElementBounds(el, ctx);
-      if (!b) return;
-      ctx.save();
-      const lockedSel = !!el.locked;
-      ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(b.x, b.y, b.w, b.h);
-      ctx.setLineDash([]);
-      if (!lockedSel) {
-        ctx.fillStyle = "#2563eb";
-        for (const h of getResizeHandleRects(b, el)) {
-          ctx.fillRect(h.x, h.y, h.w, h.h);
+      const ids = TableroSeleccion.getSelectedIndices();
+      const elementos = boardState.elementos || [];
+
+      if (ids.length > 0) {
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        for (const i of ids) {
+          const el = elementos[i];
+          if (!el) continue;
+          const b = TableroSeleccion.getElementWorldBounds(el, ctx, getElementBounds);
+          if (!b) continue;
+          const lockedSel = !!el.locked;
+          ctx.strokeStyle = lockedSel ? "#c2410c" : "#2563eb";
+          ctx.strokeRect(b.x, b.y, b.w, b.h);
         }
+
+        if (ids.length === 1) {
+          const el = elementos[ids[0]];
+          const b = el ? TableroSeleccion.getElementWorldBounds(el, ctx, getElementBounds) : null;
+          if (b && el && !el.locked && (el.type === "text" || el.type === "image" || el.type === "stroke")) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#2563eb";
+            for (const h of getResizeHandleRects(b, el)) {
+              ctx.fillRect(h.x, h.y, h.w, h.h);
+            }
+          }
+        } else {
+          const anyLocked = ids.some((i) => elementos[i]?.locked);
+          if (!anyLocked) {
+            const gb = TableroSeleccion.getSelectionBounds(elementos, ctx, getElementBounds);
+            if (gb) {
+              ctx.setLineDash([2, 3]);
+              ctx.strokeStyle = "#1d4ed8";
+              ctx.strokeRect(gb.x, gb.y, gb.w, gb.h);
+              ctx.setLineDash([]);
+              ctx.fillStyle = "#1d4ed8";
+              for (const h of getResizeHandleRects(gb, null)) {
+                ctx.fillRect(h.x, h.y, h.w, h.h);
+              }
+            }
+          }
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
       }
-      ctx.restore();
+
+      const m = TableroSeleccion.getMarqueeRect();
+      if (m && (m.w > 0 || m.h > 0)) {
+        ctx.save();
+        ctx.fillStyle = "rgba(37, 99, 235, 0.10)";
+        ctx.fillRect(m.x, m.y, m.w, m.h);
+        ctx.strokeStyle = "#2563eb";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(m.x, m.y, m.w, m.h);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     }
 
     function commitPointerMutation(snapshotBefore) {
@@ -11680,11 +10976,11 @@ body.print-calendar-export {
 
     function openInlineTextInput(p, opts = {}) {
       const editIndex = opts.editIndex != null ? opts.editIndex : null;
-      const selectionBeforeEdit = selectedElementIndex;
+      const selectionBeforeEdit = TableroSeleccion.getSelectedIndices();
       const canvas = $("board");
       closeInlineTextInput(false);
       editingTextElementIndex = editIndex != null ? editIndex : -1;
-      selectedElementIndex = -1;
+      clearBoardSelection();
       drawBoard();
 
       const worldX = editIndex != null && boardState.elementos[editIndex] ? boardState.elementos[editIndex].x : p.x;
@@ -11775,7 +11071,7 @@ body.print-calendar-export {
           const next = cloneBoardState(boardState);
           if (isEmpty) {
             next.elementos.splice(editIndex, 1);
-            selectedElementIndex = -1;
+            clearBoardSelection();
           } else {
             next.elementos[editIndex] = {
               ...next.elementos[editIndex],
@@ -11789,7 +11085,7 @@ body.print-calendar-export {
           }
           applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
           if (!isEmpty) {
-            selectedElementIndex = editIndex;
+            selectSingle(editIndex);
             drawBoard();
           }
         } else if (!isEmpty) {
@@ -11803,7 +11099,7 @@ body.print-calendar-export {
             fontSize: fontCommit,
           });
           applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
-          selectedElementIndex = boardState.elementos.length - 1;
+          selectSingle(boardState.elementos.length - 1);
           drawBoard();
         }
         closeInlineTextInput(false);
@@ -11811,7 +11107,8 @@ body.print-calendar-export {
       const cancel = () => {
         if (committedOrCancelled) return;
         committedOrCancelled = true;
-        selectedElementIndex = selectionBeforeEdit;
+        TableroSeleccion.setSelection(selectionBeforeEdit);
+        syncSelectedSingle();
         closeInlineTextInput(false);
         drawBoard();
       };
@@ -11931,42 +11228,155 @@ body.print-calendar-export {
         closeInlineTextInput(false);
         const p = canvasPoint(e);
         if (!isFiniteWorldPoint(p)) return;
+
         const badgeHit = hitTestLockedBadge(p);
         if (badgeHit) {
           e.preventDefault();
-          selectedElementIndex = badgeHit.index;
+          selectSingle(badgeHit.index);
           pointerAction = null;
           drawBoard();
           canvas.focus();
           return;
         }
+
+        const selIds = TableroSeleccion.getSelectedIndices();
+        const ctxResize = canvas.getContext("2d");
+
+        if (selIds.length === 1) {
+          const i = selIds[0];
+          const selEl = boardState.elementos?.[i];
+          if (selEl && !selEl.locked) {
+            const bSel = TableroSeleccion.getElementWorldBounds(selEl, ctxResize, getElementBounds);
+            if (bSel) {
+              const h = hitTestResizeHandle(p, bSel, selEl);
+              if (h) {
+                pointerAction = {
+                  mode: "resize",
+                  resizeHandle: h,
+                  index: i,
+                  startPoint: p,
+                  originalElement: JSON.parse(JSON.stringify(selEl)),
+                  originalBounds: { ...bSel },
+                  snapshotBefore: cloneBoardState(boardState),
+                };
+                drawBoard();
+                canvas.setPointerCapture(e.pointerId);
+                canvas.focus();
+                return;
+              }
+            }
+          }
+        }
+
+        if (selIds.length > 1) {
+          const anyLocked = selIds.some((i) => boardState.elementos?.[i]?.locked);
+          const groupBounds = anyLocked
+            ? null
+            : TableroSeleccion.getSelectionBounds(boardState.elementos, ctxResize, getElementBounds);
+          if (groupBounds) {
+            const gh = hitTestResizeHandle(p, groupBounds, null);
+            if (gh) {
+              const originals = new Map();
+              for (const i of selIds) {
+                const el = boardState.elementos?.[i];
+                if (el) originals.set(i, JSON.parse(JSON.stringify(el)));
+              }
+              pointerAction = {
+                mode: "resizeGroup",
+                resizeHandle: gh,
+                indices: selIds,
+                startPoint: p,
+                originalElements: originals,
+                originalBounds: { ...groupBounds },
+                snapshotBefore: cloneBoardState(boardState),
+              };
+              drawBoard();
+              canvas.setPointerCapture(e.pointerId);
+              canvas.focus();
+              return;
+            }
+          }
+        }
+
         if (e.altKey) e.preventDefault();
         const hit = hitTestEditableElement(p, e.altKey);
+
         if (!hit) {
-          selectedElementIndex = -1;
-          pointerAction = null;
+          TableroSeleccion.startMarquee(p, !!e.shiftKey);
+          syncSelectedSingle();
+          pointerAction = {
+            mode: "marquee",
+            startPoint: p,
+            snapshotBefore: null,
+          };
+          try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
           drawBoard();
+          canvas.focus();
           return;
         }
+
         if (hit.element.locked) {
-          selectedElementIndex = hit.index;
+          selectSingle(hit.index);
           pointerAction = null;
           drawBoard();
           canvas.focus();
           return;
         }
-        selectedElementIndex = hit.index;
+
+        if (e.shiftKey) {
+          TableroSeleccion.toggleInSelection(hit.index);
+          syncSelectedSingle();
+          pointerAction = null;
+          drawBoard();
+          canvas.focus();
+          return;
+        }
+
         const hId = hitTestResizeHandle(p, hit.bounds, hit.element);
-        const mode = hId ? "resize" : "drag";
-        pointerAction = {
-          mode,
-          resizeHandle: hId || null,
-          index: hit.index,
-          startPoint: p,
-          originalElement: { ...hit.element },
-          originalBounds: { ...hit.bounds },
-          snapshotBefore: cloneBoardState(boardState),
-        };
+
+        if (hId) {
+          selectSingle(hit.index);
+          pointerAction = {
+            mode: "resize",
+            resizeHandle: hId,
+            index: hit.index,
+            startPoint: p,
+            originalElement: JSON.parse(JSON.stringify(hit.element)),
+            originalBounds: { ...hit.bounds },
+            snapshotBefore: cloneBoardState(boardState),
+          };
+          drawBoard();
+          canvas.setPointerCapture(e.pointerId);
+          canvas.focus();
+          return;
+        }
+
+        const alreadyInSelection = TableroSeleccion.isSelected(hit.index) && TableroSeleccion.size() > 1;
+        if (alreadyInSelection) {
+          syncSelectedSingle();
+          const originals = new Map();
+          for (const i of TableroSeleccion.getSelectedIndices()) {
+            const el = boardState.elementos?.[i];
+            if (el) originals.set(i, JSON.parse(JSON.stringify(el)));
+          }
+          pointerAction = {
+            mode: "dragGroup",
+            indices: TableroSeleccion.getSelectedIndices(),
+            startPoint: p,
+            originalElements: originals,
+            snapshotBefore: cloneBoardState(boardState),
+          };
+        } else {
+          selectSingle(hit.index);
+          pointerAction = {
+            mode: "drag",
+            index: hit.index,
+            startPoint: p,
+            originalElement: JSON.parse(JSON.stringify(hit.element)),
+            originalBounds: { ...hit.bounds },
+            snapshotBefore: cloneBoardState(boardState),
+          };
+        }
         drawBoard();
         canvas.setPointerCapture(e.pointerId);
         canvas.focus();
@@ -12004,15 +11414,79 @@ body.print-calendar-export {
       if (boardTool === "pointer" && pointerAction) {
         const p = canvasPoint(e);
         if (!isFiniteWorldPoint(p)) return;
+
+        if (pointerAction.mode === "marquee") {
+          TableroSeleccion.updateMarquee(p);
+          drawBoard();
+          return;
+        }
+
         const dx = p.x - pointerAction.startPoint.x;
         const dy = p.y - pointerAction.startPoint.y;
+
+        if (pointerAction.mode === "resizeGroup") {
+          const tr = TableroSeleccion.getResizeTransform(
+            pointerAction.resizeHandle,
+            pointerAction.originalBounds,
+            dx,
+            dy,
+            !!e.shiftKey,
+          );
+          if (!tr) return;
+          const originals = pointerAction.originalElements;
+          for (const i of pointerAction.indices) {
+            const orig = originals.get(i);
+            if (!orig) continue;
+            boardState.elementos[i] = applyResizeTransform(orig, tr.anchor, tr.sx, tr.sy);
+          }
+          drawBoard();
+          return;
+        }
+
+        if (pointerAction.mode === "dragGroup") {
+          const originals = pointerAction.originalElements;
+          for (const i of pointerAction.indices) {
+            const orig = originals.get(i);
+            if (!orig) continue;
+            if (orig.locked) continue;
+            if (orig.type === "stroke") {
+              boardState.elementos[i] = {
+                ...orig,
+                points: (orig.points || []).map((pt) => ({
+                  x: Math.round((pt.x || 0) + dx),
+                  y: Math.round((pt.y || 0) + dy),
+                })),
+              };
+            } else {
+              boardState.elementos[i] = {
+                ...orig,
+                x: Math.round((orig.x || 0) + dx),
+                y: Math.round((orig.y || 0) + dy),
+              };
+            }
+          }
+          drawBoard();
+          return;
+        }
+
         const idx = pointerAction.index;
         const current = boardState.elementos?.[idx];
         if (!current) return;
         let nextEl = { ...pointerAction.originalElement };
         if (pointerAction.mode === "drag") {
-          nextEl.x = Math.round((pointerAction.originalElement.x || 0) + dx);
-          nextEl.y = Math.round((pointerAction.originalElement.y || 0) + dy);
+          if (pointerAction.originalElement.type === "stroke") {
+            const pts = pointerAction.originalElement.points || [];
+            nextEl = {
+              ...pointerAction.originalElement,
+              points: pts.map((pt) => ({
+                x: Math.round((pt.x || 0) + dx),
+                y: Math.round((pt.y || 0) + dy),
+              })),
+            };
+          } else {
+            nextEl.x = Math.round((pointerAction.originalElement.x || 0) + dx);
+            nextEl.y = Math.round((pointerAction.originalElement.y || 0) + dy);
+          }
         } else if (pointerAction.mode === "resize") {
           const hid = pointerAction.resizeHandle || "se";
           if (nextEl.type === "image") {
@@ -12029,6 +11503,17 @@ body.print-calendar-export {
           } else if (nextEl.type === "text") {
             const ob = pointerAction.originalBounds;
             nextEl = applyTextUniformScale(pointerAction.originalElement, ob, pointerAction.startPoint, p);
+          } else if (nextEl.type === "stroke") {
+            const tr = TableroSeleccion.getResizeTransform(
+              hid,
+              pointerAction.originalBounds,
+              dx,
+              dy,
+              !!e.shiftKey,
+            );
+            if (tr) {
+              nextEl = applyResizeTransform(pointerAction.originalElement, tr.anchor, tr.sx, tr.sy);
+            }
           }
         }
         boardState.elementos[idx] = nextEl;
@@ -12039,16 +11524,43 @@ body.print-calendar-export {
         const p = canvasPoint(e);
         let cursor = "default";
         if (isFiniteWorldPoint(p)) {
-          const hit = hitTestEditableElement(p, e.altKey);
-          if (hit?.element?.locked) {
-            cursor = "not-allowed";
-          } else if (hit?.element) {
-            const hid = hitTestResizeHandle(p, hit.bounds, hit.element);
-            if (hid === "nw" || hid === "se") cursor = "nwse-resize";
-            else if (hid === "ne" || hid === "sw") cursor = "nesw-resize";
-            else if (hid === "n" || hid === "s") cursor = "ns-resize";
-            else if (hid === "e" || hid === "w") cursor = "ew-resize";
-            else cursor = "move";
+          const ctxHover = canvas.getContext("2d");
+          let groupHid = null;
+          let singleHid = null;
+          if (TableroSeleccion.size() > 1) {
+            const selIds = TableroSeleccion.getSelectedIndices();
+            const anyLocked = selIds.some((i) => boardState.elementos?.[i]?.locked);
+            if (!anyLocked) {
+              const gb = TableroSeleccion.getSelectionBounds(boardState.elementos, ctxHover, getElementBounds);
+              if (gb) groupHid = hitTestResizeHandle(p, gb, null);
+            }
+          } else if (TableroSeleccion.size() === 1) {
+            const i = TableroSeleccion.getSelectedIndices()[0];
+            const selEl = boardState.elementos?.[i];
+            if (selEl && !selEl.locked) {
+              const bSel = TableroSeleccion.getElementWorldBounds(selEl, ctxHover, getElementBounds);
+              if (bSel) singleHid = hitTestResizeHandle(p, bSel, selEl);
+            }
+          }
+          const mapHandleCursor = (hid) => {
+            if (hid === "nw" || hid === "se") return "nwse-resize";
+            if (hid === "ne" || hid === "sw") return "nesw-resize";
+            if (hid === "n" || hid === "s") return "ns-resize";
+            if (hid === "e" || hid === "w") return "ew-resize";
+            return "move";
+          };
+          if (groupHid) {
+            cursor = mapHandleCursor(groupHid);
+          } else if (singleHid) {
+            cursor = mapHandleCursor(singleHid);
+          } else {
+            const hit = hitTestEditableElement(p, e.altKey);
+            if (hit?.element?.locked) {
+              cursor = "not-allowed";
+            } else if (hit?.element) {
+              const hid = hitTestResizeHandle(p, hit.bounds, hit.element);
+              cursor = mapHandleCursor(hid);
+            }
           }
         }
         canvas.style.cursor = cursor;
@@ -12071,12 +11583,37 @@ body.print-calendar-export {
       }
       if (pointerAction) {
         try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-        const moved =
-          JSON.stringify(boardState.elementos?.[pointerAction.index] || null) !==
-          JSON.stringify(pointerAction.originalElement || null);
-        const snapshotBefore = pointerAction.snapshotBefore;
+        const action = pointerAction;
         pointerAction = null;
-        if (moved) commitPointerMutation(snapshotBefore);
+
+        if (action.mode === "marquee") {
+          const ctx = canvas.getContext("2d");
+          TableroSeleccion.finishMarquee(boardState.elementos, ctx, getElementBounds);
+          syncSelectedSingle();
+          drawBoard();
+          return;
+        }
+
+        if (action.mode === "dragGroup" || action.mode === "resizeGroup") {
+          const originals = action.originalElements;
+          let moved = false;
+          for (const i of action.indices) {
+            const orig = originals.get(i);
+            if (!orig) continue;
+            if (JSON.stringify(boardState.elementos?.[i] || null) !== JSON.stringify(orig)) {
+              moved = true;
+              break;
+            }
+          }
+          if (moved) commitPointerMutation(action.snapshotBefore);
+          else drawBoard();
+          return;
+        }
+
+        const moved =
+          JSON.stringify(boardState.elementos?.[action.index] || null) !==
+          JSON.stringify(action.originalElement || null);
+        if (moved) commitPointerMutation(action.snapshotBefore);
         else drawBoard();
         return;
       }
@@ -12125,12 +11662,13 @@ body.print-calendar-export {
       if (!activeRoomId) return;
       if (activeTextInput && document.activeElement === activeTextInput) return;
 
-      const clipFile = getClipboardFile(e.clipboardData);
-      const routeToChat = isChatPasteOrDropTarget(e.target) || chatInputHasFocus();
+      const clipFile = ChatModule?.getClipboardFile?.(e.clipboardData);
+      const routeToChat =
+        ChatModule?.isChatPasteOrDropTarget?.(e.target) || ChatModule?.chatInputHasFocus?.();
 
       if (routeToChat && clipFile) {
         e.preventDefault();
-        await uploadPendingChatFile(clipFile);
+        await ChatModule?.uploadPendingChatFile?.(clipFile);
         return;
       }
       if (routeToChat) {
@@ -12203,8 +11741,10 @@ body.print-calendar-export {
         copy.y = Math.round((copy.y || 0) + 24);
         const next = cloneBoardState(boardState);
         next.elementos.push(copy);
-        selectedElementIndex = next.elementos.length - 1;
+        const newIdx = next.elementos.length - 1;
         applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+        selectSingle(newIdx);
+        drawBoard();
         log("Pegado en el tablero.");
         return;
       }
@@ -12228,18 +11768,24 @@ body.print-calendar-export {
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         boardTool === "pointer" &&
-        selectedElementIndex >= 0
+        TableroSeleccion.size() > 0
       ) {
-        const delEl = boardState.elementos?.[selectedElementIndex];
-        if (delEl?.locked) return;
-        if (delEl && (delEl.type === "text" || delEl.type === "image")) {
-          e.preventDefault();
-          const next = cloneBoardState(boardState);
-          next.elementos.splice(selectedElementIndex, 1);
-          selectedElementIndex = -1;
-          applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
-          return;
+        const ids = TableroSeleccion.getSelectedIndices();
+        const toRemove = new Set();
+        for (const i of ids) {
+          const el = boardState.elementos?.[i];
+          if (!el || el.locked) continue;
+          if (el.type === "text" || el.type === "image" || el.type === "stroke") {
+            toRemove.add(i);
+          }
         }
+        if (toRemove.size === 0) return;
+        e.preventDefault();
+        const next = cloneBoardState(boardState);
+        next.elementos = next.elementos.filter((_el, i) => !toRemove.has(i));
+        clearBoardSelection();
+        applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+        return;
       }
 
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
@@ -12253,22 +11799,43 @@ body.print-calendar-export {
         }
       }
 
-      if (selectedElementIndex < 0) return;
+      if (TableroSeleccion.size() === 0) return;
       const target = e.target;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
-      const el = boardState.elementos?.[selectedElementIndex];
-      if (!el || (el.type !== "text" && el.type !== "image")) return;
-      if (el.locked) return;
+      const ids = TableroSeleccion.getSelectedIndices();
+      const movable = ids.filter((i) => {
+        const el = boardState.elementos?.[i];
+        return el && !el.locked && (el.type === "text" || el.type === "image" || el.type === "stroke");
+      });
+      if (movable.length === 0) return;
       e.preventDefault();
       const step = e.shiftKey ? 10 : 2;
+      let dx = 0;
+      let dy = 0;
+      if (e.key === "ArrowUp") dy = -step;
+      else if (e.key === "ArrowDown") dy = step;
+      else if (e.key === "ArrowLeft") dx = -step;
+      else if (e.key === "ArrowRight") dx = step;
       const before = cloneBoardState(boardState);
-      const moved = { ...el };
-      if (e.key === "ArrowUp") moved.y = Math.round((moved.y || 0) - step);
-      if (e.key === "ArrowDown") moved.y = Math.round((moved.y || 0) + step);
-      if (e.key === "ArrowLeft") moved.x = Math.round((moved.x || 0) - step);
-      if (e.key === "ArrowRight") moved.x = Math.round((moved.x || 0) + step);
-      boardState.elementos[selectedElementIndex] = moved;
+      for (const i of movable) {
+        const el = boardState.elementos[i];
+        if (el.type === "stroke") {
+          boardState.elementos[i] = {
+            ...el,
+            points: (el.points || []).map((pt) => ({
+              x: Math.round((pt.x || 0) + dx),
+              y: Math.round((pt.y || 0) + dy),
+            })),
+          };
+        } else {
+          boardState.elementos[i] = {
+            ...el,
+            x: Math.round((el.x || 0) + dx),
+            y: Math.round((el.y || 0) + dy),
+          };
+        }
+      }
       commitPointerMutation(before);
     });
     $("btnToolPointer")?.addEventListener("click", () => {
@@ -12618,9 +12185,6 @@ body.print-calendar-export {
       updateBoardToolUi();
       updateBoardToolbarOverflow();
       updateBoardHistoryButtons();
-      ensureGeneralThread();
-      renderChatThreadTabs();
-      refreshChatThreadPicker();
       if (getToken()) {
         try {
           const me = await api("/api/usuarios/me");
@@ -12632,6 +12196,7 @@ body.print-calendar-export {
           setToken(null);
         }
       }
+      initChatModule();
       if (!location.hash || location.hash === "#" || location.hash === "#/") {
         _suppressHashRoute = true;
         location.hash = getToken() ? "#/lobby" : "#/login";

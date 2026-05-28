@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Panel de administración — My Own Zoom</title>
+  <script src="/js/helpers.js"></script>
+  <style>
+    :root {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 1.25rem;
+      max-width: 960px;
+      margin-inline: auto;
+      background: #f5f5f5;
+      color: #111;
+    }
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
+    .admin-header h1 {
+      margin: 0;
+      font-size: 1.35rem;
+    }
+    .admin-nav {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .btn-ghost,
+    .btn-primary {
+      border-radius: 9px;
+      cursor: pointer;
+      font-weight: 600;
+      border: 1px solid transparent;
+      min-height: 36px;
+      padding: 0.35rem 0.85rem;
+      font: inherit;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+    }
+    .btn-primary {
+      background: #2563eb;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+    .btn-ghost {
+      background: #111827;
+      color: #e2e8f0;
+      border-color: #334155;
+    }
+    .btn-ghost:hover {
+      background: #1f2937;
+    }
+    .admin-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    th,
+    td {
+      text-align: left;
+      padding: 0.55rem 0.5rem;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: middle;
+    }
+    th {
+      font-weight: 600;
+      color: #334155;
+    }
+    select {
+      font: inherit;
+      padding: 0.3rem 0.45rem;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+    }
+    .role-badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+    .role-badge--admin {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .role-badge--docente {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    #adminStatus {
+      margin-top: 0.75rem;
+      min-height: 1.25rem;
+      font-size: 0.9rem;
+    }
+    #adminStatus.ok {
+      color: #0e8a00;
+    }
+    #adminStatus.err {
+      color: #b91c1c;
+    }
+    .hidden {
+      display: none !important;
+    }
+    #adminDenied {
+      padding: 1rem;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      color: #991b1b;
+    }
+  </style>
+</head>
+<body>
+  <header class="admin-header">
+    <h1>Panel de administración</h1>
+    <nav class="admin-nav">
+      <a href="/#/lobby" class="btn-ghost">Volver al lobby</a>
+      <button type="button" id="btnAdminLogout" class="btn-ghost">Cerrar sesión</button>
+    </nav>
+  </header>
+
+  <div id="adminDenied" class="hidden">
+    <p>Acceso denegado. Solo usuarios con rol <strong>admin</strong> pueden usar este panel.</p>
+    <p><a href="/#/lobby">Volver al inicio</a></p>
+  </div>
+
+  <section id="adminMain" class="admin-card hidden">
+    <p style="margin: 0 0 0.75rem; color: #64748b">Gestión de roles de usuario.</p>
+    <div style="overflow-x: auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Email</th>
+            <th>Rol actual</th>
+            <th>Nuevo rol</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="adminUsersBody"></tbody>
+      </table>
+    </div>
+    <p id="adminStatus" aria-live="polite"></p>
+  </section>
+
+  <script>
+    const LS_TOKEN = "moj_token";
+
+    function getToken() {
+      return localStorage.getItem(LS_TOKEN);
+    }
+
+    function setToken(t) {
+      if (t) localStorage.setItem(LS_TOKEN, t);
+      else localStorage.removeItem(LS_TOKEN);
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function roleBadgeClass(rol) {
+      const r = String(rol || "").toLowerCase();
+      if (r === "admin") return "role-badge role-badge--admin";
+      if (r === "docente") return "role-badge role-badge--docente";
+      return "role-badge";
+    }
+
+    function roleLabel(rol) {
+      const r = String(rol || "").toLowerCase();
+      if (r === "admin") return "Admin";
+      if (r === "docente") return "Docente";
+      return "Estudiante";
+    }
+
+    async function api(path, options = {}) {
+      const headers = { ...(options.headers || {}) };
+      if (options.body != null && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+      }
+      const token = getToken();
+      if (token) headers.Authorization = "Bearer " + token;
+      const res = await fetch(path, { ...options, headers });
+      let json = {};
+      try {
+        json = await res.json();
+      } catch (_) {}
+      if (!res.ok) {
+        const err = new Error(json.error || res.statusText || "Error");
+        err.status = res.status;
+        err.json = json;
+        throw err;
+      }
+      return json;
+    }
+
+    function setStatus(msg, kind) {
+      const el = document.getElementById("adminStatus");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.className = kind === "ok" ? "ok" : kind === "err" ? "err" : "";
+    }
+
+    function renderUsers(usuarios) {
+      const tbody = document.getElementById("adminUsersBody");
+      if (!tbody) return;
+      tbody.replaceChildren();
+      for (const u of usuarios) {
+        const tr = document.createElement("tr");
+        const id = u.usuarioId;
+        const rol = String(u.rol || "estudiante").toLowerCase();
+
+        const tdName = document.createElement("td");
+        tdName.textContent = u.nombre || "—";
+
+        const tdEmail = document.createElement("td");
+        tdEmail.textContent = u.email || "—";
+
+        const tdRol = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = roleBadgeClass(rol);
+        badge.textContent = roleLabel(rol);
+        tdRol.appendChild(badge);
+
+        const tdSelect = document.createElement("td");
+        const sel = document.createElement("select");
+        sel.dataset.userId = id;
+        ["estudiante", "docente", "admin"].forEach((r) => {
+          const opt = document.createElement("option");
+          opt.value = r;
+          opt.textContent = roleLabel(r);
+          if (r === rol) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        tdSelect.appendChild(sel);
+
+        const tdAction = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-primary";
+        btn.textContent = "Guardar";
+        btn.addEventListener("click", async () => {
+          const newRol = sel.value;
+          const prevText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = "Guardando…";
+          btn.setAttribute("aria-busy", "true");
+          setStatus("", "");
+          try {
+            await api("/api/admin/usuarios/" + encodeURIComponent(id) + "/rol", {
+              method: "PATCH",
+              body: JSON.stringify({ rol: newRol }),
+            });
+            badge.className = roleBadgeClass(newRol);
+            badge.textContent = roleLabel(newRol);
+            setStatus("Rol actualizado para " + (u.email || id), "ok");
+          } catch (e) {
+            setStatus(e.message || "No se pudo cambiar el rol", "err");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = prevText;
+            btn.removeAttribute("aria-busy");
+          }
+        });
+        tdAction.appendChild(btn);
+
+        tr.append(tdName, tdEmail, tdRol, tdSelect, tdAction);
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function init() {
+      if (!getToken()) {
+        window.location.href = "/#/login";
+        return;
+      }
+
+      let me;
+      try {
+        me = await api("/api/usuarios/me");
+      } catch (_) {
+        setToken(null);
+        window.location.href = "/#/login";
+        return;
+      }
+
+      if (!isAdminRole(me.usuario?.rol)) {
+        document.getElementById("adminDenied")?.classList.remove("hidden");
+        document.getElementById("adminMain")?.classList.add("hidden");
+        return;
+      }
+
+      document.getElementById("adminDenied")?.classList.add("hidden");
+      document.getElementById("adminMain")?.classList.remove("hidden");
+
+      try {
+        const data = await api("/api/admin/usuarios");
+        renderUsers(data.usuarios || []);
+      } catch (e) {
+        setStatus(e.message || "No se pudo cargar usuarios", "err");
+      }
+    }
+
+    document.getElementById("btnAdminLogout")?.addEventListener("click", () => {
+      setToken(null);
+      window.location.href = "/#/login";
+    });
+
+    init();
+  </script>
+</body>
+</html>

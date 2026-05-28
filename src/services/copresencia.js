@@ -283,7 +283,22 @@ async function calcularCopresencia(reunionId, inicioSesion, umbralMs) {
 
   if (asistida) s.fulfilledNotified = true;
 
-  return { acumuladoMs: totalMs, umbralMs: umbral, asistida, aplicado: true };
+  const result = { acumuladoMs: totalMs, umbralMs: umbral, asistida, aplicado: true };
+
+  try {
+    const persist = require('./asistenciaMsPersistencia');
+    if (persist.isAsistenciaPersistenceEnabled()) {
+      await persist.flushSessionMetrics(reunionId, inicioN, {
+        actorId: 'system',
+        actorRole: 'calcularCopresencia',
+        trigger: 'calcularCopresencia',
+      });
+    }
+  } catch (e) {
+    console.warn('[calcularCopresencia] flushSessionMetrics:', e?.message || e);
+  }
+
+  return result;
 }
 
 /**

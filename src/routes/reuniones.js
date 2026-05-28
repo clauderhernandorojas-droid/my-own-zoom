@@ -1,5 +1,6 @@
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 const { Op, Sequelize } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
@@ -13,6 +14,7 @@ const {
   ReunionOcurrencia,
 } = require('../models');
 const { MAX_ESTUDIANTES, puedeUnirseParticipar } = require('../services/reunionParticipacion');
+const { canManageReuniones } = require('../utils/roles');
 const { findReunionByRoomKey } = require('../services/reunionByRoom');
 const {
   validateNoOverlapForDocente,
@@ -38,6 +40,10 @@ const {
 } = require('../services/asistencia');
 const { reagendarOcurrencia, occurrenceIdFromLegacyOldDate } = require('../services/reuniones');
 const { buildReporteAsistenciaPayload } = require('../services/reporteAsistencia');
+const { reunionJsonWithReagenda } = require('../services/reunionPresenter');
+const { listarReunionesParaUsuario } = require('../services/reunionesListing');
+const { buildMisBucketsForUsuario } = require('../services/reunionesMisBuckets');
+const { eliminarReunionEnBd } = require('../services/reunionDelete');
 
 const router = express.Router();
 
@@ -125,36 +131,6 @@ function isAgendaPatchNoOp(reunion, { titulo, fechaHora, fechaHoraFin, zonaHorar
   return recurrenceNormKey(incomingRec) === recurrenceNormKey(reunion.recurrencia);
 }
 
-async function destroyReunionCascade(reunionId) {
-  const mids = (
-    await Mensaje.findAll({ where: { reunionId }, attributes: ['mensajeId'] })
-  ).map((m) => m.mensajeId);
-  if (mids.length) {
-    await MensajeReaccion.destroy({ where: { mensajeId: { [Op.in]: mids } } });
-    await Mensaje.destroy({ where: { reunionId } });
-  }
-  await Participa.destroy({ where: { reunionId } });
-  await Tablero.destroy({ where: { reunionId } });
-  await Reunion.destroy({ where: { reunionId } });
-}
-
-/** Enriquece JSON de reunión con `reagendada` y metadatos legibles en cada excepción. */
-function reunionJsonWithReagenda(reunion) {
-  if (!reunion) return null;
-  const j = typeof reunion.toJSON === 'function' ? reunion.toJSON() : { ...reunion };
-  const ex = Array.isArray(j.ocurrenciaExcepciones) ? j.ocurrenciaExcepciones : [];
-  j.reagendada = ex.length > 0;
-  j.ocurrenciaExcepciones = ex.map((row) => {
-    const o = { ...row };
-    o.reagendada = true;
-    o.fechaOriginal = o.fechaOcurrenciaOriginal ?? o.fecha_ocurrencia_original;
-    o.nuevaFecha = o.fechaOcurrenciaOverride ?? o.fecha_ocurrencia_override;
-    o.occurrenceId = o.reunionOcurrenciaId ?? o.reunion_ocurrencia_id ?? null;
-    return o;
-  });
-  return j;
-}
-
 const uploadChatAdjunto = multer({
   storage: multer.diskStorage({
     destination(req, file, cb) {
@@ -188,7 +164,7 @@ const uploadChatAdjunto = multer({
 
 router.post('/', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden crear reuniones' });
     }
     const { titulo, fechaHora, fechaHoraFin, zonaHoraria, recurrencia } = req.body;
@@ -267,32 +243,16 @@ router.post('/', async (req, res, next) => {
 
 router.get('/mis', async (req, res, next) => {
   try {
-    const participaciones = await Participa.findAll({
-      where: { usuarioId: req.usuario.usuarioId },
-      include: [
-        {
-          model: Reunion,
-          required: true,
-          include: [
-            {
-              model: ReunionOcurrencia,
-              as: 'ocurrenciaExcepciones',
-              required: false,
-            },
-          ],
-        },
-      ],
-    });
-    const seen = new Set();
-    const reuniones = [];
-    for (const p of participaciones) {
-      const row = p.Reunion ?? p.reunion;
-      if (!row) continue;
-      const id = row.reunionId != null ? String(row.reunionId) : '';
-      if (id && seen.has(id)) continue;
-      if (id) seen.add(id);
-      reuniones.push(reunionJsonWithReagenda(row));
-    }
+    const { proximas, anteriores } = await buildMisBucketsForUsuario(req.usuario);
+    res.json({ proximas, anteriores });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/calendario', async (req, res, next) => {
+  try {
+    const reuniones = await listarReunionesParaUsuario(req.usuario);
     res.json({ reuniones });
   } catch (e) {
     next(e);
@@ -350,7 +310,7 @@ router.post('/unirse-con-token', async (req, res, next) => {
 
 router.post('/:reunionId/excepcion-ocurrencia', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden editar excepciones' });
     }
     let parent = await Reunion.findByPk(req.params.reunionId);
@@ -474,7 +434,7 @@ router.post('/:reunionId/excepcion-ocurrencia', async (req, res, next) => {
  */
 router.post('/:reunionId/omitir-ocurrencia', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden omitir ocurrencias' });
     }
     const parent = await Reunion.findByPk(req.params.reunionId);
@@ -690,7 +650,7 @@ router.patch('/:reunionId', async (req, res, next) => {
     });
     const lastEx = await ReunionOcurrencia.findOne({
       where: { reunionId: reunion.reunionId },
-      order: [['actualizadoEn', 'DESC']],
+      order: [['actualizado_en', 'DESC']],
     });
     const reunionOut = reunionJsonWithReagenda(reloaded);
     if (lastEx) {
@@ -712,7 +672,7 @@ router.patch('/:reunionId', async (req, res, next) => {
 
 router.post('/:reunionId/reagendar', async (req, res, next) => {
   try {
-    if (req.usuario.rol !== 'docente' && req.usuario.rol !== 'admin') {
+    if (!canManageReuniones(req.usuario)) {
       return res.status(403).json({ error: 'Solo docentes pueden reagendar ocurrencias' });
     }
     const reunion = await Reunion.findByPk(req.params.reunionId);
@@ -808,25 +768,11 @@ router.post('/:reunionId/reagendar', async (req, res, next) => {
 
 router.delete('/:reunionId', async (req, res, next) => {
   try {
-    const reunion = await Reunion.findByPk(req.params.reunionId);
-    if (!reunion) return res.status(404).json({ error: 'Reuni?n no encontrada' });
-
-    const isOwner = String(reunion.docenteUsuarioId) === String(req.usuario.usuarioId);
-    const isAdmin = req.usuario.rol === 'admin';
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({ error: 'Solo el docente creador puede eliminar esta reuni?n' });
+    const result = await eliminarReunionEnBd(req.params.reunionId, req.usuario);
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
-
-    if (reunion.esExcepcion) {
-      await destroyReunionCascade(reunion.reunionId);
-      return res.json({ ok: true, reunionId: reunion.reunionId, destroyed: true });
-    }
-
-    reunion.estado = 'finalizada';
-    reunion.fechaHoraFin = reunion.fechaHoraFin || new Date();
-    await reunion.save();
-
-    return res.json({ ok: true, reunionId: reunion.reunionId });
+    return res.json(result);
   } catch (e) {
     next(e);
   }
@@ -941,12 +887,18 @@ router.get('/:reunionId/asistencia/reporte', async (req, res, next) => {
       return res.status(403).json({ error: 'No participas en esta reuni?n' });
     }
 
+    const asRequester =
+      req.query.asRequester === 'true' || req.query.asRequester === '1';
     const payload = await buildReporteAsistenciaPayload(reunion.reunionId, {
       desde: req.query.desde || undefined,
       hasta: req.query.hasta || undefined,
       inicioSesion: req.query.inicioSesion || undefined,
       live: req.query.live,
       metrics: req.query.metrics,
+      requesterId: req.usuario.usuarioId,
+      requesterRole: req.usuario.rol,
+      asRequester,
+      docenteUsuarioId: reunion.docenteUsuarioId,
     });
     if (!payload) return res.status(404).json({ error: 'Reuni?n no encontrada' });
     res.json(payload);

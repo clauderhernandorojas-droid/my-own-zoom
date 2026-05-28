@@ -13,7 +13,7 @@ Briefing para retomar el trabajo en Cursor sin perder contexto. **Actualizar est
 - **Express** en el mismo proceso HTTP que **Socket.io** (mismo puerto; por defecto `3000`).
 - **CORS** abierto para desarrollo; **JSON** body parser.
 - Rutas bajo `/api`: autenticación, usuarios, reuniones, mensajes (ver `src/routes/`). Resolución de reunión por sala: **`findReunionByRoomKey`** en `src/services/reunionByRoom.js` (uso en rutas de reunión, adjuntos de chat y socket).
-- **Health**: `GET /health` (en desarrollo incluye `copresenciaUmbralMs` leído de `ASISTENCIA_COPRESENCIA_MS_MIN`).
+- **Health**: `GET /health` (en desarrollo incluye `copresenciaUmbralMs`, `asistenciaMetricasEnabled`, `asistenciaPersistenceEnabled`).
 - **Historial de agenda (cliente)**: `GET /js/historialAcciones.js` sirve `src/services/historialAcciones.js` (pilas deshacer/rehacer en el navegador; sin persistencia en servidor).
 - **WebRTC / ICE**: `GET /api/rtc/config` — STUN desde `STUN_URLS` o por defecto Google; TURN opcional vía `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
 - **Estáticos**: `public/`; la raíz sirve `public/index.html`.
@@ -176,7 +176,23 @@ Con flag off y `metrics=chat`: `metrics.enabled: false`, `metrics.included: fals
 
 **Rendimiento:** los ticks `attendance:copresence` (cada ~8 s) solo **leen** `getSessionSnapshot`; la agregación ocurre en `room:join` / `room:leave`. El conteo de chat (BD) solo en `GET .../reporte`.
 
-**Fase C (futuro):** columnas opcionales `copresence_ms` / `teacher_presence_ms` y flush en `calcularCopresencia`.
+#### Métricas avanzadas — Fase C (persistencia BD)
+
+**Tabla:** `reunion_asistencia_ms` — una fila por `(reunion_id, inicio_sesion, user_id)` con los mismos ms de sesión (snapshot RAM al flush).
+
+**Flags:** `ASISTENCIA_PERSISTENCE_ENABLED=true` (default **false**) + `ASISTENCIA_METRICAS_ENABLED=true` para exponer `metrics.session` en reporte.
+
+**Flush:** al final de `calcularCopresencia` en [`copresencia.js`](src/services/copresencia.js) vía [`asistenciaMsPersistencia.js`](src/services/asistenciaMsPersistencia.js) — no en cada tick socket.
+
+**Lectura reporte:** prioriza BD; si no hay filas → RAM. Campos extra: `source` (`db`|`ram`), `persistedAt`, `selectedBy`, `adminView`, `adminOverride`.
+
+**Selección admin-aware** (`selectPersistedSessionMetrics`): 1) fila del docente (`docenteUsuarioId`); 2) admin sin `?asRequester=true` → mayor `copresence_ms`; admin con `asRequester=true` → fila del solicitante; 3) no admin → fila del solicitante o max copresencia.
+
+**Query:** `GET .../asistencia/reporte?metrics=session&asRequester=1` (solo relevante para admin).
+
+**Migración manual:** [`migrations/2026_add_reunion_asistencia_ms.sql`](migrations/2026_add_reunion_asistencia_ms.sql). Arranque: `ensureReunionAsistenciaMsTable()` en `server.js`.
+
+**Rollback operativo:** desactivar `ASISTENCIA_PERSISTENCE_ENABLED`; opcional `migrations/rollback_2026_add_reunion_asistencia_ms.sql`.
 
 #### Pruebas de validación de métricas
 
@@ -184,14 +200,18 @@ Con flag off y `metrics=chat`: `metrics.enabled: false`, `metrics.included: fals
 |--------|-----|
 | `node scripts/validate-reporte-metrics-plan.cjs` | Fase A (chat): requiere servidor en marcha; `metrics=0`, `metrics=chat`, flag on/off. |
 | `node scripts/validate-phase-b-debug.cjs` | Fase B (RAM + API): dos instancias recomendadas — **3001** (`ASISTENCIA_METRICAS_ENABLED=false`) y **3002** (`true`); escenarios socket A/B/C y HTTP `metrics=session\|full`; escribe `debug-<sesión>.log` (NDJSON). |
+| `npm run test:asistencia-ms` | Fase C unitario: upsert + `selectPersistedSessionMetrics`. |
+| `npm run validate:phase-c` | Fase C integración: servidor con persistencia on, flush, reinicio, `source: db`. |
 | `node scripts/debug-api-reunion-metrics.cjs` | Login JWT + reporte; variable `VALIDATE_PORT` (default 3001). |
 
 Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceMs` solo con docente+estudiante; con flag on, `GET .../reporte?metrics=session` devuelve `metrics.session.source: "ram"`; `metrics=0` → `metrics: null`.
 
+Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "db"` y `persistedAt` ISO; persistencia off → sigue RAM aunque exista tabla vacía.
+
 ### Cliente (`public/index.html`)
 
 - Una sola página: **login/registro**, listado y creación de **reuniones**, **chat** (general y privado con reglas docente↔estudiante; **adjuntos** por botón 📎, pegar o arrastrar sobre la zona de chat; texto opcional si hay adjunto pendiente), **tablero** colaborativo (herramientas, zoom, minimapa, seguimiento de vista del docente, persistencia vía socket + debounce a BD), **videollamadas WebRTC** (oferta/respuesta/ICE por Socket.io).
-- **Chat (UX reciente)**: compositor en columna (preview del adjunto pendiente arriba, fila Adjunto / mensaje / Enviar abajo) para evitar desbordes con imágenes grandes. Mensajes con preview y botón **×** para borrar (autor o admin). Menú contextual (clic derecho): copiar texto, nombre de archivo, enlace de API del adjunto, eliminar. Adjunto pendiente: **×** y menú contextual para quitar / copiar nombre. Escucha **`chat:messageDeleted`** para sincronizar borrados.
+- **Chat (UX reciente)**: compositor en columna (preview del adjunto pendiente arriba, fila Adjunto / mensaje / Enviar abajo). En sala, el panel lateral usa **layout flex con scroll**: `#chatBox` encoge y hace scroll; `.chat-compose` permanece visible encima de la barra inferior; la preview pendiente (`#chatAdjuntoPending`) tiene `max-height` acotada para no tapar botones al adjuntar imágenes/PDF. Mensajes con preview y botón **×** para borrar (autor o admin). Menú contextual (clic derecho): copiar texto, nombre de archivo, enlace de API del adjunto, eliminar. Adjunto pendiente: **×** y menú contextual para quitar / copiar nombre. Escucha **`chat:messageDeleted`** para sincronizar borrados.
 - **Medios locales**: si cámara y micrófono fallan, se intenta **solo micrófono** y, en último caso, unión con **stream vacío** y transceiver de vídeo **`recvonly`** para seguir en la sala. Los textos de estado de medios **no** se muestran bajo el título en la franja de vídeo (no hay `#mediaStatus` en esa zona); `setMediaStatus` puede seguir en código sin ese nodo en DOM.
 - **Barra de medios estilo Zoom**: controles inferiores con patrón botón principal + menú desplegable para **Audio**, **Vídeo**, **Compartir** y **Grabar**; listas de dispositivos movidas al menú (incluye acciones rápidas de refresco/reinicio de medios). Se simplificó UI quitando botones redundantes de aplicar/actualizar.
 - **Compartir pantalla y tablero**: menú con `Pantalla` / `Tablero`. Al compartir pantalla, se usa `getDisplayMedia`, se reemplaza la pista de vídeo enviada por WebRTC y al terminar se restaura la cámara automáticamente.
@@ -224,7 +244,7 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
   - Modos **Agendamiento** y **Asistencia** por reunión seleccionada; colores de día: azul (programado/futuro), verde (asistió / copresencia cumplida), rojo (no asistió / pasado sin registro).
   - **Vista detallada de agendamiento** (`homeAgendamientoReunionId`): con esa reunión enfocada, al abrir su modal de agenda **Editar**, se muestra un panel **solo lectura** (`#scheduleAgendamientoSesionesReadonly`, `syncScheduleAgendamientoDetalleSesiones` en `public/index.html`) con **cada sesión** incluida en el rango de los **dos meses visibles** del calendario, con **hora programada** en formato legible (`HH:mm – HH:mm`, derivada de `fechaHora` / `fechaHoraFin` por instancia vía `resolveMeetingOccurrenceSlot`). **No** se muestra ese panel cuando el modal se abre desde **Ver** el día (`_calendarDayMeetings` / roster): ahí solo debe verse el listado del día con **Eliminar**; si hubiera foco de agendamiento, el panel se oculta y vacía para no tapar la UX del roster. **Imprimir agendamiento** sigue replicando el **calendario visual** (celdas y colores), no un listado textual — la lógica de fechas por sesión es coherente entre pantalla, modal y print.
   - Datos de asistencia vía `GET /api/reuniones/:reunionId/asistencia` (filas + `resumen`); emparejamiento de ocurrencias con `entradaAt`/`salidaAt` en el mismo día local; soporte de **reagenda** (`fechaOcurrenciaOverride` vs `inicioSesion`).
-  - **Reagendar** una ocurrencia de serie: `POST /api/reuniones/:reunionId/reagendar` con `occurrenceId` + `newDate`; marcador ↻ en el día; aviso en modal «Reagendada desde…».
+  - **Reagendar** una ocurrencia de serie: `POST /api/reuniones/:reunionId/reagendar` con `occurrenceId` + `newDate`; el cliente hace después `PATCH` de la reunión padre. Tras reagendar, el `PATCH` localiza la última excepción con `ReunionOcurrencia.findOne({ order: [['actualizado_en','DESC']] })` — **no** usar `'actualizadoEn'` ni `'updatedAt'` en `order`/`where` (provoca `SQLITE_ERROR: no such column: ReunionOcurrencia.actualizadoEn` y 500 en el modal). Marcador ↻ en el día; aviso en modal «Reagendada desde…».
   - Barra superior del calendario (`calendar-head__tools`): historial deshacer/rehacer (docente), impresión de agendamiento (con hora) e impresión de asistencia (placeholder). Ver subsecciones más abajo.
   - Tras salir de sala, `loadHomeMeetings()` refresca el calendario para reflejar asistencia persistida.
 
@@ -241,8 +261,9 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 
 | Dependencia / consumidor | Uso actual (paso 1) |
 |----------------------------|---------------------|
-| `GET /api/reuniones/mis` vía `api()` del index | `CalendarController.loadHomeMeetings` invoca el cliente HTTP existente |
-| `public/index.html` | Define `loadHomeMeetings()` como delegado: pasa `getToken`, `api`, `onNoToken`, `onAfterLoad` (reset de focos asistencia/agendamiento, `loadAsistenciaForCalendar` / `renderHomeCalendar`, `renderScheduledMeetings`) |
+| `GET /api/reuniones/calendario` vía `api()` del index | `CalendarController.loadHomeMeetings` carga la lista completa por rol (calendario, modal, asistencia) |
+| `GET /api/reuniones/mis` vía `api()` del index | `CalendarController.loadHomeMisBuckets` carga `{ proximas, anteriores }` (≤10 c/u) para Acciones rápidas; todos los roles ven ambas secciones |
+| `public/index.html` | `reloadLobbyHomeData()` delega calendario + buckets; `renderScheduledMeetings()` consume `getMisProximas()` / `getMisAnteriores()` |
 | `HistorialAcciones` (`/js/historialAcciones.js`) | Sin cambios; paso 2 enlazará botones desde el controlador |
 | Lista de reuniones en memoria | `CalendarController.getMeetings()` / `setMeetings()` sustituyen el antiguo `let homeMeetings` |
 
@@ -251,13 +272,16 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 | Miembro | Descripción |
 |---------|-------------|
 | `initStep1()` | Marca inicialización del paso 1 (extensible en pasos siguientes). |
-| `getMeetings()` | Devuelve el array de reuniones cargadas. |
-| `setMeetings(arr)` | Reemplaza el array (p. ej. tras eliminar una reunión en el lobby). |
-| `loadHomeMeetings(hooks)` | Vacía lista, sin token → `onNoToken()`; con token → `GET /api/reuniones/mis`; siempre → `onAfterLoad(meetings)` en `finally`. |
+| `getMeetings()` | Devuelve el array de reuniones del calendario (lista completa). |
+| `setMeetings(arr)` | Reemplaza el array del calendario (p. ej. tras eliminar una reunión en el lobby). |
+| `getMisProximas()` / `getMisAnteriores()` | Buckets de Acciones rápidas cargados desde `/mis`. |
+| `setMisBuckets(proximas, anteriores)` | Actualización optimista de buckets tras eliminar. |
+| `loadHomeMeetings(hooks)` | Sin token → `onNoToken()`; con token → `GET /api/reuniones/calendario`; siempre → `onAfterLoad(meetings)` en `finally`. |
+| `loadHomeMisBuckets(hooks)` | Sin token → buckets vacíos; con token → `GET /api/reuniones/mis`. |
 
 **Notas de migración — Paso 1 (hecho)**:
 
-- Se movió el **estado** `homeMeetings` al módulo y la **petición** `GET /api/reuniones/mis` dentro de `CalendarController.loadHomeMeetings`.
+- Se movió el **estado** de reuniones al módulo: lista completa vía `/calendario` y buckets vía `/mis`.
 - La **orquestación** tras la carga (fechas de calendario, focos `homeQuickSelectedReunionId` / `homeAgendamientoReunionId`, `homeAsistenciaPayload`, re-render) permanece en `public/index.html` mediante callbacks para no romper el orden de llamadas existente.
 - **Prueba manual sugerida**: login → lobby carga reuniones; deshacer/rehacer, imprimir, Ver y asistencia/agendamiento siguen en el index (sin regresión esperada en paso 1).
 
@@ -273,15 +297,16 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 - **API del módulo**: `createHistorialAcciones()` devuelve `{ push, undo, redo, canUndo, canRedo, clear, onChange, getSizes }`. Máximo **50** entradas en la pila deshacer (`MAX_ACCIONES`).
 - **Forma de cada acción**: `{ type, label, undo: () => Promise, redo: () => Promise }`. Tipos: `agendar`, `editar`, `reagendar`, `cancelar` (`ACCION_TYPES`).
 - **Separación de dominios**: no importa ni usa `asistencia.js`, `copresencia.js` ni `reuniones.js` (reagendar). Solo gestiona pilas; el cliente (`public/index.html`, instancia `calendarioHistorial`) registra callbacks que llaman a `POST`/`PATCH`/`DELETE` de reuniones.
-- **UI**: botones `#btnCalendarUndo` y `#btnCalendarRedo` en la barra del calendario (clase `btn-ghost btn-calendar-tool`). Visibles solo para **docente** (`updateLobbyRoleUi`); se habilitan/deshabilitan con `updateCalendarHistoryButtons` vía `onChange`.
+- **UI**: botones `#btnCalendarUndo` y `#btnCalendarRedo` en la barra del calendario (clase `btn-ghost btn-calendar-tool`). Visibles para **docente** y **admin** (`canManageScheduleRole` en `updateLobbyRoleUi`); se habilitan/deshabilitan con `updateCalendarHistoryButtons` vía `onChange`.
 - **Registro (`push`)** tras operaciones exitosas: `pushHistorialAgendar`, `pushHistorialEditar`, `pushHistorialReagendar`, `pushHistorialCancelar` (eliminar reunión). **Deshacer** ejecuta `undo()` de la cima y la mueve a la pila rehacer; **Rehacer** hace `redo()` y la devuelve a deshacer.
 - Al **cerrar sesión** se llama `calendarioHistorial.clear()` para no mezclar acciones entre usuarios.
 
 #### Calendario por rol (Ver, hora en celda, puntitos)
 
-- **Docente / profesor** (`isTeacherRole`): en días con sesión se muestran **puntitos** (`.calendar-day__dots`; tantos como reuniones u ocurrencias ese día) y el botón **Ver** (`btn-calendar-ver`). **Ver** abre `#scheduleModal` con el listado del día (`_calendarDayMeetings`), edición, reagendar y eliminar. `openDayRosterFromCell` rechaza roles que no sean docente.
-- **Estudiante**: en cada día con sesión se muestra la **hora** directamente en la celda (`.calendar-day__times` / `.calendar-day__time`, derivada de `fechaHora` y `fechaHoraFin` vía `resolveMeetingOccurrenceSlot`). **No** hay botón Ver ni apertura de modal desde el calendario; puede usar **Entrar** en la lista de próximas reuniones.
-- **Modal de agenda (solo docente vía Ver o Editar)**: formulario completo de agendar/editar; el estudiante no entra al modal desde el calendario.
+- **Docente / profesor / admin global** (`canManageScheduleRole` en [`public/js/helpers.js`](public/js/helpers.js), alineado con `canManageReuniones` en [`src/utils/roles.js`](src/utils/roles.js)): en días con sesión se muestran **puntitos** (`.calendar-day__dots`) y el botón **Ver** (`btn-calendar-ver`). **Ver** abre `#scheduleModal` con listado del día, edición, reagendar y eliminar. La lista de próximas reuniones muestra además **Editar**, **Cupo**, **Eliminar** y **Copiar código** (no solo Entrar / Asistencia / Agendamiento).
+- **`isTeacherRole`** (solo docente/profesor): se reserva para reglas de **dueño docente** en asistencia del calendario (`calendarAsistenciaRowsFromPayload` / `docenteDueño`), no para ocultar la agenda al admin.
+- **Estudiante**: en cada día con sesión se muestra la **hora** en la celda (`.calendar-day__times` / `.calendar-day__time`). **No** hay botón Ver ni modal desde el calendario; puede usar **Entrar** en la lista de próximas reuniones.
+- **Modal de agenda (docente o admin vía Ver o Editar)**: formulario completo de agendar/editar; el estudiante no entra al modal desde el calendario.
 
 #### Impresión en la barra superior
 
@@ -323,7 +348,23 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
   - **Compatibilidad SQLite en orden de reacciones**: el servidor ordena por `mensajeReaccionId` (no por `createdAt`) para evitar errores en BD locales con esquemas previos.
 - **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
 - **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
-- **Selección en tablero (puntero)**: con varios elementos seleccionados se dibuja un **marco de unión**. Las **flechas del teclado** mueven toda la multiselección, incluidos los **trazos** (todos los puntos), además de texto e imagen; se respeta `locked`.
+- **Chat en sala (`chat.js`, fase 1 + 2)**:
+  - **`public/js/chat.js`**: estado de hilos (`chatThreads`, hilo activo), `appendChatLine`, render de mensajes/pestañas, composer (enviar, adjuntos, DnD, barra rápida de emojis), menú contextual, reacciones y avisos de sala (`appendRecordingNotice`). Inicialización: `ChatModule.initChatRoom({ $, api, getToken, ... })` desde `index.html`.
+  - **`notificaciones.js`**: agrega `totalUnread` desde `chatThreads[].unread`; escucha el bus interno.
+  - **`uiBarra.js`**: botón `#btnChatBar` + badge `.room-tb-badge` en `#roomMediaControls`.
+  - **Bus interno en `document`** (no Socket.io): `moj:chat:notify`, `moj:chat:read`. Reglas: no-leído si hilo distinto al activo **o** panel oculto; **sin badge en mensajes propios** (`shouldIncrementUnreadForIncoming`: compara `autorId` con `getSelfUserId()`).
+  - **Identidad antes del socket**: `ensureCurrentUserLoaded()` en `index.html` carga `/api/usuarios/me` en `enterRoom` (y `init()` restaura sesión antes de `initChatModule()`). Si aún falta `usuarioId`, el chat **no incrementa unread** ni emite notify (degradación segura en `chat.js`).
+  - **`index.html`**: glue de sala (socket, `loadParticipantsForRoom`, `setChatPanelHidden`, WebRTC); delega chat a `ChatModule`. CSS de `.room-chat-panel`: overflow contenido, composer fijo, scroll en historial y slot de adjunto pendiente.
+- **Selección en tablero (puntero)** — implementada en [`public/js/tableroSeleccion.js`](public/js/tableroSeleccion.js) (estado local; no viaja por socket):
+  - Click sobre un elemento (texto, imagen o **trazo**) selecciona ese elemento; los trazos son seleccionables, arrastrables y **redimensionables**.
+  - **Shift+click** acumulativo: añade o quita del conjunto.
+  - **Drag-box / marquee**: click+arrastre en zona vacía dibuja un rectángulo translúcido azul; al soltar selecciona todos los elementos cuyo AABB intersecte. **Shift+drag-box** añade al conjunto en lugar de reemplazarlo.
+  - **Drag agrupado**: con N>1 seleccionados, arrastrar desde el cuerpo de cualquiera mueve los N juntos (texto/imagen por `x,y`; trazo por traslación de todos sus puntos). Un único snapshot al historial.
+  - **Resize individual**: con N=1 no bloqueado se dibujan handles alrededor del bbox y al arrastrarlos se escala el elemento. Imagen y **trazo** soportan los 8 handles con escala no uniforme (Shift en esquina = uniforme); el trazo escala todos sus `points` respecto al anchor opuesto y reescala `lineWidth` por la media de `|sx|,|sy|`. Texto conserva su escala uniforme por distancia al origen (`applyTextUniformScale`).
+  - **Resize de grupo**: con N>1 y ningún elemento `locked` se dibuja un bbox de unión y handles. Al arrastrar un handle, todos los elementos seleccionados se transforman respecto al anchor opuesto del bbox de grupo: trazos escalan `points` + `lineWidth`; imágenes escalan `w,h` y reposicionan `x,y`; textos escalan `fontSize` (uniforme) y reposicionan `x,y`. Un único snapshot al historial. Si hay algún `locked` los handles de grupo se ocultan (sólo se permite drag).
+  - **Flechas del teclado** mueven toda la multiselección (Shift = paso de 10 px); **Delete/Backspace** borra todos los seleccionados (saltando `locked`).
+  - **`selectedElementIndex`** se conserva como alias de "único seleccionado" para compat (lock UI, Ctrl+C, edición de texto inline); vale `-1` cuando hay 0 o >1 seleccionados.
+  - Math compartido en el módulo: `getResizeTransform(handleId, ob, dx, dy, shiftKey)` calcula `anchor` + `sx,sy` + `newBounds`; `applyResizeTransform(el, anchor, sx, sy)` en `public/index.html` aplica la transformación según el tipo del elemento (respetando `locked`).
 - **Borrador del tablero**: al tocar un trazo/elemento, elimina el elemento completo (hit-test por segmento para strokes) en lugar de “pintar blanco”.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
@@ -337,15 +378,20 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 
 | Tema | Dónde / qué hace |
 |------|------------------|
-| Solo **docente** o **admin** crea reuniones | `POST /api/reuniones/` en `src/routes/reuniones.js` |
+| Solo **docente** o **admin** gestiona agenda (crear, excepciones, omitir, reagendar) | `canManageReuniones()` en [`src/utils/roles.js`](src/utils/roles.js); usado en `src/routes/reuniones.js` |
+| **Listado de reuniones por rol** — `GET /api/reuniones/calendario` devuelve `{ reuniones }` (lista completa, sin límite): `admin` ve todas; `docente` ve las que creó (incluye finalizadas); estudiante ve las suyas vía `Participa`. Cadena: `getReunionScopeForUser()` → [`src/services/reunionesListing.js`](src/services/reunionesListing.js) → [`src/services/reunionPresenter.js`](src/services/reunionPresenter.js) → handler en `src/routes/reuniones.js` | Ver fila «Acciones rápidas» para `/mis` |
+| **Acciones rápidas con doble bucket** — `GET /api/reuniones/mis` devuelve `{ proximas, anteriores }` (≤10 c/u, calculados en [`src/services/reunionesMisBuckets.js`](src/services/reunionesMisBuckets.js)). Todos los roles ven ambas secciones. **Eliminar:** `DELETE /api/reuniones/:id` hace hard-delete en cascada ([`src/services/reunionDelete.js`](src/services/reunionDelete.js)); la fila desaparece de BD y no reaparece tras re-login. Frontend: `buildScheduledItem`, `renderBucket`, `renderScheduledMeetings` en `public/index.html`; estado en `calendarController.js` | `public/index.html`, `public/js/calendarController.js` |
+| **Eliminar reunión** — `eliminarReunionEnBd` destruye la fila y dependencias (mensajes, participa, tablero, ocurrencias, invitados, solicitudes, asistencias, hijos `parentReunionId`). Solo owner o admin | [`src/services/reunionDelete.js`](src/services/reunionDelete.js), `DELETE /:reunionId` |
 | Reunión nueva: estado **programada** si la fecha es futura (si no, **activa**), docente auto-inscrito y **Tablero** vacío creado | `src/routes/reuniones.js` |
-| Edición y baja lógica de reuniones por dueño/admin | `PATCH /api/reuniones/:reunionId`, `DELETE /api/reuniones/:reunionId` |
+| **Convención de timestamps en modelos Sequelize** — Todos los modelos en [`src/models/`](src/models/) usan `timestamps: true` con alias físicos `createdAt: 'creado_en'` y `updatedAt: 'actualizado_en'` (heredado del `define` global de [`src/config/database.js`](src/config/database.js) y declarado explícitamente en las options de cada modelo para autodocumentación). No se declaran `createdAt`/`updatedAt` como atributos manuales del modelo ni se usan hooks `beforeUpdate` para tocar `actualizado_en`: Sequelize lo hace solo al hacer `.save()` / `.update()`. Servicios y rutas no deben asignar manualmente esas columnas. **Importante para consultas:** al usar `createdAt: 'creado_en'`/`updatedAt: 'actualizado_en'` Sequelize renombra el atributo del modelo (de `createdAt`/`updatedAt` a `creado_en`/`actualizado_en`); por lo tanto las consultas que ordenan/filtran por timestamps deben usar los alias físicos (`order: [['creado_en','ASC']]`, no `'createdAt'`), de lo contrario Sequelize lo trata como columna literal y falla con `SQLITE_ERROR: no such column: Reunion.createdAt`. Mismo patrón en `ReunionOcurrencia` tras reagendar: `PATCH` en `src/routes/reuniones.js` ordena la última excepción con `[['actualizado_en','DESC']]` (no `actualizadoEn`) | Modelos: [`reunion.js`](src/models/reunion.js), [`reunionInvitado.js`](src/models/reunionInvitado.js), [`reunionSolicitudAcceso.js`](src/models/reunionSolicitudAcceso.js), [`reunionOcurrencia.js`](src/models/reunionOcurrencia.js), [`reunionAsistenciaMs.js`](src/models/reunionAsistenciaMs.js), etc. Config global: [`src/config/database.js`](src/config/database.js). Consumidor que aplica la convención al ordenar: [`src/services/reunionByRoom.js`](src/services/reunionByRoom.js), `PATCH` post-reagendar en `src/routes/reuniones.js` |
+| Edición y eliminación de reuniones por dueño/admin | `PATCH /api/reuniones/:reunionId`, `DELETE /api/reuniones/:reunionId` (hard-delete en cascada) |
 | **Cupo** 5 no-docentes + docente | `puedeUnirseParticipar`, mensaje de error fijo en español |
 | Chat **privado**: estudiante solo hacia docente; docente puede escribir a estudiante; reglas en Socket y REST | `src/socket/index.js`, `src/routes/mensajes.js` |
 | **Adjuntos de chat**: subida HTTP; mensaje con metadatos vía Socket; comprobación de que el fichero exista en disco antes de persistir | `src/routes/reuniones.js`, `src/socket/index.js`, `src/services/chatAdjuntos.js`, `GET .../mensajes/adjunto/...` |
 | **Reacciones de mensaje** (toggle por usuario/emoji, persistencia y broadcast) | `src/socket/index.js`, `src/models/mensajeReaccion.js`, `src/routes/mensajes.js`, `public/index.html` |
 | **Reacción de sala** desde toolbar inferior | `room:reaction` en `src/socket/index.js`, menú `roomReactionMenu` en `public/index.html` |
-| **Borrado de mensaje + adjunto en disco** | `DELETE /api/mensajes/:mensajeId`, emisión `chat:messageDeleted` usando `req.app.get('io')` |
+| **Notificaciones de chat en barra inferior** (badge sin falsos positivos en eco propio; identidad cargada antes del socket) | `ensureCurrentUserLoaded`, `getSelfUserId`, `shouldIncrementUnreadForIncoming` en `public/js/chat.js` + `public/index.html`; bus `moj:chat:notify` / `notificaciones.js` / `uiBarra.js` |
+| **Layout del panel de chat con adjunto pendiente** (composer visible sobre toolbar inferior) | CSS `.room-chat-panel` en `public/index.html`: `#chatBox` scroll + `.chat-compose` fijo + `.chat-adjunto-pending-slot` con altura máxima |
 | **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / `findReunionByRoomKey` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |
 | **Grabación** (vídeo + audio mezclado): solo el dueño de la sala (`docenteUsuarioId`); UI oculta para el resto; `recording:state` rechazado en socket si no es el docente | `public/index.html` (`isRoomDocente`, `updateTeacherRecordingControlsVisibility`), `recording:state` en `src/socket/index.js` |
@@ -353,7 +399,9 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 | **Anotaciones en pantalla compartida** (estado en RAM, sanitizado, rebroadcast) | `screenshare-annotate:update`, `screenshare-annotate:state` en `src/socket/index.js`; overlay y herramientas en `public/index.html` |
 | **API/Socket cross-origin en Render**: helper `toApiUrl`, fallback de origen, y conexión Socket.IO al backend público cuando frontend/backend están separados | `public/index.html` (`API_ORIGIN`, `inferApiOrigin`, `toApiUrl`, `connectSocketIfNeeded`) |
 | **Registro público sin escalamiento de rol**: alta siempre como `estudiante`, sin confiar en `rol` del cliente | `src/routes/auth.js`, `public/index.html` |
-| **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` en `src/routes/usuarios.js` |
+| **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` (legacy), **`GET/PATCH /api/admin/usuarios`** en `src/routes/admin.js` + panel [`public/admin.html`](public/admin.html) |
+| **Panel admin (gestión de roles)** | `src/middleware/requireAdmin.js`, `public/js/helpers.js` (`isAdminRole`, `canManageScheduleRole`), enlace «Panel admin» en lobby — ver §4 |
+| **Predicados de rol compartidos (cliente + servidor)** | `public/js/helpers.js` (`normalizeRol`, `isTeacherRole`, `isAdminRole`, `canManageScheduleRole`, `getUserRoleLabel`); `src/utils/roles.js` (`canManageReuniones`) |
 | **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
@@ -361,12 +409,12 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 | Campos de reunión para **agenda futura** (`fechaHoraFin`, `zonaHoraria`, `recurrencia`, `serieId`) y **excepciones de serie** (`parentReunionId`, `esExcepcion`, `occurrenceDayKey`) | `src/models/reunion.js` |
 | **Asistencia en BD** + umbral de copresencia | Ver §1 «Asistencia y copresencia»; `src/models/reunionAsistencia.js`, `src/services/asistencia.js`, `src/services/copresencia.js`, `GET/POST .../asistencia`, `GET .../asistencia/live`, socket `room:join`/`room:leave`, opcional `attendance:*` vía `src/socket/attendanceLive.js` |
 | **Asistencia en vivo (opcional)** | `ASISTENCIA_LIVE_ENABLED`, `public/js/asistenciaLive.js`, eventos `attendance:presence` / `attendance:copresence` / `attendance:fulfilled` |
-| **Métricas de reporte (Fase A/B)** | `ASISTENCIA_METRICAS_ENABLED`, `GET .../asistencia/reporte?metrics=0\|chat\|session\|full`, `src/services/reporteAsistencia.js`, `metricasParticipacion.js`, `teacherPresenceMs`/`copresenceMs` en RAM (`copresencia.js`) |
+| **Métricas de reporte (Fase A/B/C)** | `ASISTENCIA_METRICAS_ENABLED`, `ASISTENCIA_PERSISTENCE_ENABLED`, `GET .../asistencia/reporte?metrics=0\|chat\|session\|full`, `reporteAsistencia.js`, `asistenciaMsPersistencia.js`, tabla `reunion_asistencia_ms` |
 | **Reagendar ocurrencia** (solo docente dueño) | `POST /api/reuniones/:reunionId/reagendar`, `src/services/reuniones.js` + tabla `reunion_ocurrencia` |
 | **Deshacer/rehacer agenda** (pilas en cliente; ver §1 Historial de acciones) | `src/services/historialAcciones.js`, `public/index.html` (`calendarioHistorial`, `#btnCalendarUndo` / `#btnCalendarRedo`); migración hacia `public/js/calendarController.js` (paso 2) |
 | **Calendario lobby — estado y carga** (`getMeetings` / `setMeetings` / `loadHomeMeetings`, paso 1) | `public/js/calendarController.js` + delegación en `public/index.html` |
 | **Impresión agendamiento y asistencia** (cuadrícula 2 meses; asistencia + tabla resumen BD y pie live opcional vía reporte) | §1 «Reportes y exportación»; `public/index.html`, [`public/js/reporteAsistenciaPrint.js`](public/js/reporteAsistenciaPrint.js), [`src/services/reporteAsistencia.js`](src/services/reporteAsistencia.js), `GET .../asistencia/reporte` |
-| **Calendario por rol** (Ver + puntitos docente; hora en celda estudiante) | `public/index.html` (`appendCalendarDayDots`, `appendCalendarDayVerButton`, `appendCalendarDayTimesForStudent`, `openDayRosterFromCell`) |
+| **Calendario por rol** (Ver + puntitos docente/admin; hora en celda estudiante) | `public/index.html` + `canManageScheduleRole` en `helpers.js` |
 | Invitaciones / solicitudes de acceso a reunión (modelo y servicio) | `src/models/reunionInvitado.js`, `reunionSolicitudAcceso.js`, `src/services/reunionInvitacionesSolicitudes.js` |
 | Búsqueda de reunión por `room_id` (case-insensitive) centralizada | `src/services/reunionByRoom.js` |
 | Reparación opcional de integridad SQLite en `reuniones` tras cambios de esquema | `src/services/sqliteReunionSchemaRepair.js`, llamado desde `server.js` |
@@ -384,7 +432,66 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 
 ---
 
-## 4. Scripts NPM actuales
+## 4. Administración (panel de roles)
+
+Usuarios con rol global **`admin`** pueden abrir **`/admin.html`** (enlace «Panel admin» en el lobby) para listar usuarios y cambiar roles (`docente`, `estudiante`, `admin`).
+
+**API (requiere JWT + rol admin):**
+
+| Método | Ruta |
+|--------|------|
+| `GET` | `/api/admin/usuarios` |
+| `PATCH` | `/api/admin/usuarios/:id/rol` — body `{ "rol": "docente" }` |
+
+**Primer administrador** (BD vacía o Render con SQL): promover manualmente una cuenta existente:
+
+```sql
+UPDATE usuarios SET rol = 'admin' WHERE email = 'tu-correo@ejemplo.com';
+```
+
+Cierra sesión y vuelve a entrar para que el cliente cargue el rol desde `GET /api/usuarios/me`.
+
+### Bootstrap temporal (solo desarrollo)
+
+**Advertencia:** endpoint **temporal**. Tras promover tu cuenta **una vez**, elimina el bloque `if (process.env.NODE_ENV !== 'production') { … make-admin … }` en [`src/routes/usuarios.js`](src/routes/usuarios.js) y esta subsección (o márcala obsoleta). No desplegar a producción con este código aunque esté condicionado por `NODE_ENV`.
+
+| Método | Ruta |
+|--------|------|
+| `PATCH` | `/api/usuarios/me/make-admin` — promueve al usuario del JWT; no existe si `NODE_ENV=production` (p. ej. Render) |
+
+1. Inicia sesión y obtén el token (p. ej. tras `POST /api/auth/login` o `GET /api/usuarios/me`).
+2. Promoción (solo tu sesión, sin pasar UUID en la URL):
+
+```bash
+curl -X PATCH "http://localhost:3000/api/usuarios/me/make-admin" \
+  -H "Authorization: Bearer TU_TOKEN"
+```
+
+Respuesta esperada: `{ "ok": true, "id": "…", "rol": "admin" }`. Sin token → **401**.
+3. Refresca el lobby o vuelve a llamar `GET /api/usuarios/me` → enlace **Panel admin**.
+4. **Limpieza:** borra el bloque `me/make-admin` en `usuarios.js` (y esta subsección si ya no aplica) y confirma con commit.
+
+El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudiante`** por defecto.
+
+**Archivos principales:**
+
+| Archivo | Rol |
+|---------|-----|
+| `src/middleware/requireAdmin.js` | Middleware `403` si `rol !== 'admin'` |
+| `src/routes/admin.js` | Listado y cambio de rol |
+| `public/admin.html` | UI tabla + selector de rol |
+| `public/js/helpers.js` | `isAdminRole`, `isTeacherRole`, `canManageScheduleRole`, `getUserRoleLabel` (lobby y `admin.html`) |
+| `public/js/tableroSeleccion.js` | Subcapa de selección del tablero: estado (Set), hit-tests (text/image/stroke), drag-box (marquee), helpers de bounds, `getResizeTransform` para resize de elemento o grupo — selección **local**, no se serializa por socket |
+| `src/utils/roles.js` | `canManageReuniones()`, `getReunionScopeForUser()` (política de scope: `all` para admin, `owned` para docente, `participating` para el resto) — predicados puros sin Sequelize, reutilizados en `reunionesListing.js` |
+| `src/services/reunionPresenter.js` | `reunionJsonWithReagenda(reunion)` — serializador único de modelos `Reunion` con metadatos de reagendamiento (extraído del router para reuso desde servicios) |
+| `src/services/reunionesListing.js` | `listarReunionesParaUsuario(usuario)` → lista completa por rol; usado por `GET /api/reuniones/calendario` |
+| `src/services/reunionesMisBuckets.js` | `buildMisBucketsForUsuario(usuario)` → `{ proximas, anteriores }` ≤10; usado por `GET /api/reuniones/mis` |
+
+**QA manual:** usuario `estudiante` → `GET /api/admin/usuarios` debe devolver **403**; usuario `admin` → lista OK; tras `PATCH`, el afectado ve el nuevo rol en el badge del lobby tras re-login o refresco (`GET /api/usuarios/me`).
+
+---
+
+## 5. Scripts NPM actuales
 
 | Comando | Uso |
 |---------|-----|
@@ -394,11 +501,11 @@ Validación Fase B (resumen): `teacherPresenceMs` solo con docente; `copresenceM
 
 Scripts adicionales (sin entrada en `package.json`): `validate-reporte-metrics-plan.cjs`, `validate-phase-b-debug.cjs`, `debug-api-reunion-metrics.cjs` — ver § métricas.
 
-Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado).
+Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado), **`ASISTENCIA_PERSISTENCE_ENABLED`** (`true` para flush/lectura BD de métricas sesión; default desactivado).
 
 ---
 
-## 5. Sequelize CLI — estado y uso previsto
+## 6. Sequelize CLI — estado y uso previsto
 
 **Estado actual:** no hay `npm run db:migrate` definido en `package.json`; no hay archivos de migración en el árbol revisado. El lockfile puede listar `sequelize-cli` como devDependency aunque el `package.json` no lo refleje — conviene alinear e instalar de nuevo si se adopta la CLI.
 
@@ -420,11 +527,11 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-## 6. Buenas prácticas para sesiones en Cursor
+## 7. Buenas prácticas para sesiones en Cursor
 
 - **Actualizar este `README-dev.md`** cuando: se añadan rutas o eventos de socket; cambien modelos o estrategia de BD; se añadan variables de entorno; cambie el cupo o las reglas de chat; cambie la grabación (audio/vídeo) o la mezcla Web Audio; se creen migraciones o scripts.
 - Así el siguiente chat o sesión puede usar este archivo como **contexto inicial** (pegar resumen o `@README-dev.md`).
 
 ---
 
-*Última actualización de este documento: mayo 2026 — Fase B métricas sesión RAM (`teacherPresenceMs`, `copresenceMs` en `copresencia.js`, `metrics.session` en reporte), Fase A métricas chat (`metricasParticipacion.js`, `ASISTENCIA_METRICAS_ENABLED`), reportes/exportación (`reporteAsistencia.js`, `GET .../asistencia/reporte`, `reporteAsistenciaPrint.js`), asistencia en vivo opcional (`ASISTENCIA_LIVE_ENABLED`, `asistenciaLive.js`, `attendanceLive.js`), sección «Asistencia y copresencia», calendario vertical, `calendarController.js` (paso 1), impresión lobby, modal de agenda, validación de solape, reagendar, historial deshacer/rehacer y reparación SQLite en arranque.*
+*Última actualización de este documento: mayo 2026 — fix chat: badge sin falsos positivos en mensajes propios (`ensureCurrentUserLoaded`, degradación segura sin `selfId`); layout del panel lateral con adjunto pendiente (composer fijo, scroll en historial). Anterior: DELETE real en cascada; buckets `/mis`; fix reagendar `actualizado_en`.*
