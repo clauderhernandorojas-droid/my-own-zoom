@@ -518,6 +518,7 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
       background: var(--z-chat-bg);
       color: var(--z-chat-text);
       border-left: 1px solid var(--z-border);
@@ -543,18 +544,32 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
       margin: 0;
       padding: 0.38rem 0.5rem;
       border-radius: 0;
     }
+    .room-chat-panel .chat-topbar,
+    .room-chat-panel #chatThreadTabs {
+      flex: 0 0 auto;
+    }
     .room-chat-panel #chatBox {
-      flex: 1 1 auto;
-      min-height: 120px;
-      height: auto !important;
+      flex: 1 1 0;
+      min-height: 0;
+      height: auto;
+      max-height: none;
+      overflow-y: auto;
       margin: 0.5rem 0;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
       background: #fafafa;
+    }
+    .room-chat-panel .chat-compose {
+      flex: 0 0 auto;
+    }
+    .room-chat-panel .chat-adjunto-pending-slot {
+      max-height: min(36vh, 220px);
+      overflow-y: auto;
     }
     .room-chat-panel #chatInput {
       background: #fff;
@@ -6221,6 +6236,26 @@ body.print-calendar-export {
       }
     }
 
+    /**
+     * Estrategia (2): poblar currentUser antes de socket/chat en sala.
+     * Si falla, el chat aplica degradación segura (5) en chat.js.
+     */
+    async function ensureCurrentUserLoaded() {
+      if (currentUser?.usuarioId) return true;
+      if (!getToken()) return false;
+      try {
+        const me = await api("/api/usuarios/me");
+        currentUser = me.usuario;
+        if (currentUser?.nombre) {
+          setCurrentDisplayName(currentUser.nombre || getStoredDisplayName());
+        }
+        return !!currentUser?.usuarioId;
+      } catch (e) {
+        log(e?.message || "No se pudo cargar el perfil de usuario.");
+        return false;
+      }
+    }
+
     function initChatModule() {
       if (typeof ChatModule === "undefined") return;
       ChatModule.initChatRoom({
@@ -9559,6 +9594,7 @@ body.print-calendar-export {
       try {
         await loadIce();
         await ensureLocalStream({ allowSilentJoin: true });
+        await ensureCurrentUserLoaded();
         await connectSocketIfNeeded();
       } catch (e) {
         const msg = e?.name === "NotAllowedError" || e?.message?.includes("Permiso")
@@ -12149,7 +12185,6 @@ body.print-calendar-export {
       updateBoardToolUi();
       updateBoardToolbarOverflow();
       updateBoardHistoryButtons();
-      initChatModule();
       if (getToken()) {
         try {
           const me = await api("/api/usuarios/me");
@@ -12161,6 +12196,7 @@ body.print-calendar-export {
           setToken(null);
         }
       }
+      initChatModule();
       if (!location.hash || location.hash === "#" || location.hash === "#/") {
         _suppressHashRoute = true;
         location.hash = getToken() ? "#/lobby" : "#/login";

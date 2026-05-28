@@ -37,10 +37,27 @@
     return String(a).toLowerCase() === String(b).toLowerCase();
   }
 
+  /** Identidad del usuario en sala; null si aún no cargó /api/usuarios/me. */
+  function getSelfUserId() {
+    const id = deps?.getCurrentUser?.()?.usuarioId;
+    return id != null && String(id).trim() !== "" ? id : null;
+  }
+
   function shouldMarkUnread(threadKey) {
     if (!threadKey) return false;
     if (deps?.getChatPanelHidden?.()) return true;
     return activeChatThreadKey !== threadKey;
+  }
+
+  /**
+   * Reglas de badge: requiere selfId (degradación segura si falta).
+   * Mensajes propios nunca incrementan unread.
+   */
+  function shouldIncrementUnreadForIncoming(autorUserId, threadKey) {
+    const selfId = getSelfUserId();
+    if (!selfId) return false;
+    if (autorUserId && sameUserId(autorUserId, selfId)) return false;
+    return shouldMarkUnread(threadKey);
   }
 
   function findThreadKeyForMessage(mensajeId) {
@@ -56,6 +73,7 @@
   }
 
   function bumpThreadUnread(threadKey, meta) {
+    if (!getSelfUserId()) return;
     if (!chatThreads.has(threadKey)) return;
     const thread = chatThreads.get(threadKey);
     thread.unread = (thread.unread || 0) + 1;
@@ -147,9 +165,9 @@
     if (!thread) return;
     thread.messages.push(m);
 
-    const selfId = deps?.getCurrentUser?.()?.usuarioId;
-    const isMine = !!(selfId && autor?.usuarioId && sameUserId(autor.usuarioId, selfId));
-    if (!isMine && shouldMarkUnread(threadKey)) {
+    const autorId = autor?.usuarioId ?? null;
+    const markUnread = shouldIncrementUnreadForIncoming(autorId, threadKey);
+    if (markUnread) {
       thread.unread = (thread.unread || 0) + 1;
       emitNotify({
         kind: "message",
@@ -186,9 +204,9 @@
     if (!mensajeId) return;
     const threadKey = findThreadKeyForMessage(mensajeId);
     applyMessageReactionsUpdate(String(mensajeId), payload.reactions);
-    if (threadKey && shouldMarkUnread(threadKey)) {
+    if (threadKey && getSelfUserId() && shouldMarkUnread(threadKey)) {
       bumpThreadUnread(threadKey, { kind: "reaction", mensajeId: String(mensajeId) });
-    } else if (threadKey) {
+    } else if (threadKey && getSelfUserId()) {
       emitNotify({ kind: "reaction", threadKey, mensajeId: String(mensajeId) });
     }
   }
@@ -682,7 +700,7 @@
       marcaTiempo: new Date().toISOString(),
       autor: { nombre: "Sala", usuarioId: null },
     });
-    if (shouldMarkUnread("general")) {
+    if (getSelfUserId() && shouldMarkUnread("general")) {
       thread.unread = (thread.unread || 0) + 1;
       emitNotify({ kind: "message", threadKey: "general" });
     }
