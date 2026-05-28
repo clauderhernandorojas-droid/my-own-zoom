@@ -11,6 +11,9 @@
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
   <script src="/js/asistenciaLive.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/notificaciones.js"></script>
+  <script src="/js/uiBarra.js"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -583,6 +586,28 @@
       padding: 0.3rem 0.45rem calc(0.3rem + env(safe-area-inset-bottom));
       background: #131313;
       border-top: 1px solid #2a2a2a;
+    }
+    .room-tb-badge {
+      position: absolute;
+      top: 2px;
+      right: 4px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: #e53935;
+      color: #fff;
+      font-size: 0.55rem;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+      pointer-events: none;
+      box-sizing: border-box;
+    }
+    .room-tb-btn__icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     .room-tb-btn {
       position: relative;
@@ -7277,6 +7302,7 @@ body.print-calendar-export {
       $("roomSection")?.classList.remove("hidden");
       document.body.classList.add("body--in-room", "app-route-meet");
       document.body.classList.remove("app-route-login", "app-route-lobby");
+      initRoomChatBarModules();
       setChatPanelHidden(false);
       requestAnimationFrame(() => {
         applyRoomVideoStripSizing();
@@ -7403,9 +7429,52 @@ body.print-calendar-export {
       if (btn) { btn.textContent = text; btn.setAttribute("aria-pressed", pressed); }
       const btnInline = $("btnToggleChatInline");
       if (btnInline) { btnInline.textContent = text; btnInline.setAttribute("aria-pressed", pressed); }
+      if (!chatPanelHidden && typeof ChatModule !== "undefined") {
+        ChatModule.onActiveThreadChanged(activeChatThreadKey);
+      }
       requestAnimationFrame(() => {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
+    }
+
+    function openChatFromBottomBar() {
+      setChatPanelHidden(false);
+      let bestKey = activeChatThreadKey || "general";
+      let bestUnread = 0;
+      chatThreads.forEach((t, k) => {
+        const u = Number(t.unread) || 0;
+        if (u > bestUnread) {
+          bestUnread = u;
+          bestKey = k;
+        }
+      });
+      setActiveChatThread(bestKey);
+    }
+
+    let roomChatBarModulesReady = false;
+    function initRoomChatBarModules() {
+      if (roomChatBarModulesReady) return;
+      if (typeof ChatModule === "undefined" || typeof Notificaciones === "undefined" || typeof UiBarra === "undefined") {
+        return;
+      }
+      roomChatBarModulesReady = true;
+      ChatModule.initChat({
+        getCurrentUser: () => currentUser,
+        getActiveChatThreadKey: () => activeChatThreadKey,
+        getChatPanelHidden: () => chatPanelHidden,
+        getChatThreads: () => chatThreads,
+        getActiveRoomId: () => activeRoomId,
+        appendChatLineCore: appendChatLine,
+        applyMessageReactionsUpdate,
+        renderChatThreadTabs,
+      });
+      Notificaciones.initNotificaciones({
+        getChatThreads: () => chatThreads,
+        onUpdate: (state) => {
+          UiBarra.updateBadge(state?.totalUnread);
+        },
+      });
+      UiBarra.mountRoomBottomBar({ onOpenChat: openChatFromBottomBar });
     }
 
     function closeBoardSideMenus() {
@@ -9461,8 +9530,30 @@ body.print-calendar-export {
       const thread = chatThreads.get(threadKey);
       if (!thread) return;
       thread.messages.push(m);
-      if (activeChatThreadKey !== threadKey) {
-        thread.unread = (thread.unread || 0) + 1;
+      const selfId = currentUser?.usuarioId;
+      const isMine = !!(
+        selfId &&
+        autor?.usuarioId &&
+        (typeof ChatModule !== "undefined"
+          ? ChatModule.sameUserId(autor.usuarioId, selfId)
+          : autor.usuarioId === selfId)
+      );
+      if (!isMine) {
+        const markUnread =
+          typeof ChatModule !== "undefined"
+            ? ChatModule.shouldMarkUnread(threadKey)
+            : activeChatThreadKey !== threadKey;
+        if (markUnread) {
+          thread.unread = (thread.unread || 0) + 1;
+          if (typeof ChatModule !== "undefined") {
+            ChatModule.emitNotify({
+              kind: "message",
+              threadKey,
+              fromUserId: autor?.usuarioId,
+              mensajeId: m.mensajeId,
+            });
+          }
+        }
       }
       renderChatThreadTabs();
       renderChatMessages();
@@ -9486,7 +9577,12 @@ body.print-calendar-export {
       if (!chatThreads.has(threadKey)) return;
       activeChatThreadKey = threadKey;
       const thread = chatThreads.get(threadKey);
-      thread.unread = 0;
+      if (!chatPanelHidden) {
+        thread.unread = 0;
+        if (typeof ChatModule !== "undefined") {
+          ChatModule.onActiveThreadChanged(threadKey);
+        }
+      }
       renderChatThreadTabs();
       renderChatMessages();
     }
@@ -9972,12 +10068,18 @@ body.print-calendar-export {
           log(msg);
           reject(new Error(msg));
         });
-        socket.on("chat:message", appendChatLine);
+        socket.on("chat:message", (payload) => {
+          if (typeof ChatModule !== "undefined") ChatModule.onIncomingMessage(payload);
+          else appendChatLine(payload);
+        });
         socket.on("chat:messageDeleted", ({ mensajeId }) => {
           if (mensajeId) removeChatMessageEverywhere(String(mensajeId));
         });
-        socket.on("chat:messageReaction", ({ mensajeId, reactions }) => {
-          if (mensajeId) applyMessageReactionsUpdate(String(mensajeId), reactions);
+        socket.on("chat:messageReaction", (payload) => {
+          if (typeof ChatModule !== "undefined") ChatModule.onIncomingReaction(payload);
+          else if (payload?.mensajeId) {
+            applyMessageReactionsUpdate(String(payload.mensajeId), payload.reactions);
+          }
         });
         socket.on("board:state", (d) => mergeBoardContenido(d.contenido));
         socket.on("board:update", (d) => mergeBoardContenido(d.contenido));
@@ -10246,9 +10348,13 @@ body.print-calendar-export {
             location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
             _suppressHashRoute = false;
             ensureGeneralThread();
-            chatThreads.forEach((t) => {
-              t.unread = 0;
-            });
+            if (typeof ChatModule !== "undefined") {
+              ChatModule.markAllRead();
+            } else {
+              chatThreads.forEach((t) => {
+                t.unread = 0;
+              });
+            }
             connectedUserIds.clear();
             peerSocketToUserId.clear();
             if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
@@ -10363,6 +10469,8 @@ body.print-calendar-export {
       updateBoardHistoryButtons();
       $("remotesContainer").innerHTML = "";
       $("chatBox").innerHTML = "";
+      if (typeof ChatModule !== "undefined") ChatModule.markAllRead();
+      if (typeof Notificaciones !== "undefined") Notificaciones.reset();
       chatThreads.clear();
       ensureGeneralThread();
       activeChatThreadKey = "general";

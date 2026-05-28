@@ -348,6 +348,14 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Compatibilidad SQLite en orden de reacciones**: el servidor ordena por `mensajeReaccionId` (no por `createdAt`) para evitar errores en BD locales con esquemas previos.
 - **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
 - **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
+- **Chat — notificaciones barra inferior (fase 1)**:
+  - Módulos en `public/js/chat.js`, `public/js/notificaciones.js`, `public/js/uiBarra.js` (cargados desde `index.html` junto a `calendarController.js`).
+  - **`chat.js`**: reglas de no-leídos (`shouldMarkUnread`: hilo distinto al activo **o** panel de chat oculto); wrappers Socket `onIncomingMessage` / `onIncomingReaction`; no notifica mensajes propios.
+  - **Bus interno en `document`** (no confundir con Socket.io): `moj:chat:notify` `{ kind: 'message'|'reaction', threadKey, ... }`, `moj:chat:read` `{ threadKey }` o `{ all: true }`.
+  - **`notificaciones.js`**: agrega `totalUnread` desde `chatThreads[].unread` (solo RAM); `onUpdate` alimenta el badge.
+  - **`uiBarra.js`**: botón `#btnChatBar` en `#roomMediaControls` con badge `.room-tb-badge` (1–99+); clic abre el panel y activa el hilo con más no-leídos.
+  - Los badges en pestañas del panel (`#chatThreadTabs`) siguen usando el mismo contador `thread.unread`; el de la barra es complementario.
+  - **QA manual sugerido** (dos clientes en la misma sala): mensaje general con panel oculto → badge barra; mensaje privado solo en destinatario; mensaje propio sin badge; abrir hilo activo con panel visible → badge a 0; reacción ajena en hilo inactivo → +1; `leaveRoom` / nuevo `room:join` → reset.
 - **Selección en tablero (puntero)** — implementada en [`public/js/tableroSeleccion.js`](public/js/tableroSeleccion.js) (estado local; no viaja por socket):
   - Click sobre un elemento (texto, imagen o **trazo**) selecciona ese elemento; los trazos son seleccionables, arrastrables y **redimensionables**.
   - **Shift+click** acumulativo: añade o quita del conjunto.
