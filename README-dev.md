@@ -226,6 +226,11 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - Servidor: eventos Socket `meet:screenShare:request`, `meet:screenShare:response`, `meet:screenShare:grant`; solo presentador/admin puede conceder permiso.
   - El permiso para invitado es **temporal** y enfocado a compartir **pantalla** (no tablero).
   - Si la solicitud llega con la pestaña del presentador en segundo plano, se encola y se muestra al recuperar foco.
+- **Dejar de compartir (quién puede detener)**:
+  - UI en `public/index.html` (`canStopLocalScreenShare` / `canStopLocalBoardPresentation`): el label y el menú **Dejar** solo si hay captura **local** propia; docente/admin también para tablero.
+  - Invitado autorizado puede detener **solo su** pantalla; no la del docente ni la de otro participante.
+  - Socket: `meet:screenShare` con `active: false` y `board:presentation` con `active: false` solo se propagan si el emisor es el sharer registrado en el servidor; iniciar tablero exige `socketCanShareMeetingContent`.
+  - Prueba automatizada: `npm run test:screen-share-stop` (`scripts/test-screen-share-stop-socket.cjs`).
 - **Render / despliegue frontend-backend separados (nuevo)**:
   - El cliente ahora resuelve un origen de API dinámico (`toApiUrl(...)`) en `public/index.html`.
   - Prioridad de origen:
@@ -326,12 +331,16 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 - **Promoción de roles (admin)**:
   - Nuevo endpoint `PATCH /api/usuarios/:usuarioId/rol` (solo admin) para cambiar entre `estudiante` / `docente` / `admin`.
   - Incluye auditoría básica en logs servidor (`[AUDIT] usuario:rol:update` con actor, objetivo, cambio, IP, user-agent).
-- **Sala de espera con aprobación del presentador (nuevo)**:
-  - El invitado en `#/meet/:roomId/wait` ya no entra directo; envía solicitud de entrada.
-  - El presentador recibe modal centrado con nombre del solicitante y botones `Aceptar` / `Rechazar`.
-  - Al rechazar, se pide confirmación explícita.
-  - El servidor valida entrada real: `room:join` rechaza a no-presentadores sin grant previo.
-  - Eventos Socket añadidos: `room:entry:request`, `room:entry:response`, `room:entry:decision`.
+- **Sala de espera con aprobación del presentador**:
+  - Invitados (no docente dueño ni admin) pasan por `#/meet/:roomId/wait` (`#meetWaitingSection`): botón **Entrar a la reunión** → `room:entry:request` → espera `room:entry:decision`.
+  - Rutas que envían a sala de espera: lobby **Entrar**, enlace `#/meet/:id` (sin `/gallery`), unirse con código — vía `shouldUseWaitingRoom()` / `navigateToMeetWaiting()`.
+  - Presentador (docente dueño o admin) entra directo con `enterRoom()` → `room:join` sin grant.
+  - Modal `#roomEntryRequestModal` en sala: **Aceptar** / **Rechazar** → `room:entry:response` → grant temporal en RAM ([`src/socket/asistenciaSocket.js`](src/socket/asistenciaSocket.js), mapa `roomEntryGrant`).
+  - **Enforcement servidor**: `room:join` rechaza invitados sin grant consumido (`Debes esperar la aprobación del presentador para entrar.`). `POST /unirse` solo crea `Participa`; no sustituye la aprobación.
+  - **Requisito operativo**: debe haber un presentador **conectado en la sala** (`room:join` previo) para recibir `room:entry:request`; si no, el invitado ve *No hay presentador conectado para aprobar tu entrada.*
+  - Si `enterRoom` recibe el error de aprobación, vuelve a `#meetWaitingSection` con mensaje en `#meetWaitingStatus`.
+  - Eventos Socket: `room:entry:request`, `room:entry:response`, `room:entry:decision`.
+  - Prueba: `npm run test:waiting-room` (servidor en marcha).
 - **Franja de vídeo en sala**: una fila con marca **My Own Zoom** + botón **Copiar enlace** (sin UUID visible bajo el título); vídeos a la derecha. `#btnToggleChat` y `#btnRoomViewToggle` existen ocultos solo para sincronizar JS con el panel azul de layout/chat.
 - **Tablero**: menús laterales (colores, emojis, grosor, tamaño de texto, más) fuera de la barra vertical; posición **`fixed`** para evitar recortes y scroll fantasma; barra vertical acotada en altura (`max-height`) sin estirar vacío.
 - **Texto en tablero (herramienta T)** — `public/index.html`:
@@ -355,6 +364,53 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Bus interno en `document`** (no Socket.io): `moj:chat:notify`, `moj:chat:read`. Reglas: no-leído si hilo distinto al activo **o** panel oculto; **sin badge en mensajes propios** (`shouldIncrementUnreadForIncoming`: compara `autorId` con `getSelfUserId()`).
   - **Identidad antes del socket**: `ensureCurrentUserLoaded()` en `index.html` carga `/api/usuarios/me` en `enterRoom` (y `init()` restaura sesión antes de `initChatModule()`). Si aún falta `usuarioId`, el chat **no incrementa unread** ni emite notify (degradación segura en `chat.js`).
   - **`index.html`**: glue de sala (socket, `loadParticipantsForRoom`, `setChatPanelHidden`, WebRTC); delega chat a `ChatModule`. CSS de `.room-chat-panel`: overflow contenido, composer fijo, scroll en historial y slot de adjunto pendiente.
+- **Efectos de vídeo local (`videoEffects.js`)**:
+  - **`public/js/videoEffects.js`**: blur de fondo en tiempo real con MediaPipe Selfie Segmentation + canvas. API global `VideoEffects`: `videoEffectsEnabled.blur`, `applyBackgroundBlur(rawStream)`, `setBlurEnabled(on)`, `dispose()`, `getRawStream()`, `isActive()`, `init({ onPerformanceFallback })`.
+  - **Toggle UI**: menú **Vídeo** (botón cámara) → **Blur fondo** (`role="menuitemcheckbox"`). Persistencia opcional en `localStorage` (`moj_video_blur`).
+  - **Integración en `index.html`**: tras `acquireLocalMediaWithFallbacks`, `finalizeLocalMediaStream` / `applyStreamToLocal` procesan el stream antes de asignarlo a `#localVideo` y WebRTC. `stopLocalMedia` y cambio de dispositivo llaman `VideoEffects.dispose()` y detienen pistas crudas y procesadas.
+  - **CDN**: `@mediapipe/selfie_segmentation@0.1` (modelo landscape, `modelSelection: 1`).
+  - **Fallback**: init fallida → stream crudo sin blur; watchdog FPS (&lt; 12 FPS durante 3 s) → auto-off + mensaje en barra de estado.
+  - **Alcance**: solo cámara local; compartir pantalla (`getOutgoingVideoTrack`) no se ve afectado.
+  - **QA manual**:
+    1. Entrar a sala con cámara → activar blur → fondo desenfocado, rostro nítido.
+    2. Segunda pestaña / participante remoto ve el blur.
+    3. Desactivar blur → imagen normal.
+    4. Compartir pantalla → remoto ve pantalla, no cámara con blur.
+    5. Throttling CPU en DevTools → auto-off + aviso de rendimiento.
+    6. CDN offline → entra sin blur, sin crash.
+- **Expulsión de invitados (`uiExpulsion.js`)**:
+  - **`public/js/uiExpulsion.js`**: botón **Expulsar** en barra inferior (`#expelSplit`), visible solo para presentador (`canManageSharingInMeeting`). Menú con participantes conectados → modal de confirmación → `room:expel`.
+  - **Socket**: `room:expel` (host → servidor), `room:expelled` (servidor → invitado). Handler en [`src/socket/index.js`](src/socket/index.js); revoca grant de sala de espera pero **no** elimina fila `Participa`.
+  - **QA manual**:
+    1. Host pulsa Expulsar → elige participante → confirma → invitado desconectado y vuelve al lobby.
+    2. Host cancela modal → invitado sigue en sala.
+    3. Invitado no ve botón Expulsar.
+  - **Test automatizado**: `npm run test:room-expel` (`scripts/test-room-expel-socket.cjs`).
+- **Controles de conexión (WebRTC)**:
+  - No hay botón manual «Reintentar enlace» en la tarjeta del peer remoto (vista galería).
+  - `retryPeerRenegotiate()` permanece como helper **interno** en `public/index.html` (no expuesto en UI).
+  - La renegociación WebRTC ocurre solo de forma **automática** ante pérdida de conexión (`connectionState === "failed"`).
+  - **QA manual**:
+    1. Dos participantes en galería → no aparece botón de reintento manual.
+    2. Simular fallo de enlace (DevTools offline breve o ICE failed) → mensaje de reconexión automática y nueva oferta.
+    3. Ningún usuario puede forzar renegociación manual desde la interfaz.
+- **Mini-player flotante (auto-PiP) (`uiMiniPlayer.js`)**:
+  - **`public/js/uiMiniPlayer.js`**: al ocultar la pestaña (`visibilitychange` + `document.hidden`) durante una reunión activa, intenta **auto-PiP** (best-effort) con `requestPictureInPicture()` sobre el vídeo remoto (prioridad: pantalla compartida > cámara). Puede fallar por políticas del navegador (p. ej. Chrome exige gesto previo del usuario).
+  - **Sin vídeo remoto**: muestra `#miniPlayer` flotante y draggable con placeholder «Sin vídeo remoto» y controles **Mic**, **Vídeo**, **Restaurar**. El div dentro de una pestaña oculta no se pinta hasta volver a la pestaña.
+  - **Fallback auto-PiP**: si falla o no hay soporte PiP → div flotante (limitado en pestaña oculta).
+  - **Controles**: mic/cám local (`setMicEnabled` / `setCamEnabled`), **Restaurar** (vuelve a la pestaña).
+  - **Estilos**: [`public/css/uiMiniPlayer.css`](public/css/uiMiniPlayer.css) (cargado por el módulo vía `<link>`).
+  - **Ciclo de vida**: al volver a la pestaña, `hideMiniPlayer()` cierra PiP y oculta el div. Si se cierra PiP con la pestaña aún oculta, reaparece `#miniPlayer` como fallback.
+  - **Nota**: la pestaña incógnito del otro participante no impide PiP local; solo afecta si hay pista de vídeo remota WebRTC.
+  - **Integración**: `MiniPlayerControls.initMiniPlayer(...)` en `init()`; `hideMiniPlayer()` en `leaveRoom()`.
+  - **QA manual**:
+    1. Mini-player visible → Mic, Vídeo, Restaurar; **no** `#pipBtn` ni Preview.
+    2. DevTools → no existe `#pipBtn` ni `[data-action="pip"]`.
+    3. Pestaña oculta + vídeo remoto live → intento auto-PiP (puede abrir ventana del sistema si el navegador lo permite).
+    4. Pestaña oculta sin vídeo remoto → placeholder + 3 controles.
+    5. Cerrar PiP con pestaña aún oculta → reaparece `#miniPlayer`.
+    6. Volver a la pestaña → `hideMiniPlayer()` cierra PiP y oculta div.
+    7. Arrastrar mini-player; mic/cám desde mini-player afectan la reunión (barra inferior sincronizada).
 - **Selección en tablero (puntero)** — implementada en [`public/js/tableroSeleccion.js`](public/js/tableroSeleccion.js) (estado local; no viaja por socket):
   - Click sobre un elemento (texto, imagen o **trazo**) selecciona ese elemento; los trazos son seleccionables, arrastrables y **redimensionables**.
   - **Shift+click** acumulativo: añade o quita del conjunto.
@@ -365,6 +421,11 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Flechas del teclado** mueven toda la multiselección (Shift = paso de 10 px); **Delete/Backspace** borra todos los seleccionados (saltando `locked`).
   - **`selectedElementIndex`** se conserva como alias de "único seleccionado" para compat (lock UI, Ctrl+C, edición de texto inline); vale `-1` cuando hay 0 o >1 seleccionados.
   - Math compartido en el módulo: `getResizeTransform(handleId, ob, dx, dy, shiftKey)` calcula `anchor` + `sx,sy` + `newBounds`; `applyResizeTransform(el, anchor, sx, sy)` en `public/index.html` aplica la transformación según el tipo del elemento (respetando `locked`).
+- **Snap y guías de alineación (arrastre)** — [`public/js/tableroSnap.js`](public/js/tableroSnap.js) + helpers en `public/index.html` (`applySnappedDragDelta`, `drawSnapGuides`):
+  - Solo durante `drag` / `dragGroup`: alinea bordes y centros (X/Y) con el AABB de otros elementos (`TableroSeleccion.getElementWorldBounds`).
+  - Líneas guía punteadas (`#f43f5e`) a lo largo del viewport mientras hay coincidencia dentro del umbral.
+  - Umbral por defecto `BOARD_SNAP_THRESHOLD_PX = 8` (píxeles de pantalla); en runtime: `TableroSnap.configure({ thresholdPx: 15 })`. En mundo: `TableroSnap.getThresholdWorld(boardZoom)`.
+  - Sin coincidencias: arrastre libre, sin guías. Resize y grid permanente quedan fuera de alcance.
 - **Borrador del tablero**: al tocar un trazo/elemento, elimina el elemento completo (hit-test por segmento para strokes) en lugar de “pintar blanco”.
 - **Exportación del tablero a PDF** en cliente con **jsPDF** (recorte al contenido).
 
@@ -402,7 +463,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 | **Cambio de rol administrado**: promoción/degradación de rol solo por admin + auditoría básica | `PATCH /api/usuarios/:usuarioId/rol` (legacy), **`GET/PATCH /api/admin/usuarios`** en `src/routes/admin.js` + panel [`public/admin.html`](public/admin.html) |
 | **Panel admin (gestión de roles)** | `src/middleware/requireAdmin.js`, `public/js/helpers.js` (`isAdminRole`, `canManageScheduleRole`), enlace «Panel admin» en lobby — ver §4 |
 | **Predicados de rol compartidos (cliente + servidor)** | `public/js/helpers.js` (`normalizeRol`, `isTeacherRole`, `isAdminRole`, `canManageScheduleRole`, `getUserRoleLabel`); `src/utils/roles.js` (`canManageReuniones`) |
-| **Control de acceso en sala de espera**: entrada de invitado condicionada a aprobación del presentador (enforcement en socket) | `public/index.html` (wait modal + estado), `src/socket/index.js` (`roomEntryGrant`, `room:entry:*`, gate en `room:join`) |
+| **Control de acceso en sala de espera**: grant RAM + gate en `room:join`; UI `#/meet/:id/wait` y enrutamiento de invitados desde lobby/enlaces | [`src/socket/asistenciaSocket.js`](src/socket/asistenciaSocket.js) (`roomEntryGrant`, `room:entry:*`), gate en [`src/socket/index.js`](src/socket/index.js); cliente [`public/index.html`](public/index.html) (`shouldUseWaitingRoom`, `navigateToMeetWaiting`, modal host) |
 | **Modelo de reacciones de mensaje**: entidad dedicada `MensajeReaccion` + asociaciones `Mensaje`/`Usuario`; corrige fallos de runtime en `chat:reaction:toggle` cuando el modelo no estaba declarado | `src/models/mensajeReaccion.js`, `src/models/index.js`, `src/socket/index.js` |
 | Recurrencia persistida por API en `reuniones.recurrencia` (JSON serializado), validada en backend y consumida por calendario/listado del home | `src/routes/reuniones.js`, `public/index.html` |
 | **Sin solape de horarios** del docente al crear/editar/reagendar; 409 descriptivo en API y modal de agenda; omisión de validación en PATCH si agenda sin cambios (`isAgendaPatchNoOp`); excepciones de serie excluidas del mapa de ocupación al validar el padre (`buildBusyIntervals`) | `src/services/reunionHorarioSolapamiento.js`, `src/routes/reuniones.js`, `public/index.html` (`scheduleApiErrorMessage`, `#scheduleModalError`, `openScheduleModal` + roster vs panel agendamiento) |
@@ -482,6 +543,7 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `public/admin.html` | UI tabla + selector de rol |
 | `public/js/helpers.js` | `isAdminRole`, `isTeacherRole`, `canManageScheduleRole`, `getUserRoleLabel` (lobby y `admin.html`) |
 | `public/js/tableroSeleccion.js` | Subcapa de selección del tablero: estado (Set), hit-tests (text/image/stroke), drag-box (marquee), helpers de bounds, `getResizeTransform` para resize de elemento o grupo — selección **local**, no se serializa por socket |
+| `public/js/tableroSnap.js` | Snap y guías de alineación durante arrastre: `snapTranslation`, `configure({ thresholdPx })` — puro, sin socket |
 | `src/utils/roles.js` | `canManageReuniones()`, `getReunionScopeForUser()` (política de scope: `all` para admin, `owned` para docente, `participating` para el resto) — predicados puros sin Sequelize, reutilizados en `reunionesListing.js` |
 | `src/services/reunionPresenter.js` | `reunionJsonWithReagenda(reunion)` — serializador único de modelos `Reunion` con metadatos de reagendamiento (extraído del router para reuso desde servicios) |
 | `src/services/reunionesListing.js` | `listarReunionesParaUsuario(usuario)` → lista completa por rol; usado por `GET /api/reuniones/calendario` |
@@ -498,6 +560,11 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `npm start` | Arranca `node server.js` |
 | `npm run dev` | Mismo servidor con `node --watch` |
 | `npm run test:copresencia` | Script `scripts/test-copresencia-socket.cjs` (socket.io-client; prueba entrada/salida y umbral) |
+| `npm run test:waiting-room` | Script `scripts/test-waiting-room-socket.cjs` (grant + gate en `room:join`) |
+| `npm run test:room-expel` | Script `scripts/test-room-expel-socket.cjs` (`room:expel` / `room:expelled`) |
+| `npm run test:screen-share-stop` | Script `scripts/test-screen-share-stop-socket.cjs` (solo el sharer puede `meet:screenShare` / `board:presentation` con `active: false`; ACL tablero al iniciar) |
+
+**Módulos cliente de sala** (cargados desde `public/index.html`): `tableroSeleccion.js`, `tableroSnap.js`, `videoEffects.js`, `uiExpulsion.js`, `uiMiniPlayer.js` + `public/css/uiMiniPlayer.css`.
 
 Scripts adicionales (sin entrada en `package.json`): `validate-reporte-metrics-plan.cjs`, `validate-phase-b-debug.cjs`, `debug-api-reunion-metrics.cjs` — ver § métricas.
 
@@ -534,4 +601,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — fix chat: badge sin falsos positivos en mensajes propios (`ensureCurrentUserLoaded`, degradación segura sin `selfId`); layout del panel lateral con adjunto pendiente (composer fijo, scroll en historial). Anterior: DELETE real en cascada; buckets `/mis`; fix reagendar `actualizado_en`.*
+*Última actualización de este documento: mayo 2026 — snap/guías de alineación en tablero (`tableroSnap.js`); control «Dejar de compartir» por rol; tests socket `test:screen-share-stop`, `test:waiting-room`, `test:room-expel`; mini-player, blur y expulsión documentados en §1.*

@@ -178,11 +178,45 @@ async function main() {
   const ackDoc = await new Promise((resolve) => {
     sockDoc.emit('room:join', { roomId }, resolve);
   });
+  if (!ackDoc?.ok) {
+    console.error('[test] Docente room:join falló:', ackDoc);
+    process.exit(1);
+  }
+
+  const ackEstBlocked = await new Promise((resolve) => {
+    sockEst.emit('room:join', { roomId }, resolve);
+  });
+  if (ackEstBlocked?.ok !== false) {
+    console.error('[test] Se esperaba rechazo de estudiante sin grant de sala de espera');
+    process.exit(1);
+  }
+  console.log('[test] Estudiante rechazado sin grant (esperado):', ackEstBlocked?.error);
+
+  const grantResp = await new Promise((resolve) => {
+    sockDoc.emit(
+      'room:entry:response',
+      {
+        roomId,
+        targetUserId: String(estPart.usuarioId),
+        approved: true,
+      },
+      resolve
+    );
+  });
+  if (!grantResp?.ok) {
+    console.error('[test] room:entry:response falló:', grantResp);
+    process.exit(1);
+  }
+
   const ackEst = await new Promise((resolve) => {
     sockEst.emit('room:join', { roomId }, resolve);
   });
   console.log('[test] ACK room:join docente', ackDoc);
   console.log('[test] ACK room:join estudiante', ackEst);
+  if (!ackEst?.ok) {
+    console.error('[test] Estudiante no pudo unirse tras grant');
+    process.exit(1);
+  }
 
   const waitMs = Math.max(um, 30000) + 2000;
   console.log('[test] Esperando', waitMs, 'ms (copresencia acumulada)…');

@@ -8,6 +8,7 @@ const { adjuntoAbsoluteOrNull, MAX_BYTES } = require('../services/chatAdjuntos')
 const { findReunionByRoomKey } = require('../services/reunionByRoom');
 const {
   consumeRoomEntryGrant,
+  revokeRoomEntryGrant,
   registerAsistenciaSocketHandlers,
 } = require('./asistenciaSocket');
 const {
@@ -133,6 +134,70 @@ function socketCanStartScreenShare(socket, reunion, canonicalRoomId) {
   return granted && sameUsuarioId(granted, socket.data.userId);
 }
 
+/** Desconecta un socket de la sala (copresencia, shares, presence) sin tocar Participa. */
+async function performRoomLeaveForSocket(io, socket, data = {}) {
+  const userId = socket.data.userId;
+  const roomId = data?.roomId;
+  const rid = normRoomId(roomId || socket.data.roomId);
+  if (rid) {
+    try {
+      const reunionCop = await obtenerReunionPorRoom(rid);
+      if (
+        reunionCop &&
+        socket.data.reunionId &&
+        String(reunionCop.reunionId) === String(socket.data.reunionId)
+      ) {
+        const inicioCp = copresencia.inicioSesionDesdeReunion(reunionCop);
+        if (inicioCp) {
+          const regSalida = await registrarSalidaStub(reunionCop.reunionId, userId, {
+            inicioSesion: inicioCp,
+          });
+          console.log('asistencia room:leave', regSalida ? { asistio: regSalida.asistio } : 'sin fila');
+          await afterAttendancePresenceChange(io, rid, reunionCop.reunionId, inicioCp);
+        }
+        stopCopresenceTimer(rid);
+      }
+    } catch (err) {
+      console.error('copresencia room:leave', err);
+    }
+    try {
+      const pres = boardPresentationSharer.get(rid);
+      if (pres && sameUsuarioId(pres, userId)) {
+        boardPresentationSharer.delete(rid);
+        socket.to(rid).emit('board:presentation', { roomId: rid, active: false, userId });
+      }
+      const screenShar = meetScreenShareSharer.get(rid);
+      if (screenShar && sameUsuarioId(screenShar, userId)) {
+        meetScreenShareSharer.delete(rid);
+        meetScreenShareInkByRoom.delete(rid);
+        socket.to(rid).emit('meet:screenShare', { roomId: rid, active: false, userId });
+        io.to(rid).emit('screenshare-annotate:state', {
+          roomId: rid,
+          contenido: { elementos: [] },
+        });
+      }
+      const granted = meetScreenShareGrant.get(rid);
+      if (granted && sameUsuarioId(granted, userId)) {
+        meetScreenShareGrant.delete(rid);
+      }
+      const reunion = await obtenerReunionPorRoom(rid);
+      if (
+        reunion &&
+        sameUsuarioId(reunion.docenteUsuarioId, userId) &&
+        boardFollowActive.get(rid)
+      ) {
+        boardFollowActive.delete(rid);
+        boardFollowLastView.delete(rid);
+        io.to(rid).emit('board:follow:state', { roomId: rid, active: false });
+      }
+    } catch (_) {}
+    socket.leave(rid);
+    socket.to(rid).emit('presence:leave', { userId, socketId: socket.id });
+  }
+  socket.data.roomId = undefined;
+  socket.data.reunionId = undefined;
+}
+
 function buildReactionSummary(rows = []) {
   const grouped = new Map();
   rows.forEach((r) => {
@@ -221,11 +286,17 @@ function attachSocketIO(io) {
           return;
         }
         const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
-        // Quien ya está en `Participa` puede unirse al socket sin grant previo (p. ej. «Entrar» desde el lobby
-        // tras `POST /reuniones/room/.../unirse`). La sala de espera sigue pudiendo otorgar grants vía
-        // `room:entry:response`; si existe uno, se consume aquí para no acumular permisos huérfanos.
         if (!socketCanShareMeetingContent(socket, reunion)) {
-          consumeRoomEntryGrant(normRoomId, sameUsuarioId, canonicalRoomId, userId);
+          const granted = consumeRoomEntryGrant(
+            normRoomId,
+            sameUsuarioId,
+            canonicalRoomId,
+            userId
+          );
+          if (!granted) {
+            cb?.({ ok: false, error: 'Debes esperar la aprobación del presentador para entrar.' });
+            return;
+          }
         }
         socket.join(canonicalRoomId);
         socket.data.roomId = canonicalRoomId;
@@ -308,70 +379,57 @@ function attachSocketIO(io) {
 
     socket.on('room:leave', async (data = {}) => {
       console.log('Evento room:leave recibido', data);
-      const roomId = data?.roomId;
-      const rid = normRoomId(roomId || socket.data.roomId);
-      if (rid) {
-        try {
-          const reunionCop = await obtenerReunionPorRoom(rid);
-          if (
-            reunionCop &&
-            socket.data.reunionId &&
-            String(reunionCop.reunionId) === String(socket.data.reunionId)
-          ) {
-            const inicioCp = copresencia.inicioSesionDesdeReunion(reunionCop);
-            if (inicioCp) {
-              const regSalida = await registrarSalidaStub(reunionCop.reunionId, userId, {
-                inicioSesion: inicioCp,
-              });
-              console.log('asistencia room:leave', regSalida ? { asistio: regSalida.asistio } : 'sin fila');
-              await afterAttendancePresenceChange(
-                io,
-                rid,
-                reunionCop.reunionId,
-                inicioCp
-              );
-            }
-            stopCopresenceTimer(rid);
-          }
-        } catch (err) {
-          console.error('copresencia room:leave', err);
+      await performRoomLeaveForSocket(io, socket, data);
+    });
+
+    socket.on('room:expel', async ({ roomId, targetUserId }, cb) => {
+      try {
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        const targetId = targetUserId != null ? String(targetUserId) : '';
+        if (!roomKey || !targetId) {
+          cb?.({ ok: false, error: 'roomId y targetUserId requeridos' });
+          return;
         }
-        try {
-          const pres = boardPresentationSharer.get(rid);
-          if (pres && sameUsuarioId(pres, userId)) {
-            boardPresentationSharer.delete(rid);
-            socket.to(rid).emit('board:presentation', { roomId: rid, active: false, userId });
-          }
-          const screenShar = meetScreenShareSharer.get(rid);
-          if (screenShar && sameUsuarioId(screenShar, userId)) {
-            meetScreenShareSharer.delete(rid);
-            meetScreenShareInkByRoom.delete(rid);
-            socket.to(rid).emit('meet:screenShare', { roomId: rid, active: false, userId });
-            io.to(rid).emit('screenshare-annotate:state', {
-              roomId: rid,
-              contenido: { elementos: [] },
-            });
-          }
-          const granted = meetScreenShareGrant.get(rid);
-          if (granted && sameUsuarioId(granted, userId)) {
-            meetScreenShareGrant.delete(rid);
-          }
-          const reunion = await obtenerReunionPorRoom(rid);
-          if (
-            reunion &&
-            sameUsuarioId(reunion.docenteUsuarioId, userId) &&
-            boardFollowActive.get(rid)
-          ) {
-            boardFollowActive.delete(rid);
-            boardFollowLastView.delete(rid);
-            io.to(rid).emit('board:follow:state', { roomId: rid, active: false });
-          }
-        } catch (_) {}
-        socket.leave(rid);
-        socket.to(rid).emit('presence:leave', { userId });
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) {
+          cb?.({ ok: false, error: 'No participas en esta reunión' });
+          return;
+        }
+        if (!socketCanShareMeetingContent(socket, reunion)) {
+          cb?.({ ok: false, error: 'Solo el presentador puede expulsar participantes' });
+          return;
+        }
+        if (sameUsuarioId(targetId, userId)) {
+          cb?.({ ok: false, error: 'No puedes expulsarte a ti mismo' });
+          return;
+        }
+        if (sameUsuarioId(targetId, reunion.docenteUsuarioId)) {
+          cb?.({ ok: false, error: 'No puedes expulsar al docente de la reunión' });
+          return;
+        }
+        const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
+        revokeRoomEntryGrant(normRoomId, sameUsuarioId, canonicalRoomId, targetId);
+
+        const roomSockets = await io.in(canonicalRoomId).fetchSockets();
+        const targets = roomSockets.filter((s) => sameUsuarioId(s.data.userId, targetId));
+        if (!targets.length) {
+          cb?.({ ok: false, error: 'El participante no está conectado en la sala' });
+          return;
+        }
+
+        for (const targetSocket of targets) {
+          targetSocket.emit('room:expelled', {
+            roomId: canonicalRoomId,
+            byUserId: userId,
+          });
+          await performRoomLeaveForSocket(io, targetSocket, { roomId: canonicalRoomId });
+        }
+
+        cb?.({ ok: true });
+      } catch (e) {
+        console.error('room:expel error', e);
+        cb?.({ ok: false, error: 'Error al expulsar participante' });
       }
-      socket.data.roomId = undefined;
-      socket.data.reunionId = undefined;
     });
 
     socket.on('chat:message', async (payload, cb) => {
@@ -692,6 +750,7 @@ function attachSocketIO(io) {
         if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) return;
         const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
         if (active) {
+          if (!socketCanShareMeetingContent(socket, reunion)) return;
           boardPresentationSharer.set(canonicalRoomId, userId);
           socket.to(canonicalRoomId).emit('board:presentation', {
             roomId: canonicalRoomId,
@@ -700,7 +759,7 @@ function attachSocketIO(io) {
           });
         } else {
           const cur = boardPresentationSharer.get(canonicalRoomId);
-          if (cur && !sameUsuarioId(cur, userId)) return;
+          if (!cur || !sameUsuarioId(cur, userId)) return;
           boardPresentationSharer.delete(canonicalRoomId);
           socket.to(canonicalRoomId).emit('board:presentation', {
             roomId: canonicalRoomId,
@@ -738,7 +797,7 @@ function attachSocketIO(io) {
           });
         } else {
           const cur = meetScreenShareSharer.get(canonicalRoomId);
-          if (cur && !sameUsuarioId(cur, userId)) return;
+          if (!cur || !sameUsuarioId(cur, userId)) return;
           meetScreenShareSharer.delete(canonicalRoomId);
           meetScreenShareInkByRoom.delete(canonicalRoomId);
           socket.to(canonicalRoomId).emit('meet:screenShare', {

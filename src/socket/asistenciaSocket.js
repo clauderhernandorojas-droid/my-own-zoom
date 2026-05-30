@@ -154,5 +154,6 @@ function registerAsistenciaSocketHandlers(socket, io, deps) {
 
 module.exports = {
   consumeRoomEntryGrant,
+  revokeRoomEntryGrant,
   registerAsistenciaSocketHandlers,
 };

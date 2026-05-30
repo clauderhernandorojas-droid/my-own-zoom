@@ -7,6 +7,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test:copresencia": "node scripts/test-copresencia-socket.cjs",
+    "test:waiting-room": "node scripts/test-waiting-room-socket.cjs",
+    "test:room-expel": "node scripts/test-room-expel-socket.cjs",
+    "test:screen-share-stop": "node scripts/test-screen-share-stop-socket.cjs",
     "test:asistencia-ms": "node scripts/test-reunion-asistencia-ms-unit.cjs",
     "validate:phase-c": "node scripts/validate-phase-c-debug.cjs"
   },

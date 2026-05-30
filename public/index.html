@@ -8,12 +8,17 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
   <script src="/js/tableroSeleccion.js"></script>
+  <script src="/js/tableroSnap.js"></script>
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
   <script src="/js/asistenciaLive.js"></script>
   <script src="/js/chat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js" crossorigin="anonymous"></script>
+  <script src="/js/videoEffects.js"></script>
   <script src="/js/notificaciones.js"></script>
   <script src="/js/uiBarra.js"></script>
+  <script src="/js/uiExpulsion.js"></script>
+  <script src="/js/uiMiniPlayer.js"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -440,8 +445,7 @@
       text-overflow: ellipsis;
     }
     .remote-peer[data-label=""]::after { display: none; }
-    .peer-conn-status,
-    .peer-retry-btn {
+    .peer-conn-status {
       font-size: 0.65rem;
       margin: 0.2rem 0 0;
     }
@@ -449,15 +453,13 @@
     .remote-peer > video { order: -1; }
     .remote-peer .peer-cap { display: none; }
     .room-shell:not(.room-shell--gallery) .remote-peer .peer-cap,
-    .room-shell:not(.room-shell--gallery) .remote-peer .peer-conn-status,
-    .room-shell:not(.room-shell--gallery) .remote-peer .peer-retry-btn {
+    .room-shell:not(.room-shell--gallery) .remote-peer .peer-conn-status {
       display: none;
     }
     .room-shell:not(.room-shell--gallery) .remote-peer::after {
       content: attr(data-label);
     }
-    .room-shell.room-shell--gallery .remote-peer .peer-conn-status,
-    .room-shell.room-shell--gallery .remote-peer .peer-retry-btn {
+    .room-shell.room-shell--gallery .remote-peer .peer-conn-status {
       display: block;
     }
     .room-center-wrap {
@@ -838,7 +840,6 @@
       color: #1d4ed8;
     }
     .peer-conn-status { font-size: 0.72rem; color: #555; margin: 0.15rem 0 0.25rem; font-variant-numeric: tabular-nums; }
-    .peer-retry-btn { font-size: 0.72rem; margin-top: 0.2rem; }
     .chat-topbar { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
     .chat-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.35rem 0 0.5rem; }
     .chat-tab {
@@ -3178,6 +3179,13 @@
       selectedElementIndex = -1;
     }
     let pointerAction = null;
+    /** Umbral de snap en píxeles de pantalla (ver TableroSnap.configure). */
+    const BOARD_SNAP_THRESHOLD_PX = 8;
+    /** Guías de alineación activas durante drag ({ vertical: number[], horizontal: number[] }). */
+    let boardSnapGuides = { vertical: [], horizontal: [] };
+    if (typeof TableroSnap !== "undefined") {
+      TableroSnap.configure({ thresholdPx: BOARD_SNAP_THRESHOLD_PX });
+    }
     /** @type {object | null} Copia interna para Ctrl+C / Ctrl+V */
     let clipboardBoardElement = null;
     const HANDLE_SCREEN_PX = 18;
@@ -3478,9 +3486,10 @@
     function syncDeviceSelectorsFromLocalStream() {
       const aSel = $("audioInputSelect");
       const vSel = $("videoInputSelect");
-      if (!localStream || !aSel || !vSel) return;
-      const at = localStream.getAudioTracks()[0];
-      const vt = localStream.getVideoTracks()[0];
+      const streamForDevices = VideoEffects?.getRawStream?.() || localStream;
+      if (!streamForDevices || !aSel || !vSel) return;
+      const at = streamForDevices.getAudioTracks()[0];
+      const vt = streamForDevices.getVideoTracks()[0];
       const as = at?.getSettings?.() || {};
       const vs = vt?.getSettings?.() || {};
       if (as.deviceId && [...aSel.options].some((o) => o.value === as.deviceId)) {
@@ -3489,6 +3498,36 @@
       if (vs.deviceId && [...vSel.options].some((o) => o.value === vs.deviceId)) {
         vSel.value = vs.deviceId;
       }
+    }
+
+    async function finalizeLocalMediaStream(rawStream) {
+      if (!VideoEffects?.videoEffectsEnabled?.blur) return rawStream;
+      try {
+        return await VideoEffects.applyBackgroundBlur(rawStream);
+      } catch (e) {
+        console.warn("videoEffects blur", e);
+        return rawStream;
+      }
+    }
+
+    async function applyStreamToLocal(rawStream) {
+      await VideoEffects?.dispose?.();
+      localStream = await finalizeLocalMediaStream(rawStream);
+      const lv = $("localVideo");
+      if (lv) lv.srcObject = localStream;
+    }
+
+    function stopRawAndProcessedTracks() {
+      const seen = new Set();
+      const stopOne = (t) => {
+        if (!t || seen.has(t)) return;
+        seen.add(t);
+        try {
+          t.stop();
+        } catch (_) {}
+      };
+      localStream?.getTracks().forEach(stopOne);
+      VideoEffects?.getRawStream?.()?.getTracks().forEach(stopOne);
     }
 
     async function refreshMediaDeviceSelectors() {
@@ -3536,6 +3575,7 @@
         if (btn) btn.setAttribute("aria-expanded", "false");
         if (split) split.querySelector(".room-tb-btn")?.removeAttribute("data-open");
       });
+      ExpulsionControls?.closeExpulsionMenu?.();
       openToolbarMenuId = null;
     }
 
@@ -3566,6 +3606,7 @@
       btn.className = "room-menu-item";
       btn.setAttribute("role", opts.role || "menuitem");
       if (opts.checked != null) btn.setAttribute("aria-checked", opts.checked ? "true" : "false");
+      if (opts.disabled) btn.disabled = true;
       btn.textContent = text;
       if (opts.meta) {
         const meta = document.createElement("span");
@@ -3603,6 +3644,30 @@
           },
         });
       });
+      if (kind === "video") {
+        appendMenuSeparator(menu);
+        const rawForCam = VideoEffects?.getRawStream?.() || localStream;
+        const liveCam = rawForCam?.getVideoTracks?.()[0];
+        const hasLiveCam = !!(liveCam && liveCam.readyState === "live");
+        const blurOn = !!VideoEffects?.videoEffectsEnabled?.blur;
+        appendMenuItem(menu, "Blur fondo", {
+          role: "menuitemcheckbox",
+          checked: blurOn,
+          disabled: !hasLiveCam,
+          onClick: () => {
+            void (async () => {
+              const raw = VideoEffects?.getRawStream?.() || localStream;
+              if (!raw?.getVideoTracks?.()[0]) return;
+              VideoEffects.setBlurEnabled(!VideoEffects.videoEffectsEnabled.blur);
+              await applyStreamToLocal(raw);
+              syncMediaButtons();
+              await syncLocalTracksToAllSenders();
+              renderDeviceMenu("video");
+            })().catch((err) => console.warn(err));
+            closeToolbarMenus();
+          },
+        });
+      }
       appendMenuSeparator(menu);
       appendMenuItem(menu, "Actualizar lista", {
         onClick: () => {
@@ -3657,7 +3722,7 @@
         },
       });
       appendMenuSeparator(menu);
-      if (screenShareTrack?.readyState === "live") {
+      if (canStopLocalScreenShare()) {
         appendMenuItem(menu, "Dejar de compartir pantalla", {
           onClick: () => {
             void stopScreenShare({ restoreStatus: true });
@@ -3666,7 +3731,7 @@
         });
         appendMenuSeparator(menu);
       }
-      if (boardPresentationActive && screenShareTrack?.readyState !== "live") {
+      if (canStopLocalBoardPresentation() && screenShareTrack?.readyState !== "live") {
         appendMenuItem(menu, "Dejar de compartir tablero", {
           onClick: () => {
             stopBoardPresentation({ restoreStatus: true });
@@ -3767,14 +3832,13 @@
     }
 
     function syncShareButtonState() {
-      const screenActive = !!(screenShareTrack && screenShareTrack.readyState === "live");
-      const active = screenActive || boardPresentationActive;
+      const showStop = shouldShowShareStopLabel();
       const btn = $("btnShareMain");
       if (!btn) return;
-      btn.dataset.off = active ? "false" : "true";
-      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.dataset.off = showStop ? "false" : "true";
+      btn.setAttribute("aria-pressed", showStop ? "true" : "false");
       const lbl = btn.querySelector(".room-tb-label");
-      if (lbl) lbl.textContent = active ? "Dejar" : "Compartir";
+      if (lbl) lbl.textContent = showStop ? "Dejar" : "Compartir";
       updateShareControlsForRole();
     }
 
@@ -3788,6 +3852,7 @@
     function emitMeetScreenShare(active) {
       if (!socket?.connected || !activeRoomId) return;
       if (active && !canShareInMeeting()) return;
+      if (!active && !canEmitMeetScreenShareStop()) return;
       try {
         socket.emit("meet:screenShare", { roomId: normRoomKey(activeRoomId), active: !!active });
       } catch (_) {}
@@ -4201,6 +4266,7 @@
     }
 
     function stopBoardPresentation(options = {}) {
+      if (!options.force && !canStopLocalBoardPresentation()) return;
       const restoreStatus = options.restoreStatus !== false;
       const was = boardPresentationActive;
       boardPresentationActive = false;
@@ -4219,6 +4285,7 @@
     }
 
     async function stopScreenShare(options = {}) {
+      if (!options.force && !canStopLocalScreenShare()) return;
       const restoreStatus = options.restoreStatus === true;
       const hadLiveScreenShare =
         !!(screenShareTrack && screenShareTrack.readyState === "live");
@@ -4357,21 +4424,15 @@
       setMediaStatus("Cambiando micrófono o cámara…");
       try {
         await stopMeetingVideoRecording({ download: false });
-        if (localStream) {
-          localStream.getTracks().forEach((t) => {
-            try {
-              t.stop();
-            } catch (_) {}
-          });
-          localStream = null;
-        }
+        await VideoEffects?.dispose?.();
+        stopRawAndProcessedTracks();
+        localStream = null;
         const lv = $("localVideo");
         if (lv) lv.srcObject = null;
         const { stream, level, mediaError } = await acquireLocalMediaWithFallbacks({
           allowSilentJoin: true,
         });
-        localStream = stream;
-        if (lv) lv.srcObject = localStream;
+        await applyStreamToLocal(stream);
         syncMediaButtons();
         await syncLocalTracksToAllSenders();
         updateLocalAggregateStatus();
@@ -6341,6 +6402,10 @@ body.print-calendar-export {
       btnEnter.className = "btn-primary";
       btnEnter.textContent = "Entrar";
       btnEnter.addEventListener("click", () => {
+        if (shouldUseWaitingRoom(r)) {
+          navigateToMeetWaiting(r.roomId);
+          return;
+        }
         void enterRoom(r.roomId).catch(() => {});
       });
       actions.appendChild(btnEnter);
@@ -7457,13 +7522,23 @@ body.print-calendar-export {
           showMeetWaiting(r.roomId);
           return;
         }
-        showLobby();
-        document.body.classList.remove("app-route-meet");
-        document.body.classList.add("app-route-lobby");
-        log("Abriendo reunión desde enlace…");
-        setTimeout(() => {
-          void enterRoom(r.roomId).catch(() => {});
-        }, 0);
+        void (async () => {
+          try {
+            await ensureCurrentUserLoaded();
+            const reunion = await resolveReunionMetaForRoom(r.roomId);
+            if (shouldUseWaitingRoom(reunion)) {
+              navigateToMeetWaiting(r.roomId);
+              return;
+            }
+            showLobby();
+            document.body.classList.remove("app-route-meet");
+            document.body.classList.add("app-route-lobby");
+            log("Abriendo reunión desde enlace…");
+            void enterRoom(r.roomId).catch(() => {});
+          } catch (e) {
+            log(e?.message || "No se pudo abrir la reunión.");
+          }
+        })();
       }
     }
 
@@ -8132,14 +8207,9 @@ body.print-calendar-export {
       const downloadMic = opts.micRecordingDownload === true;
       await stopScreenShare();
       await stopMeetingVideoRecording({ download: downloadMic });
-      if (localStream) {
-        localStream.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch (_) {}
-        });
-        localStream = null;
-      }
+      await VideoEffects?.dispose?.();
+      stopRawAndProcessedTracks();
+      localStream = null;
       const lv = $("localVideo");
       if (lv) lv.srcObject = null;
       syncMediaButtons();
@@ -8201,6 +8271,12 @@ body.print-calendar-export {
       localStream.getVideoTracks().forEach((t) => {
         t.enabled = on;
       });
+      const raw = VideoEffects?.getRawStream?.();
+      if (raw && raw !== localStream) {
+        raw.getVideoTracks().forEach((t) => {
+          t.enabled = on;
+        });
+      }
       syncMediaButtons();
     }
 
@@ -8275,7 +8351,7 @@ body.print-calendar-export {
       const el = peerStatusEls.get(remoteSocketId);
       if (!el) return;
       if (!pc) {
-        el.textContent = "Sin enlace activo · Pulsa «Reintentar enlace»";
+        el.textContent = "Sin enlace activo · reconexión automática pendiente";
         return;
       }
       const cs = pc.connectionState || "?";
@@ -8327,9 +8403,8 @@ body.print-calendar-export {
         await stopLocalMedia({ micRecordingDownload: false });
       }
       const { stream, level, mediaError } = await acquireLocalMediaWithFallbacks({ allowSilentJoin });
-      localStream = stream;
+      await applyStreamToLocal(stream);
       acquiredNew = true;
-      $("localVideo").srcObject = localStream;
       if (level === "av") {
         setMediaStatus("");
       } else if (level === "audio") {
@@ -8411,18 +8486,8 @@ body.print-calendar-export {
       const statusEl = document.createElement("div");
       statusEl.className = "peer-conn-status";
       statusEl.textContent = "Conexión: nueva · ICE: nueva";
-      const retryBtn = document.createElement("button");
-      retryBtn.type = "button";
-      retryBtn.className = "peer-retry-btn";
-      retryBtn.textContent = "Reintentar enlace";
-      retryBtn.title =
-        "Cierra el WebRTC con este participante y envía una nueva oferta (sin salir de la reunión)";
-      retryBtn.addEventListener("click", () => {
-        retryPeerRenegotiate(remoteSocketId).catch((err) => console.error(err));
-      });
       wrap.appendChild(cap);
       wrap.appendChild(statusEl);
-      wrap.appendChild(retryBtn);
       wrap.appendChild(vid);
       $("remotesContainer").appendChild(wrap);
       remoteVideos.set(remoteSocketId, vid);
@@ -8505,11 +8570,11 @@ body.print-calendar-export {
           setMediaStatus(
             "Fallo la conexión con un participante (" +
               short +
-              "). Puedes pulsar «Reintentar enlace» en su tarjeta o «Reiniciar cámara y mic»."
+              "). Se intentará reconectar automáticamente. También puedes usar «Reiniciar cámara y mic»."
           );
           setTimeout(() => {
             if (pcs.has(remoteSocketId) && pcs.get(remoteSocketId)?.connectionState === "failed") {
-              teardownPeerPcOnly(remoteSocketId);
+              retryPeerRenegotiate(remoteSocketId).catch((err) => console.error(err));
             }
           }, 1400);
         }
@@ -8860,6 +8925,7 @@ body.print-calendar-export {
         drawLockedBadge(ctx, el, z);
       }
       drawSelectionOverlay(ctx);
+      drawSnapGuides(ctx);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       drawMinimap();
       updateBoardLockUi();
@@ -8944,6 +9010,72 @@ body.print-calendar-export {
       return String(currentUser?.rol || "").toLowerCase() === "admin";
     }
 
+    function getReunionOwnerId(reunion) {
+      if (!reunion) return null;
+      const id = reunion.docenteUsuarioId ?? reunion.docente_usuario_id;
+      return id != null && String(id).trim() !== "" ? String(id) : null;
+    }
+
+    /** Docente dueño de la reunión o admin global: no requiere sala de espera. */
+    function isMeetingPresenterForReunion(reunion) {
+      if (!currentUser?.usuarioId) return false;
+      if (isAdminUser()) return true;
+      const ownerId = getReunionOwnerId(reunion);
+      if (!ownerId) return false;
+      return (
+        String(currentUser.usuarioId).trim().toLowerCase() === ownerId.trim().toLowerCase()
+      );
+    }
+
+    function shouldUseWaitingRoom(reunion) {
+      return !isMeetingPresenterForReunion(reunion);
+    }
+
+    function findLobbyReunionByRoomId(roomId) {
+      const key = normRoomKey(roomId);
+      if (!key || typeof CalendarController === "undefined") return null;
+      const pools = [
+        ...(CalendarController.getMeetings?.() || []),
+        ...(CalendarController.getMisProximas?.() || []),
+        ...(CalendarController.getMisAnteriores?.() || []),
+      ];
+      return pools.find((m) => normRoomKey(m?.roomId) === key) || null;
+    }
+
+    async function resolveReunionMetaForRoom(roomId) {
+      const cached = findLobbyReunionByRoomId(roomId);
+      if (cached) return cached;
+      try {
+        const data = await api("/api/reuniones/room/" + encodeURIComponent(normRoomKey(roomId)));
+        return data?.reunion || null;
+      } catch {
+        return null;
+      }
+    }
+
+    function navigateToMeetWaiting(roomId) {
+      const rid = normRoomKey(roomId);
+      if (!rid) return;
+      _suppressHashRoute = true;
+      location.hash = "#/meet/" + encodeURIComponent(rid) + "/wait";
+      _suppressHashRoute = false;
+      applyRouteFromHash();
+    }
+
+    function isRoomJoinApprovalError(message) {
+      const s = String(message || "").toLowerCase();
+      return s.includes("aprobación") || s.includes("aprobacion") || s.includes("presentador");
+    }
+
+    async function handleRoomJoinApprovalRequired(roomId, message) {
+      await stopLocalMedia({ micRecordingDownload: false });
+      showMeetWaiting(roomId);
+      updateMeetWaitingStatus(message || "Debes esperar la aprobación del presentador para entrar.");
+      waitingRoomJoinRequestPending = false;
+      const btn = $("btnMeetWaitingJoin");
+      if (btn) btn.disabled = false;
+    }
+
     /** Puede administrar compartir (docente de la sala o admin). */
     function canManageSharingInMeeting() {
       if (!activeRoomId || !currentUser?.usuarioId) return false;
@@ -8964,23 +9096,58 @@ body.print-calendar-export {
       return !canManageSharingInMeeting();
     }
 
+    function isLocallySharingScreen() {
+      return !!(screenShareTrack && screenShareTrack.readyState === "live");
+    }
+
+    function isLocallyPresentingBoard() {
+      return boardPresentationActive;
+    }
+
+    /** UI/acción "Dejar pantalla": docente/admin con captura propia, o invitado autorizado con captura propia. */
+    function canStopLocalScreenShare() {
+      if (!isLocallySharingScreen()) return false;
+      if (canManageSharingInMeeting()) return true;
+      return presenterGrantedScreenShare;
+    }
+
+    /** UI/acción "Dejar tablero": solo quien inició presentación local (docente/admin). */
+    function canStopLocalBoardPresentation() {
+      return canManageSharingInMeeting() && isLocallyPresentingBoard();
+    }
+
+    function shouldShowShareStopLabel() {
+      return canStopLocalScreenShare() || canStopLocalBoardPresentation();
+    }
+
+    /** Evita emitir stop de sala si otro participante es el sharer anunciado. */
+    function canEmitMeetScreenShareStop() {
+      const myId = String(currentUser?.usuarioId || "").trim().toLowerCase();
+      const remote = String(remoteScreenShareUserId || "").trim().toLowerCase();
+      if (remote && remote !== myId) return false;
+      return true;
+    }
+
     function updateShareControlsForRole() {
       const split = $("shareSplit");
       const btn = $("btnShareMain");
       if (!btn) return;
       const canShare = canShareInMeeting();
       const canRequest = canRequestSharePermissionInMeeting();
-      const screenActive = !!(screenShareTrack && screenShareTrack.readyState === "live");
-      const presenting = boardPresentationActive;
-      const enabled = canShare || canRequest || screenActive || presenting;
+      const canStopScreen = canStopLocalScreenShare();
+      const canStopBoard = canStopLocalBoardPresentation();
+      const enabled = canShare || canRequest || canStopScreen || canStopBoard;
       btn.disabled = !enabled;
       btn.classList.toggle("room-tb-btn--no-share", !enabled);
       let title = "Compartir contenido";
       if (screenShareRequestPending) {
         title = "Solicitud enviada al presentador. Esperando aprobación.";
+      } else if (canStopScreen) {
+        title = "Dejar de compartir pantalla";
+      } else if (canStopBoard) {
+        title = "Dejar de compartir tablero";
       } else if (canShare) {
-        if (screenActive) title = "Dejar de compartir pantalla";
-        else if (presenting) title = "Dejar de compartir tablero";
+        title = "Compartir contenido";
       } else if (canRequest) {
         title = "Solicitar permiso al presentador para compartir pantalla.";
       } else {
@@ -8989,11 +9156,11 @@ body.print-calendar-export {
       btn.title = title;
       if (split) split.classList.toggle("room-tb-share--locked", !enabled);
       if (!canShare) {
-        if (screenActive) {
-          void stopScreenShare({ restoreStatus: true });
+        if (isLocallySharingScreen()) {
+          void stopScreenShare({ restoreStatus: true, force: true });
         }
-        if (presenting) {
-          stopBoardPresentation({ restoreStatus: true });
+        if (isLocallyPresentingBoard()) {
+          stopBoardPresentation({ restoreStatus: true, force: true });
         }
         closeToolbarMenus();
       }
@@ -9331,6 +9498,8 @@ body.print-calendar-export {
       updateBoardFollowUi();
       updateTeacherRecordingControlsVisibility();
       updateShareControlsForRole();
+      ExpulsionControls?.updateExpulsionControlsVisibility?.();
+      ExpulsionControls?.refreshExpulsionMenu?.();
       if (!reunionId) return;
       const partData = await api("/api/reuniones/" + reunionId + "/participantes");
       (partData.participantes || []).forEach((p) => {
@@ -9539,6 +9708,7 @@ body.print-calendar-export {
             } else {
               ChatModule?.refreshAfterParticipants?.();
             }
+            ExpulsionControls?.refreshExpulsionMenu?.();
           }
         });
         socket.on("presence:leave", ({ userId, socketId }) => {
@@ -9548,6 +9718,16 @@ body.print-calendar-export {
             ChatModule?.refreshAfterParticipants?.();
           }
           if (socketId) cleanupPeer(socketId);
+          ExpulsionControls?.refreshExpulsionMenu?.();
+        });
+        socket.on("room:expelled", (payload) => {
+          ExpulsionControls?.onRoomExpelled?.(payload, async () => {
+            await leaveRoom();
+            _suppressHashRoute = true;
+            location.hash = "#/lobby";
+            _suppressHashRoute = false;
+            applyRouteFromHash();
+          });
         });
         socket.on("recording:notify", ({ userId, active }) => {
           if (!userId) return;
@@ -9682,12 +9862,17 @@ body.print-calendar-export {
             resolve();
           });
         });
-      } catch {
-        await stopLocalMedia({ micRecordingDownload: false });
+      } catch (e) {
+        if (isRoomJoinApprovalError(e?.message)) {
+          await handleRoomJoinApprovalRequired(roomId, e?.message);
+        } else {
+          await stopLocalMedia({ micRecordingDownload: false });
+        }
       }
     }
 
     async function leaveRoom() {
+      MiniPlayerControls?.hideMiniPlayer?.();
       closeToolbarMenus();
       pendingBoardPresentation = null;
       pendingMeetScreenShare = null;
@@ -9725,6 +9910,8 @@ body.print-calendar-export {
       roomDocenteUsuarioId = null;
       updateTeacherRecordingControlsVisibility();
       updateShareControlsForRole();
+      ExpulsionControls?.updateExpulsionControlsVisibility?.();
+      ExpulsionControls?.refreshExpulsionMenu?.();
       presenterFollowLeadActive = false;
       boardFollowRoomActive = false;
       followingPresenter = false;
@@ -9824,21 +10011,23 @@ body.print-calendar-export {
         log("No hay sala para unirse.");
         return;
       }
-      const isManager = String(currentUser?.rol || "").toLowerCase() === "admin";
-      if (isManager) {
-        void enterRoom(rid).catch(() => {});
-        return;
-      }
-      void connectSocketIfNeeded()
-        .then(() => requestRoomEntryApproval(rid))
-        .then((ok) => {
+      void (async () => {
+        try {
+          await ensureCurrentUserLoaded();
+          const reunion = await resolveReunionMetaForRoom(rid);
+          if (isMeetingPresenterForReunion(reunion)) {
+            void enterRoom(rid).catch(() => {});
+            return;
+          }
+          await connectSocketIfNeeded();
+          const ok = await requestRoomEntryApproval(rid);
           if (ok && !waitingRoomJoinRequestPending) {
             void enterRoom(rid).catch(() => {});
           }
-        })
-        .catch((e) => {
+        } catch (e) {
           updateMeetWaitingStatus(e?.message || "No se pudo conectar para solicitar entrada.");
-        });
+        }
+      })();
     });
     $("btnMeetWaitingBack")?.addEventListener("click", () => {
       _suppressHashRoute = true;
@@ -10015,6 +10204,14 @@ body.print-calendar-export {
         if (st) st.textContent = "";
         await reloadLobbyHomeData();
         if (input) input.value = "";
+        const reunion =
+          data?.reunion ||
+          findLobbyReunionByRoomId(rid) ||
+          (await resolveReunionMetaForRoom(rid));
+        if (shouldUseWaitingRoom(reunion)) {
+          navigateToMeetWaiting(rid);
+          return;
+        }
         void enterRoom(rid).catch((e) => {
           if (st) st.textContent = e?.message || "No se pudo entrar a la sala.";
         });
@@ -10344,11 +10541,11 @@ body.print-calendar-export {
         log("Solo el presentador puede compartir contenido.");
         return;
       }
-      if (screenShareTrack?.readyState === "live") {
+      if (canStopLocalScreenShare()) {
         void stopScreenShare({ restoreStatus: true });
         return;
       }
-      if (boardPresentationActive) {
+      if (canStopLocalBoardPresentation()) {
         stopBoardPresentation({ restoreStatus: true });
         return;
       }
@@ -10946,6 +11143,124 @@ body.print-calendar-export {
       }
     }
 
+    function clearBoardSnapGuides() {
+      boardSnapGuides = { vertical: [], horizontal: [] };
+    }
+
+    function getOriginalSelectionBounds(indices, originals, ctx) {
+      if (!indices?.length || !originals) return null;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const i of indices) {
+        const orig = originals.get(i);
+        if (!orig) continue;
+        const b = TableroSeleccion.getElementWorldBounds(orig, ctx, getElementBounds);
+        if (!b) continue;
+        if (b.x < minX) minX = b.x;
+        if (b.y < minY) minY = b.y;
+        if (b.x + b.w > maxX) maxX = b.x + b.w;
+        if (b.y + b.h > maxY) maxY = b.y + b.h;
+      }
+      if (!Number.isFinite(minX)) return null;
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+
+    function applyDragDeltaToElements(fdx, fdy, indices, originals) {
+      for (const i of indices) {
+        const orig = originals.get(i);
+        if (!orig) continue;
+        if (orig.locked) continue;
+        if (orig.type === "stroke") {
+          boardState.elementos[i] = {
+            ...orig,
+            points: (orig.points || []).map((pt) => ({
+              x: Math.round((pt.x || 0) + fdx),
+              y: Math.round((pt.y || 0) + fdy),
+            })),
+          };
+        } else {
+          boardState.elementos[i] = {
+            ...orig,
+            x: Math.round((orig.x || 0) + fdx),
+            y: Math.round((orig.y || 0) + fdy),
+          };
+        }
+      }
+    }
+
+    function applySnappedDragDelta(dx, dy, indices, originals) {
+      const canvas = $("board");
+      const ctx = canvas?.getContext("2d");
+      if (!ctx || !indices?.length) {
+        clearBoardSnapGuides();
+        applyDragDeltaToElements(dx, dy, indices, originals);
+        return { dx, dy };
+      }
+      const origBounds = getOriginalSelectionBounds(indices, originals, ctx);
+      if (!origBounds || typeof TableroSnap === "undefined") {
+        clearBoardSnapGuides();
+        applyDragDeltaToElements(dx, dy, indices, originals);
+        return { dx, dy };
+      }
+      const movingRect = {
+        x: origBounds.x + dx,
+        y: origBounds.y + dy,
+        w: origBounds.w,
+        h: origBounds.h,
+      };
+      const exclude = new Set(indices);
+      const candidates = [];
+      const elementos = boardState.elementos || [];
+      for (let i = 0; i < elementos.length; i++) {
+        if (exclude.has(i)) continue;
+        const el = elementos[i];
+        const rect = TableroSeleccion.getElementWorldBounds(el, ctx, getElementBounds);
+        if (rect) candidates.push({ rect, index: i });
+      }
+      const thresholdWorld = TableroSnap.getThresholdWorld(boardZoom);
+      const snap = TableroSnap.snapTranslation({ movingRect, candidates, thresholdWorld });
+      const fdx = dx + snap.dxAdjust;
+      const fdy = dy + snap.dyAdjust;
+      boardSnapGuides = snap.guides;
+      applyDragDeltaToElements(fdx, fdy, indices, originals);
+      return { dx: fdx, dy: fdy };
+    }
+
+    function drawSnapGuides(ctx) {
+      const v = boardSnapGuides?.vertical || [];
+      const h = boardSnapGuides?.horizontal || [];
+      if (!v.length && !h.length) return;
+      const canvas = $("board");
+      if (!canvas) return;
+      const z = boardZoom;
+      const worldLeft = -boardPanX / z;
+      const worldTop = -boardPanY / z;
+      const worldRight = worldLeft + canvas.width / z;
+      const worldBottom = worldTop + canvas.height / z;
+      ctx.save();
+      ctx.strokeStyle = "#f43f5e";
+      ctx.lineWidth = 1 / z;
+      ctx.setLineDash([6 / z, 4 / z]);
+      for (const x of v) {
+        if (!Number.isFinite(x)) continue;
+        ctx.beginPath();
+        ctx.moveTo(x, worldTop);
+        ctx.lineTo(x, worldBottom);
+        ctx.stroke();
+      }
+      for (const y of h) {
+        if (!Number.isFinite(y)) continue;
+        ctx.beginPath();
+        ctx.moveTo(worldLeft, y);
+        ctx.lineTo(worldRight, y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     function commitPointerMutation(snapshotBefore) {
       if (!snapshotBefore) return;
       boardHistory.push(snapshotBefore);
@@ -11445,26 +11760,7 @@ body.print-calendar-export {
 
         if (pointerAction.mode === "dragGroup") {
           const originals = pointerAction.originalElements;
-          for (const i of pointerAction.indices) {
-            const orig = originals.get(i);
-            if (!orig) continue;
-            if (orig.locked) continue;
-            if (orig.type === "stroke") {
-              boardState.elementos[i] = {
-                ...orig,
-                points: (orig.points || []).map((pt) => ({
-                  x: Math.round((pt.x || 0) + dx),
-                  y: Math.round((pt.y || 0) + dy),
-                })),
-              };
-            } else {
-              boardState.elementos[i] = {
-                ...orig,
-                x: Math.round((orig.x || 0) + dx),
-                y: Math.round((orig.y || 0) + dy),
-              };
-            }
-          }
+          applySnappedDragDelta(dx, dy, pointerAction.indices, originals);
           drawBoard();
           return;
         }
@@ -11474,19 +11770,10 @@ body.print-calendar-export {
         if (!current) return;
         let nextEl = { ...pointerAction.originalElement };
         if (pointerAction.mode === "drag") {
-          if (pointerAction.originalElement.type === "stroke") {
-            const pts = pointerAction.originalElement.points || [];
-            nextEl = {
-              ...pointerAction.originalElement,
-              points: pts.map((pt) => ({
-                x: Math.round((pt.x || 0) + dx),
-                y: Math.round((pt.y || 0) + dy),
-              })),
-            };
-          } else {
-            nextEl.x = Math.round((pointerAction.originalElement.x || 0) + dx);
-            nextEl.y = Math.round((pointerAction.originalElement.y || 0) + dy);
-          }
+          const originals = new Map([[idx, pointerAction.originalElement]]);
+          applySnappedDragDelta(dx, dy, [idx], originals);
+          drawBoard();
+          return;
         } else if (pointerAction.mode === "resize") {
           const hid = pointerAction.resizeHandle || "se";
           if (nextEl.type === "image") {
@@ -11577,6 +11864,7 @@ body.print-calendar-export {
           canvas.releasePointerCapture(e.pointerId);
         } catch (_) {}
         handDrag = null;
+        clearBoardSnapGuides();
         refreshBoardCursor();
         drawBoard();
         return;
@@ -11585,6 +11873,7 @@ body.print-calendar-export {
         try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
         const action = pointerAction;
         pointerAction = null;
+        clearBoardSnapGuides();
 
         if (action.mode === "marquee") {
           const ctx = canvas.getContext("2d");
@@ -12180,6 +12469,41 @@ body.print-calendar-export {
     });
 
     (async function init() {
+      VideoEffects?.init?.({
+        onPerformanceFallback: () => {
+          setMediaStatus("Blur desactivado: rendimiento bajo.");
+          void (async () => {
+            const raw = VideoEffects?.getRawStream?.();
+            if (!raw) return;
+            await applyStreamToLocal(raw);
+            syncMediaButtons();
+            await syncLocalTracksToAllSenders();
+          })().catch((err) => console.warn(err));
+        },
+      });
+      ExpulsionControls?.initExpulsionControls?.({
+        getSocket: () => socket,
+        getActiveRoomId: () => activeRoomId,
+        normRoomKey,
+        canManageSharingInMeeting,
+        getParticipantsById: () => participantsById,
+        getConnectedUserIds: () => connectedUserIds,
+        getCurrentUserId: () => currentUser?.usuarioId,
+        getRoomDocenteUserId: () => roomDocenteUsuarioId,
+        getParticipantDisplayName: getParticipantDisplayNameByUserId,
+        setMediaStatus,
+        log,
+      });
+      MiniPlayerControls?.initMiniPlayer?.({
+        getActiveRoomId: () => activeRoomId,
+        getRemoteVideos: () => remoteVideos,
+        getLocalStream: () => localStream,
+        setMicEnabled,
+        setCamEnabled,
+        syncMediaButtons,
+        setMediaStatus,
+        log,
+      });
       await loadIce();
       setRoomBoardLayout("top");
       updateBoardToolUi();
