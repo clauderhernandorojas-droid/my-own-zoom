@@ -2,7 +2,7 @@
   "name": "my-own-zoom",
   "version": "0.1.0",
   "description": "Plataforma de videoconferencias pedagógicas (MVP)",
-  "main": "server.js",
+  "main": "main.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
@@ -10,8 +10,14 @@
     "test:waiting-room": "node scripts/test-waiting-room-socket.cjs",
     "test:room-expel": "node scripts/test-room-expel-socket.cjs",
     "test:screen-share-stop": "node scripts/test-screen-share-stop-socket.cjs",
+    "test:screenshare-annotate": "node scripts/test-screenshare-annotate-socket.cjs",
     "test:asistencia-ms": "node scripts/test-reunion-asistencia-ms-unit.cjs",
-    "validate:phase-c": "node scripts/validate-phase-c-debug.cjs"
+    "validate:phase-c": "node scripts/validate-phase-c-debug.cjs",
+    "electron:start": "cross-env MOJ_ELECTRON_NO_FORK=1 MOJ_ELECTRON_NO_RELOAD=1 electron .",
+    "electron:desktop": "cross-env MOJ_ELECTRON_EMBED_SERVER=1 MOJ_ELECTRON_NO_RELOAD=1 electron .",
+    "electron:dev": "node scripts/electron-dev.cjs",
+    "electron:dev:hot": "cross-env MOJ_ELECTRON_NO_FORK=1 MOJ_ELECTRON_RELOAD=1 electron .",
+    "electron-start": "npm run electron:start"
   },
   "engines": {
     "node": ">=18"
@@ -30,7 +36,12 @@
     "uuid": "^11.0.3"
   },
   "devDependencies": {
-    "socket.io-client": "^4.8.3"
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.3.0",
+    "electron-reload": "^2.0.0-alpha.1",
+    "socket.io-client": "^4.8.3",
+    "wait-on": "^8.0.5"
   },
   "repository": {
     "type": "git",

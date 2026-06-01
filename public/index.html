@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Own Zoom — Cliente</title>
+  <link rel="stylesheet" href="/css/screenShare.css" />
+  <link rel="stylesheet" href="/css/screenOverlay.css" />
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
@@ -19,6 +21,15 @@
   <script src="/js/uiBarra.js"></script>
   <script src="/js/uiExpulsion.js"></script>
   <script src="/js/uiMiniPlayer.js"></script>
+  <script src="/js/screenShare.js"></script>
+  <script src="/js/meetingAudioPolicy.js"></script>
+  <script src="/js/meetingMedia.js"></script>
+  <script src="/js/annotationInk.js"></script>
+  <script src="/js/boardToolCatalog.js"></script>
+  <script src="/js/overlayTransform.js"></script>
+  <script src="/js/overlaySeleccion.js"></script>
+  <script src="/js/uiAnnotationToolbar.js"></script>
+  <script src="/js/screenOverlay.js"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -276,25 +287,45 @@
       justify-content: center;
       align-items: stretch;
     }
-    .room-shell.room-shell--gallery .room-video-layout-switch__row {
-      display: none;
-    }
     .room-shell.room-shell--gallery .room-center-wrap { display: none; }
 
-    /* Pantalla compartida remota: mismo reparto que vista tablero — franja de vídeos ~17vh arriba, contenido abajo */
-    .room-remote-screen-stage {
+    /* Pantalla compartida: wrap ocupa el flex del primary; stage solo vídeo; UI en capa aparte */
+    .room-screen-share-wrap {
       display: none;
-      flex: 1 1 auto;
+      flex: 1 1 0;
       min-height: 0;
+      min-width: 0;
+      align-self: stretch;
+      position: relative;
       flex-direction: column;
       align-items: stretch;
-      justify-content: center;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) {
+      display: flex;
+    }
+    .room-shell.room-shell--remote-screen-dominant.room-shell--videos-right .room-screen-share-wrap:not([hidden]) {
+      align-self: stretch;
+      min-width: 0;
+    }
+    .room-remote-screen-stage,
+    #roomRemoteScreenStage {
+      display: none;
+      flex: 1 1 0;
+      min-height: 0;
+      align-self: stretch;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: stretch;
       background: #252525;
       border-bottom: 1px solid var(--z-border);
       box-sizing: border-box;
       position: relative;
+      overflow: hidden;
     }
-    .room-shell.room-shell--remote-screen-dominant .room-remote-screen-stage:not([hidden]) {
+    .room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) #roomRemoteScreenStage:not([hidden]),
+    .room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) .room-remote-screen-stage:not([hidden]) {
       display: flex;
     }
     .room-shell.room-shell--remote-screen-dominant .room-center-wrap {
@@ -307,7 +338,9 @@
       width: 100% !important;
       max-width: 100% !important;
       min-width: 0 !important;
-      flex: 1 1 auto !important;
+      flex: 1 1 0 !important;
+      height: 100% !important;
+      align-self: stretch !important;
       min-height: 0;
       margin: 0;
     }
@@ -321,9 +354,19 @@
     }
     .room-shell.room-shell--remote-screen-dominant .room-video-strip {
       flex: 0 0 auto;
-      max-height: 17vh;
+      max-height: 17vh !important;
       min-height: 64px;
       border-bottom: 1px solid var(--z-border);
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) {
+      flex: 1 1 0;
+      min-height: 0;
+      min-width: 0;
+      align-self: stretch;
+    }
+    .room-shell.room-shell--remote-screen-dominant.room-shell--videos-right .room-screen-share-wrap:not([hidden]) {
+      align-self: stretch;
+      height: auto;
     }
     .room-shell.room-shell--remote-screen-dominant .room-video-strip__stage {
       flex: 1 1 auto;
@@ -331,6 +374,16 @@
       max-height: 100%;
       display: flex;
       flex-direction: column;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-video-layout-switch {
+      z-index: 35;
+      top: 6px;
+      right: 8px;
+      padding: 4px;
+      gap: 4px;
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-video-layout-switch__row {
+      display: inline-flex;
     }
     .room-shell.room-shell--remote-screen-dominant #videos.room-videos--screen-dominant {
       flex-direction: row;
@@ -604,6 +657,25 @@
       background: #131313;
       border-top: 1px solid #2a2a2a;
     }
+    .room-shell.room-shell--remote-screen-dominant .room-bottom-toolbar {
+      position: relative;
+      z-index: 100;
+      background: rgba(19, 19, 19, 0.94);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.55);
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-tb-btn {
+      background: rgba(255, 255, 255, 0.06);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-tb-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+    .room-shell.room-shell--remote-screen-dominant .room-tb-btn__svg {
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
+    }
     .room-tb-badge {
       position: absolute;
       top: 2px;
@@ -712,6 +784,35 @@
     .room-tb-split.room-tb-share--locked {
       opacity: 0.45;
       pointer-events: none;
+    }
+    .media-capture-banner {
+      display: none;
+      margin: 0.35rem 0.65rem 0;
+      padding: 0.55rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(120, 53, 15, 0.35);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #ffedd5;
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+    .media-capture-banner:not(.hidden) {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+    }
+    .media-capture-banner__text {
+      flex: 1 1 12rem;
+      margin: 0;
+    }
+    .media-capture-banner__actions {
+      display: flex;
+      gap: 0.4rem;
+      flex-shrink: 0;
+    }
+    .remote-peer--local-screen-share .peer-cap {
+      color: #93c5fd;
     }
     .room-tb-btn.room-tb-btn--no-share {
       cursor: not-allowed;
@@ -2691,6 +2792,13 @@
       </div>
       <div class="room-body">
         <div class="room-primary">
+          <div id="mediaCaptureBanner" class="media-capture-banner hidden" role="status" aria-live="polite">
+            <p id="mediaCaptureBannerText" class="media-capture-banner__text"></p>
+            <div class="media-capture-banner__actions">
+              <button type="button" id="btnMediaCaptureRetry" class="btn-muted">Reintentar cámara y mic</button>
+              <button type="button" id="btnMediaCaptureDismiss" class="btn-muted">Entendido</button>
+            </div>
+          </div>
           <div class="room-video-strip" id="roomVideoStrip">
             <div class="room-video-strip__row">
               <div class="room-video-strip__brand">
@@ -2739,11 +2847,23 @@
             </div>
           </div>
           <div
-            id="roomRemoteScreenStage"
-            class="room-remote-screen-stage"
+            class="room-screen-share-wrap"
+            id="roomScreenShareWrap"
             hidden
             aria-hidden="true"
-          ></div>
+          >
+            <div
+              id="roomRemoteScreenStage"
+              class="room-remote-screen-stage"
+              hidden
+              aria-hidden="true"
+            ></div>
+            <div
+              id="screenOverlayUiLayer"
+              class="screen-overlay-ui-layer"
+              aria-hidden="true"
+            ></div>
+          </div>
           <div
             class="room-pane-splitter room-pane-splitter--video-board"
             id="roomVideoBoardSplitter"
@@ -3054,8 +3174,29 @@
     const DEFAULT_RENDER_API_ORIGIN = "https://lc-zoom.onrender.com";
     const isLikelyRenderHost = () =>
       typeof location !== "undefined" && /\.onrender\.com$/i.test(String(location.hostname || ""));
+    function isElectronClient() {
+      return !!window.__MOJ_ELECTRON;
+    }
+    function isScreenShareDebugEnabled() {
+      return (
+        typeof ScreenShareElectron !== "undefined" &&
+        typeof ScreenShareElectron.isScreenShareDebugEnabled === "function" &&
+        ScreenShareElectron.isScreenShareDebugEnabled()
+      );
+    }
+    function screenShareDebugLog(...args) {
+      if (!isScreenShareDebugEnabled()) return;
+      console.debug("[screen-share:ui]", ...args);
+    }
+    function isLocalAppHost() {
+      const host = String(location?.hostname || "").toLowerCase();
+      return host === "localhost" || host === "127.0.0.1";
+    }
     const inferApiOrigin = () => {
       try {
+        if (isElectronClient() || isLocalAppHost()) {
+          return "";
+        }
         const override =
           String(window.__MOJ_API_ORIGIN || "").trim() ||
           String(localStorage.getItem(API_ORIGIN_STORAGE_KEY) || "").trim();
@@ -3067,6 +3208,19 @@
       return "";
     };
     const API_ORIGIN = inferApiOrigin();
+    if (isElectronClient()) {
+      console.info("[moj] Electron client", {
+        apiOrigin: API_ORIGIN || "(same-origin)",
+        pageOrigin: location.origin,
+        storedApiOrigin: (() => {
+          try {
+            return localStorage.getItem(API_ORIGIN_STORAGE_KEY);
+          } catch (_) {
+            return null;
+          }
+        })(),
+      });
+    }
     const toApiUrl = (path) => {
       const p = String(path || "");
       if (/^https?:\/\//i.test(p)) return p;
@@ -3107,23 +3261,12 @@
     }
 
     function humanizeGetUserMediaError(err) {
-      const name = err?.name || "";
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        return "Permiso denegado para cámara o micrófono. Revisa los permisos del navegador para este sitio.";
-      }
-      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        return "No se encontró cámara o micrófono. Conecta un dispositivo e inténtalo de nuevo.";
-      }
-      if (name === "NotReadableError" || name === "TrackStartError") {
-        return "La cámara o el micrófono están en uso por otra aplicación. Ciérrala e inténtalo de nuevo.";
-      }
-      if (name === "OverconstrainedError") {
-        return "Ningún dispositivo cumple los requisitos solicitados.";
-      }
-      return err?.message || "No se pudo acceder a cámara o micrófono.";
+      return MeetingMedia?.humanizeGetUserMediaError?.(err, isElectronClient()) ||
+        (err?.message || "No se pudo acceder a cámara o micrófono.");
     }
 
     let socket = null;
+    let socketReconnectPending = false;
     let localStream = null;
     let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
     /** @type {Map<string, RTCPeerConnection>} */
@@ -3282,7 +3425,11 @@
     /** `board:presentation` recibido antes de asignar `activeRoomId` (orden al unirse). */
     let pendingBoardPresentation = null;
     let remoteScreenLayoutRaf = 0;
-    let shareWithAudio = true;
+    let shareWithAudio = false;
+    /** Último nivel de captura al unirse: av | audio | none */
+    let lastMediaCaptureLevel = "av";
+    /** Contenedor UI de vista previa local al compartir pantalla (sharer). */
+    let localScreenShareStageWrap = null;
     let screenShareStream = null;
     let screenShareTrack = null;
     let screenShareAudioTrack = null;
@@ -3327,6 +3474,13 @@
             void loadAsistenciaForCalendar(reunionId);
           }
         },
+      });
+    }
+    if (typeof ScreenOverlay !== "undefined") {
+      ScreenOverlay.init({
+        getSocket: () => socket,
+        getActiveRoomId: () => activeRoomId,
+        normRoomKey,
       });
     }
     let boardSideMenuOpen = "";
@@ -3427,25 +3581,55 @@
       }
     }
 
-    function buildMediaConstraintsFromSelectors() {
+    /** Tras un getUserMedia exitoso, se permiten deviceId exact en selectores. */
+    let localMediaCaptureEverSucceeded = false;
+
+    function logGetUserMediaFailure(phase, err, constraints) {
+      MeetingMedia?.logGetUserMediaFailure?.(phase, err, constraints, {
+        electron: isElectronClient(),
+        apiOrigin: API_ORIGIN || "(same-origin)",
+        moj_api_origin: (() => {
+          try {
+            return localStorage.getItem(API_ORIGIN_STORAGE_KEY);
+          } catch (_) {
+            return null;
+          }
+        })(),
+      });
+    }
+
+    function buildMediaConstraintsFromSelectors(options = {}) {
+      const relaxed = options.relaxed === true;
+      const useExact =
+        !relaxed &&
+        options.useExactDeviceId !== false &&
+        localMediaCaptureEverSucceeded;
       const aSel = $("audioInputSelect");
       const vSel = $("videoInputSelect");
-      /**
-       * Audio más “seco” para evitar bombeo en duplex; usar auriculares (menos riesgo de acople).
-       * El navegador puede ignorar flags que no soporte.
-       */
-      const audioBase = {
-        echoCancellation: false,
-        noiseSuppression: false,
+      const audioBase = MeetingAudioPolicy?.getAudioProcessingConstraints?.({
+        isElectron: isElectronClient(),
+      }) || {
+        echoCancellation: true,
+        noiseSuppression: true,
         autoGainControl: false,
       };
-      const audio = aSel?.value ? { ...audioBase, deviceId: { exact: aSel.value } } : { ...audioBase };
-      const video = vSel?.value ? { deviceId: { exact: vSel.value } } : { facingMode: "user" };
+      let audio = { ...audioBase };
+      if (aSel?.value) {
+        audio = useExact
+          ? { ...audioBase, deviceId: { exact: aSel.value } }
+          : { ...audioBase, deviceId: { ideal: aSel.value } };
+      }
+      let video = { facingMode: "user" };
+      if (vSel?.value) {
+        video = useExact
+          ? { deviceId: { exact: vSel.value } }
+          : { deviceId: { ideal: vSel.value } };
+      }
       return { audio, video };
     }
 
-    function buildAudioOnlyConstraintsFromSelectors() {
-      const { audio } = buildMediaConstraintsFromSelectors();
+    function buildAudioOnlyConstraintsFromSelectors(options = {}) {
+      const { audio } = buildMediaConstraintsFromSelectors(options);
       return { audio };
     }
 
@@ -3454,34 +3638,59 @@
      * @returns {Promise<{ stream: MediaStream, level: "av" | "audio" | "none", mediaError: string }>}
      */
     async function acquireLocalMediaWithFallbacks(options = {}) {
-      const allowSilentJoin = options.allowSilentJoin === true;
-      let firstErr = null;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(buildMediaConstraintsFromSelectors());
-        return { stream, level: "av", mediaError: "" };
-      } catch (e1) {
-        firstErr = e1;
-        console.warn("getUserMedia audio+video", e1);
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(buildAudioOnlyConstraintsFromSelectors());
-        return {
-          stream,
-          level: "audio",
-          mediaError: humanizeGetUserMediaError(firstErr),
-        };
-      } catch (e2) {
-        console.warn("getUserMedia audio only", e2);
-        if (allowSilentJoin) {
-          return {
-            stream: new MediaStream(),
-            level: "none",
-            mediaError: humanizeGetUserMediaError(firstErr || e2),
-          };
-        }
-        throw e2;
-      }
+      return MeetingMedia.acquireLocalMediaWithFallbacks(options, {
+        isElectronClient,
+        getCaptureEverSucceeded: () => localMediaCaptureEverSucceeded,
+        setCaptureEverSucceeded: (v) => {
+          localMediaCaptureEverSucceeded = !!v;
+        },
+        buildAvConstraints: (opts) => buildMediaConstraintsFromSelectors(opts),
+        buildAudioOnlyConstraints: (opts) => buildAudioOnlyConstraintsFromSelectors(opts),
+        getLogMeta: () => ({
+          electron: isElectronClient(),
+          apiOrigin: API_ORIGIN || "(same-origin)",
+        }),
+      });
     }
+
+    function showMediaCaptureBanner(level, mediaError) {
+      const banner = $("mediaCaptureBanner");
+      const text = $("mediaCaptureBannerText");
+      if (!banner || !text) return;
+      if (level === "av") {
+        banner.classList.add("hidden");
+        return;
+      }
+      let msg =
+        level === "audio"
+          ? "No se pudo activar la cámara. Solo micrófono disponible."
+          : "No se detectó cámara ni micrófono. Puedes usar chat y tablero.";
+      if (mediaError) msg += " " + mediaError;
+      msg += " Pulsa «Reintentar cámara y mic» o revisa permisos del navegador.";
+      text.textContent = msg;
+      banner.classList.remove("hidden");
+      lastMediaCaptureLevel = level;
+    }
+
+    function hideMediaCaptureBanner() {
+      $("mediaCaptureBanner")?.classList.add("hidden");
+      lastMediaCaptureLevel = "av";
+    }
+
+    function getMeetingMediaDiagnostics() {
+      return MeetingMedia?.getMediaCaptureDiagnostics?.({
+        isElectron: isElectronClient(),
+        localStream,
+        lastCaptureLevel: lastMediaCaptureLevel,
+        sharingScreen: isLocallySharingScreen(),
+        screenShareAudioTrack,
+        shareWithAudio,
+        remoteScreenShareUserId,
+        peerCount: pcs.size,
+      }) || {};
+    }
+
+    globalThis.getMeetingMediaDiagnostics = getMeetingMediaDiagnostics;
 
     function syncDeviceSelectorsFromLocalStream() {
       const aSel = $("audioInputSelect");
@@ -3717,6 +3926,11 @@
         role: "menuitemcheckbox",
         checked: shareWithAudio,
         onClick: () => {
+          if (!shareWithAudio) {
+            setMediaStatus(
+              "Al activar audio compartido se captura el sonido del sistema. Usa auriculares para evitar eco."
+            );
+          }
           shareWithAudio = !shareWithAudio;
           renderShareMenu();
         },
@@ -3792,8 +4006,67 @@
     }
 
     function getOutgoingAudioTrack() {
-      if (screenShareAudioTrack?.readyState === "live") return screenShareAudioTrack;
-      return localStream?.getAudioTracks()[0] ?? null;
+      const mic = localStream?.getAudioTracks()[0];
+      const micMuted = mic && mic.enabled === false;
+      if (screenShareAudioTrack?.readyState === "live") {
+        if (micMuted || screenShareAudioTrack.enabled === false) {
+          return null;
+        }
+        return screenShareAudioTrack;
+      }
+      return mic?.readyState === "live" ? mic : null;
+    }
+
+    async function syncOutgoingAudioToPeers() {
+      await replaceAudioTrackForAllPeers(getOutgoingAudioTrack());
+    }
+
+    function syncRemotePlaybackVolumeForShare() {
+      const damp = isLocallySharingScreen() ? 0.2 : 1;
+      for (const vid of remoteVideos.values()) {
+        try {
+          vid.volume = damp;
+        } catch (_) {}
+      }
+    }
+
+    function teardownLocalScreenShareStageWrap() {
+      if (!localScreenShareStageWrap) return;
+      const vid = localScreenShareStageWrap.querySelector("video");
+      if (vid) vid.srcObject = null;
+      localScreenShareStageWrap.remove();
+      localScreenShareStageWrap = null;
+    }
+
+    function ensureLocalScreenShareStageWrap() {
+      if (!screenShareStream || screenShareTrack?.readyState !== "live") {
+        teardownLocalScreenShareStageWrap();
+        return null;
+      }
+      if (localScreenShareStageWrap) {
+        const vid = localScreenShareStageWrap.querySelector("video");
+        if (vid && vid.srcObject !== screenShareStream) {
+          vid.srcObject = screenShareStream;
+          vid.play().catch(() => {});
+        }
+        return localScreenShareStageWrap;
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "remote-peer remote-peer--screen-share remote-peer--local-screen-share";
+      wrap.setAttribute("data-label", "Tu pantalla compartida");
+      const cap = document.createElement("div");
+      cap.className = "peer-cap";
+      cap.textContent = "Tu pantalla compartida (vista previa)";
+      const vid = document.createElement("video");
+      vid.autoplay = true;
+      vid.playsInline = true;
+      vid.muted = true;
+      vid.srcObject = screenShareStream;
+      vid.play().catch(() => {});
+      wrap.appendChild(cap);
+      wrap.appendChild(vid);
+      localScreenShareStageWrap = wrap;
+      return wrap;
     }
 
     async function replaceVideoTrackForAllPeers(track, streamForAddTrack) {
@@ -4144,6 +4417,12 @@
       );
     }
 
+    function moveStageRemotePeersToContainer(stage, rc) {
+      if (!stage || !rc) return;
+      const peers = [...stage.children].filter((el) => el.classList?.contains("remote-peer"));
+      for (const peer of peers) rc.appendChild(peer);
+    }
+
     function updateRemoteScreenShareLayout() {
       const shell = $("roomShell");
       const videos = $("videos");
@@ -4161,7 +4440,7 @@
           peerUid &&
           String(peerUid).trim().toLowerCase() ===
             String(remoteScreenShareUserId).trim().toLowerCase();
-        const isScreen = matchesAnnounced || isDisplayCaptureVideoTrack(track);
+        const isScreen = matchesAnnounced || (!remoteScreenShareUserId && isDisplayCaptureVideoTrack(track));
         const wrap = vid.closest(".remote-peer");
         if (!wrap || wrap === localWrap) continue;
         wrap.classList.toggle("remote-peer--screen-share", isScreen);
@@ -4178,20 +4457,60 @@
         }
       }
 
-      if (stage) {
-        if (screenWrap) {
-          stage.hidden = false;
+      const screenShareWrap = $("roomScreenShareWrap");
+      function setScreenShareStageVisible(visible) {
+        if (screenShareWrap) {
+          screenShareWrap.hidden = !visible;
+          if (visible) {
+            screenShareWrap.removeAttribute("hidden");
+            screenShareWrap.setAttribute("aria-hidden", "false");
+          } else {
+            screenShareWrap.setAttribute("hidden", "");
+            screenShareWrap.setAttribute("aria-hidden", "true");
+          }
+        }
+        if (!stage) return;
+        stage.hidden = !visible;
+        if (visible) {
           stage.removeAttribute("hidden");
           stage.setAttribute("aria-hidden", "false");
-          stage.appendChild(screenWrap);
         } else {
-          while (stage.firstChild) {
-            rc.appendChild(stage.firstChild);
-          }
-          stage.hidden = true;
           stage.setAttribute("hidden", "");
           stage.setAttribute("aria-hidden", "true");
         }
+      }
+      if (stage) {
+        if (screenWrap) {
+          teardownLocalScreenShareStageWrap();
+          setScreenShareStageVisible(true);
+          stage.appendChild(screenWrap);
+        } else if (isLocallySharingScreen()) {
+          const localPreview = ensureLocalScreenShareStageWrap();
+          if (localPreview) {
+            setScreenShareStageVisible(true);
+            stage.appendChild(localPreview);
+            screenWrap = localPreview;
+          } else {
+            moveStageRemotePeersToContainer(stage, rc);
+            setScreenShareStageVisible(false);
+          }
+        } else {
+          teardownLocalScreenShareStageWrap();
+          moveStageRemotePeersToContainer(stage, rc);
+          setScreenShareStageVisible(false);
+        }
+      }
+
+      if (
+        isScreenShareDebugEnabled() &&
+        remoteScreenShareUserId &&
+        !screenWrap &&
+        !isLocallySharingScreen()
+      ) {
+        console.debug("[screen-share:layout] remoteScreenShareUserId sin peer coincidente", {
+          remoteScreenShareUserId,
+          peers: [...peerSocketToUserId.entries()],
+        });
       }
 
       if (localWrap && localWrap.parentElement === videos) {
@@ -4208,8 +4527,29 @@
       }
 
       const anyRemoteScreen = !!screenWrap;
+      if (anyRemoteScreen && shell?.classList.contains("room-shell--gallery")) {
+        setMeetView("board");
+      }
       shell.classList.toggle("room-shell--remote-screen-dominant", anyRemoteScreen);
       videos.classList.toggle("room-videos--screen-dominant", anyRemoteScreen);
+      if (anyRemoteScreen) {
+        applyRemoteScreenShareStripSizing();
+      } else {
+        applyRoomVideoStripSizing();
+      }
+      syncRemotePlaybackVolumeForShare();
+      const syncScreenOverlay = () => {
+        if (typeof ScreenOverlay !== "undefined") {
+          ScreenOverlay.syncWithStage(stage);
+        }
+      };
+      if (anyRemoteScreen) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(syncScreenOverlay);
+        });
+      } else {
+        syncScreenOverlay();
+      }
     }
 
     function applyRemoteBoardPresentationUi(active) {
@@ -4307,16 +4647,22 @@
         screenSharePreviewVideo.srcObject = null;
         screenSharePreviewVideo = null;
       }
+      teardownLocalScreenShareStageWrap();
       const fallbackVideo = localStream?.getVideoTracks()[0] ?? null;
       const fallbackAudio = localStream?.getAudioTracks()[0] ?? null;
       await replaceVideoTrackForAllPeers(fallbackVideo, localStream || null);
-      await replaceAudioTrackForAllPeers(fallbackAudio);
+      await replaceAudioTrackForAllPeers(
+        fallbackAudio?.enabled !== false ? fallbackAudio : null
+      );
       syncShareButtonState();
       renderShareMenu();
       if (restoreStatus) {
-        setMediaStatus(fallbackVideo ? "Se dejó de compartir pantalla; cámara restaurada." : "Se dejó de compartir pantalla.");
+        setMediaStatus(
+          fallbackVideo ? "Se dejó de compartir pantalla; cámara restaurada." : "Se dejó de compartir pantalla."
+        );
       }
       closeToolbarMenus();
+      syncRemotePlaybackVolumeForShare();
       if (hadLiveScreenShare) emitMeetScreenShare(false);
       if (hadLiveScreenShare && !canManageSharingInMeeting()) {
         presenterGrantedScreenShare = false;
@@ -4328,24 +4674,61 @@
     }
 
     async function startScreenShare() {
+      screenShareDebugLog("startScreenShare", {
+        canShare: canShareInMeeting(),
+        activeRoomId,
+        socket: !!socket?.connected,
+      });
       if (!canShareInMeeting()) {
         setMediaStatus("Solo el presentador puede compartir contenido.");
         return;
       }
       if (!activeRoomId) {
         log("Entra en una sala antes de compartir.");
+        setMediaStatus("Entra en una sala antes de compartir.");
         return;
       }
-      if (!navigator.mediaDevices?.getDisplayMedia) {
+      if (!socket?.connected) {
+        const msg = "Sin conexión al servidor. Espera la reconexión antes de compartir.";
+        setMediaStatus(msg);
+        log(msg);
+        console.warn("[screen-share]", msg);
+        return;
+      }
+      const electronClient = isElectronClient();
+      const electronShare =
+        typeof ScreenShareElectron !== "undefined" && ScreenShareElectron.isAvailable();
+      if (electronClient && !electronShare) {
+        const msg =
+          "API de escritorio no disponible (preload o /js/screenShare.js). Reinicia Electron y comprueba que el servidor sirva los archivos estáticos.";
+        setMediaStatus(msg);
+        log(msg);
+        console.error("[screen-share]", msg, {
+          module: typeof ScreenShareElectron,
+          api: typeof window.mojElectron?.getDesktopSources,
+        });
+        return;
+      }
+      if (!electronShare && !navigator.mediaDevices?.getDisplayMedia) {
         setMediaStatus("Tu navegador no soporta compartir pantalla.");
         log("Compartir pantalla no soportado en este navegador.");
         return;
       }
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30, max: 30 } },
-          audio: shareWithAudio,
-        });
+        let stream = null;
+        if (electronShare) {
+          screenShareDebugLog("acquireDisplayStream via Electron");
+          stream = await ScreenShareElectron.acquireDisplayStream({ withAudio: shareWithAudio });
+          if (!stream) {
+            setMediaStatus("Se canceló compartir pantalla.");
+            return;
+          }
+        } else {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: { ideal: 30, max: 30 } },
+            audio: shareWithAudio,
+          });
+        }
         if (!canShareInMeeting()) {
           try {
             stream.getTracks().forEach((t) => t.stop());
@@ -4367,19 +4750,62 @@
           void stopScreenShare({ restoreStatus: true });
         };
         await replaceVideoTrackForAllPeers(track, stream);
-        await replaceAudioTrackForAllPeers(screenShareAudioTrack || localStream?.getAudioTracks()[0] || null);
+        const micOn = localStream?.getAudioTracks()[0]?.enabled !== false;
+        if (screenShareAudioTrack) {
+          screenShareAudioTrack.enabled = micOn && shareWithAudio;
+        }
+        const outAudio =
+          shareWithAudio && screenShareAudioTrack?.enabled !== false
+            ? screenShareAudioTrack
+            : micOn
+              ? localStream?.getAudioTracks()[0] || null
+              : null;
+        await replaceAudioTrackForAllPeers(outAudio);
         syncShareButtonState();
         renderShareMenu();
-        setMediaStatus("Compartiendo pantalla con la sala.");
+        if (shareWithAudio && screenShareAudioTrack) {
+          setMediaStatus(
+            "Compartiendo pantalla con audio de sistema. Usa auriculares o silencia el micrófono para evitar acoplamiento."
+          );
+          appendRecordingNotice(
+            "Audio de pantalla activo: preferible auriculares para evitar eco."
+          );
+        } else {
+          setMediaStatus("Compartiendo pantalla con la sala.");
+        }
         log("Compartir pantalla activo.");
         emitMeetScreenShare(true);
         scheduleRemoteScreenLayoutUpdate();
+        syncRemotePlaybackVolumeForShare();
       } catch (e) {
+        console.warn("[screen-share] startScreenShare error", e);
+        if (e?.code === "SCREEN_PERMISSION_DENIED" && e?.message) {
+          setMediaStatus(e.message);
+          log(e.message);
+          return;
+        }
+        if (
+          e?.code === "SCREEN_IPC_TIMEOUT" ||
+          e?.code === "SCREEN_NO_SOURCES" ||
+          (e?.message && !/cancel/i.test(String(e.message)))
+        ) {
+          const msg = e.message || "Error al compartir pantalla.";
+          setMediaStatus(msg);
+          log(msg);
+          return;
+        }
         setMediaStatus("Se canceló compartir pantalla.");
       }
     }
 
     async function runShareAction(target) {
+      if (target === "screen") {
+        screenShareDebugLog("runShareAction(screen)", {
+          canShare: canShareInMeeting(),
+          electron: isElectronClient(),
+          module: typeof ScreenShareElectron !== "undefined" && ScreenShareElectron?.isAvailable?.(),
+        });
+      }
       preferredShareTarget = target === "board" ? "board" : "screen";
       if (preferredShareTarget === "board" && !canManageSharingInMeeting()) {
         setMediaStatus("Solo el presentador puede compartir tablero.");
@@ -7276,6 +7702,16 @@ body.print-calendar-export {
       return Math.min(max, Math.max(min, Math.round(w)));
     }
 
+    /** Limpia inline sizing de la franja para que el stage de pantalla compartida reciba altura (flex). */
+    function applyRemoteScreenShareStripSizing() {
+      const strip = $("roomVideoStrip");
+      if (!strip) return;
+      strip.style.height = "";
+      strip.style.maxHeight = "";
+      strip.style.width = "";
+      strip.style.minWidth = "";
+    }
+
     /** Aplica tamaño guardado de la franja de vídeo (alto en vista superior, ancho en vídeos a la derecha). */
     function applyRoomVideoStripSizing() {
       const shell = $("roomShell");
@@ -7288,6 +7724,10 @@ body.print-calendar-export {
         strip.style.maxHeight = "";
         strip.style.width = "";
         strip.style.minWidth = "";
+        return;
+      }
+      if (shell.classList.contains("room-shell--remote-screen-dominant")) {
+        applyRemoteScreenShareStripSizing();
         return;
       }
       try {
@@ -8237,6 +8677,7 @@ body.print-calendar-export {
       if (!v) {
         btnCam.dataset.off = "true";
         btnCam.disabled = true;
+        btnCam.title = "Cámara no disponible — pulsa «Reiniciar cámara y mic» en el menú o el banner superior";
         btnCam.setAttribute("aria-label", localStream ? "Cámara no disponible" : "Cámara apagada");
         const cOn = btnCam.querySelector(".room-tb-ico-cam-on");
         const cOff = btnCam.querySelector(".room-tb-ico-cam-off");
@@ -8259,11 +8700,16 @@ body.print-calendar-export {
     }
 
     function setMicEnabled(on) {
-      if (!localStream) return;
-      localStream.getAudioTracks().forEach((t) => {
-        t.enabled = on;
-      });
+      if (localStream) {
+        localStream.getAudioTracks().forEach((t) => {
+          t.enabled = on;
+        });
+      }
+      if (screenShareAudioTrack?.readyState === "live") {
+        screenShareAudioTrack.enabled = on && shareWithAudio;
+      }
       syncMediaButtons();
+      void syncOutgoingAudioToPeers();
     }
 
     function setCamEnabled(on) {
@@ -8397,7 +8843,15 @@ body.print-calendar-export {
               ? "av"
               : v?.readyState === "live"
                 ? "av"
-                : "audio";
+                : a?.readyState === "live"
+                  ? "audio"
+                  : "none";
+          lastMediaCaptureLevel = level;
+          if (activeRoomId && level !== "av") {
+            showMediaCaptureBanner(level, "");
+          } else if (level === "av") {
+            hideMediaCaptureBanner();
+          }
           return { level, mediaError: "" };
         }
         await stopLocalMedia({ micRecordingDownload: false });
@@ -8416,6 +8870,11 @@ body.print-calendar-export {
           (mediaError ? mediaError + " " : "") +
             "Sin micrófono ni cámara: puedes usar tablero y chat. Pulsa «Reiniciar cámara y mic» cuando haya dispositivos libres."
         );
+      }
+      lastMediaCaptureLevel = level;
+      if (activeRoomId) {
+        if (level === "av") hideMediaCaptureBanner();
+        else showMediaCaptureBanner(level, mediaError);
       }
       syncMediaButtons();
       refreshMediaDeviceSelectors().catch(() => {});
@@ -8437,6 +8896,9 @@ body.print-calendar-export {
       try {
         await stopLocalMedia({ micRecordingDownload: false });
         const { level, mediaError } = await ensureLocalStream({ allowSilentJoin: true });
+        lastMediaCaptureLevel = level;
+        if (level === "av") hideMediaCaptureBanner();
+        else showMediaCaptureBanner(level, mediaError);
         let msg = "Medios reiniciados; tracks actualizados en los enlaces activos.";
         if (level === "audio") {
           msg = (mediaError ? mediaError + " " : "") + "Solo micrófono. " + msg;
@@ -8476,6 +8938,7 @@ body.print-calendar-export {
       const vid = document.createElement("video");
       vid.autoplay = true;
       vid.playsInline = true;
+      vid.volume = isLocallySharingScreen() ? 0.2 : 1;
       vid.dataset.peer = remoteSocketId;
       const wrap = document.createElement("div");
       wrap.className = "remote-peer";
@@ -9510,19 +9973,70 @@ body.print-calendar-export {
       if (typeof ChatModule !== "undefined") ChatModule.refreshAfterParticipants();
     }
 
+    function rejoinActiveRoomAfterReconnect() {
+      const room = activeRoomId;
+      if (!room || !socket?.connected) return Promise.resolve();
+      return new Promise((resolve) => {
+        socket.emit("room:join", { roomId: normRoomKey(room) }, (resp) => {
+          if (resp?.ok) {
+            log("Reingresaste a la sala tras reconexión.");
+            roomDocenteUsuarioId =
+              resp.docenteUsuarioId != null
+                ? String(resp.docenteUsuarioId)
+                : roomDocenteUsuarioId;
+            connectedUserIds.clear();
+            peerSocketToUserId.clear();
+            if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
+            (resp.peers || []).forEach((p) => {
+              if (p.userId) connectedUserIds.add(p.userId);
+              if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
+            });
+            void loadParticipantsForRoom(activeRoomId).catch((e) => console.warn(e));
+            updateShareControlsForRole();
+            renderShareMenu();
+            syncShareButtonState();
+          } else {
+            const errMsg = "No se pudo reingresar tras reconexión: " + (resp?.error || "error");
+            log(errMsg);
+            setMediaStatus(errMsg);
+            console.warn("[screen-share]", errMsg);
+          }
+          resolve();
+        });
+      });
+    }
+
     function connectSocketIfNeeded() {
       const token = getToken();
       if (!token) throw new Error("Sin token");
       if (socket?.connected) return Promise.resolve(socket);
       return new Promise((resolve, reject) => {
+        const socketOpts = {
+          auth: { token },
+          transports: ["websocket", "polling"],
+          reconnection: true,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          reconnectionAttempts: 25,
+        };
         if (API_ORIGIN) {
-          socket = io(API_ORIGIN, { auth: { token }, transports: ["websocket", "polling"] });
+          socket = io(API_ORIGIN, socketOpts);
         } else {
-          socket = io({ auth: { token }, transports: ["websocket", "polling"] });
+          socket = io(socketOpts);
         }
         if (typeof AsistenciaLive !== "undefined") AsistenciaLive.setSocket(socket);
+        socket.on("disconnect", (reason) => {
+          if (activeRoomId) {
+            socketReconnectPending = true;
+            log("Desconectado del servidor (" + reason + "). Reconectando…");
+          }
+        });
         socket.on("connect", () => {
           if (typeof AsistenciaLive !== "undefined") AsistenciaLive.setSocket(socket);
+          if (socketReconnectPending && activeRoomId) {
+            socketReconnectPending = false;
+            void rejoinActiveRoomAfterReconnect();
+          }
           resolve(socket);
         });
         socket.on("connect_error", (e) => {
@@ -9557,6 +10071,17 @@ body.print-calendar-export {
             return;
           }
           applyMeetScreenShareFromServer(roomId, active, uid);
+          if (!active && typeof ScreenOverlay !== "undefined") {
+            ScreenOverlay.clear();
+          }
+        });
+        socket.on("screenshare-annotate:update", ({ roomId, contenido, from }) => {
+          if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+          ScreenOverlay?.applyRemoteState?.(contenido, { from });
+        });
+        socket.on("screenshare-annotate:state", ({ roomId, contenido, from }) => {
+          if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+          ScreenOverlay?.applyRemoteState?.(contenido, { from });
         });
         socket.on("meet:screenShare:request", ({ roomId, requesterUserId }) => {
           if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
@@ -9773,7 +10298,8 @@ body.print-calendar-export {
       log("Entrando en la sala…");
       try {
         await loadIce();
-        await ensureLocalStream({ allowSilentJoin: true });
+        const capture = await ensureLocalStream({ allowSilentJoin: true });
+        lastMediaCaptureLevel = capture.level;
         await ensureCurrentUserLoaded();
         await connectSocketIfNeeded();
       } catch (e) {
@@ -9815,10 +10341,14 @@ body.print-calendar-export {
               if (arl) arl.textContent = activeRoomId;
             }
             showRoom();
-            setMeetView("gallery");
+            const initialMeetView = isElectronClient() ? "board" : "gallery";
+            setMeetView(initialMeetView);
             setRoomBoardLayout("top");
             _suppressHashRoute = true;
-            location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
+            location.hash =
+              "#/meet/" +
+              encodeURIComponent(activeRoomId) +
+              (initialMeetView === "board" ? "/board" : "/gallery");
             _suppressHashRoute = false;
             ChatModule?.markAllRead?.();
             connectedUserIds.clear();
@@ -9859,6 +10389,9 @@ body.print-calendar-export {
             }, 0);
             flushPendingBoardPresentationAfterJoin();
             flushPendingMeetScreenShareAfterJoin();
+            if (lastMediaCaptureLevel !== "av") {
+              showMediaCaptureBanner(lastMediaCaptureLevel, "");
+            }
             resolve();
           });
         });
@@ -9877,6 +10410,8 @@ body.print-calendar-export {
       pendingBoardPresentation = null;
       pendingMeetScreenShare = null;
       remoteScreenShareUserId = "";
+      teardownLocalScreenShareStageWrap();
+      hideMediaCaptureBanner();
       presenterGrantedScreenShare = false;
       screenShareRequestPending = false;
       autoStartShareAfterApproval = false;
@@ -9943,6 +10478,15 @@ body.print-calendar-export {
           "room-shell--remote-screen-dominant"
         );
       $("videos")?.classList.remove("room-videos--screen-dominant");
+      if (typeof ScreenOverlay !== "undefined") {
+        ScreenOverlay.destroy();
+      }
+      const rssWrapLeave = $("roomScreenShareWrap");
+      if (rssWrapLeave) {
+        rssWrapLeave.hidden = true;
+        rssWrapLeave.setAttribute("hidden", "");
+        rssWrapLeave.setAttribute("aria-hidden", "true");
+      }
       const rssLeave = $("roomRemoteScreenStage");
       if (rssLeave) {
         rssLeave.textContent = "";
@@ -10416,10 +10960,17 @@ body.print-calendar-export {
     });
 
     $("btnToggleMic").addEventListener("click", () => {
-      if (!localStream) return;
-      const t = localStream.getAudioTracks()[0];
-      if (!t) return;
-      setMicEnabled(!t.enabled);
+      if (!localStream && !screenShareAudioTrack) return;
+      const t = localStream?.getAudioTracks()[0];
+      const currentlyOn = t ? t.enabled : screenShareAudioTrack?.enabled !== false;
+      setMicEnabled(!currentlyOn);
+    });
+    $("btnMediaCaptureRetry")?.addEventListener("click", () => {
+      hideMediaCaptureBanner();
+      void reiniciarMediosEnReunion();
+    });
+    $("btnMediaCaptureDismiss")?.addEventListener("click", () => {
+      $("mediaCaptureBanner")?.classList.add("hidden");
     });
     $("btnToggleCam").addEventListener("click", () => {
       if (!localStream) return;
@@ -12480,6 +13031,10 @@ body.print-calendar-export {
             await syncLocalTracksToAllSenders();
           })().catch((err) => console.warn(err));
         },
+      });
+      ScreenShareElectron?.init?.({
+        setMediaStatus,
+        log,
       });
       ExpulsionControls?.initExpulsionControls?.({
         getSocket: () => socket,

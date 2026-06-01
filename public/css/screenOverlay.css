@@ -1,0 +1,487 @@
+/* Overlay de anotaciones sobre pantalla compartida */
+
+.screen-overlay-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0;
+  align-self: stretch;
+  overflow: hidden;
+}
+
+.screen-overlay-peer {
+  min-height: 0;
+  flex: 1 1 0;
+  align-self: stretch;
+  width: 100%;
+}
+
+/* Vídeo y canvas comparten el mismo rectángulo (evita bandas grises del stage) */
+.screen-overlay-stack > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+  display: block;
+  background: #111;
+  z-index: 1;
+}
+
+.screen-overlay-stack--active {
+  outline: 2px solid rgba(11, 87, 208, 0.55);
+  outline-offset: -2px;
+}
+
+.screen-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.screen-overlay-stack--annotate-active .screen-overlay-canvas {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open .screen-overlay-canvas {
+  pointer-events: auto;
+  cursor: default;
+}
+
+.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open.screen-overlay-stack--selection-hit .screen-overlay-canvas {
+  cursor: move;
+}
+
+.screen-overlay-stack--tool-text.screen-overlay-stack--annotate-active .screen-overlay-canvas {
+  cursor: text;
+}
+
+.screen-overlay-stack--tool-eraser.screen-overlay-stack--annotate-active .screen-overlay-canvas {
+  cursor: cell;
+}
+
+.screen-overlay-active-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(11, 87, 208, 0.88);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  user-select: none;
+}
+
+.screen-overlay-active-badge.hidden {
+  display: none;
+}
+
+/* Hermanos fuera del stack no deben ocupar espacio en el stage */
+.room-remote-screen-stage .remote-peer.screen-overlay-peer > .peer-cap,
+.room-remote-screen-stage .remote-peer.screen-overlay-peer > .peer-conn-status,
+.remote-peer.screen-overlay-peer > .peer-cap,
+.remote-peer.screen-overlay-peer > .peer-conn-status {
+  display: none !important;
+}
+
+/* Capa UI (FAB + toolbar) desacoplada del flex del stage de vídeo */
+.screen-overlay-ui-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.screen-overlay-ui-layer > .screen-overlay-fab-host,
+.screen-overlay-ui-layer > .screen-overlay-toolbar-host {
+  pointer-events: auto;
+}
+
+.room-screen-share-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  flex-direction: column;
+  align-self: stretch;
+  display: none;
+}
+
+.room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) {
+  display: flex;
+}
+
+.room-shell.room-shell--remote-screen-dominant.room-shell--videos-right .room-screen-share-wrap:not([hidden]) {
+  align-self: stretch;
+  min-width: 0;
+  height: auto;
+}
+
+/* FAB lápiz arrastrable */
+.screen-overlay-fab-host {
+  position: absolute;
+  z-index: 50;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.screen-overlay-fab {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(11, 87, 208, 0.92);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  font-size: 1.25rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.screen-overlay-fab:hover {
+  background: rgba(11, 87, 208, 1);
+}
+
+.screen-overlay-fab--active {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.screen-overlay-fab--dragging,
+.screen-overlay-fab:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+
+/* Toolbar anclada al FAB (oculta por defecto) */
+.screen-overlay-toolbar-host {
+  position: absolute;
+  z-index: 61;
+  pointer-events: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+
+.screen-overlay-toolbar-host .screen-overlay-toolbar-panel,
+.screen-overlay-toolbar-host .screen-overlay-side-menu {
+  pointer-events: auto;
+}
+
+.screen-overlay-toolbar-host:not(.hidden) {
+  pointer-events: auto;
+}
+
+.screen-overlay-toolbar-host.hidden {
+  display: none;
+}
+
+.screen-overlay-toolbar-root {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.screen-overlay-toolbar-host--v .screen-overlay-toolbar-panel,
+.screen-overlay-toolbar-host--h .screen-overlay-toolbar-panel {
+  display: flex;
+  align-items: flex-start;
+}
+
+.screen-overlay-toolbar-host--v .screen-overlay-toolbar-panel {
+  flex-direction: column;
+}
+
+.screen-overlay-toolbar-host--h .screen-overlay-toolbar-panel {
+  flex-direction: row;
+}
+
+.screen-overlay-toolbar-host--h .screen-overlay-vtoolbar {
+  flex-direction: row;
+  width: auto;
+  padding: 5px 6px;
+}
+
+.screen-overlay-toolbar-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+/* Barra vertical estilo tablero (sin clases board-ol del tablero) */
+.screen-overlay-vtoolbar {
+  position: relative;
+  left: auto;
+  top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 32px;
+  margin: 0;
+  padding: 5px 3px;
+  background: rgba(2, 6, 23, 0.92);
+  border: 1px solid #334155;
+  border-radius: 7px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+  overflow: visible;
+}
+
+.screen-overlay-vtoolbar .tool-btn {
+  width: 26px;
+  min-width: 26px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.75rem;
+  border: none;
+  background: transparent;
+  color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.screen-overlay-vtoolbar .tool-btn:hover {
+  background: rgba(96, 165, 250, 0.2);
+  color: #93c5fd;
+}
+
+.screen-overlay-vtoolbar .tool-btn.active {
+  background: rgba(37, 99, 235, 0.35);
+  color: #ffffff;
+}
+
+.screen-overlay-vtoolbar .tool-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.screen-overlay-vtoolbar .tool-sep {
+  width: 17px;
+  height: 1px;
+  margin: 2px 0;
+  background: #475569;
+}
+
+.screen-overlay-vtoolbar .board-tool-icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.screen-overlay-vtoolbar .board-tool-emoji {
+  font-size: 0.88rem;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.screen-overlay-vtoolbar .board-tool-glyph {
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.screen-overlay-history-btn {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.screen-overlay-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.screen-overlay-emoji-btn {
+  width: 32px;
+  height: 32px;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.8);
+  cursor: pointer;
+  padding: 0;
+}
+
+.screen-overlay-emoji-btn:hover {
+  background: rgba(51, 65, 85, 0.95);
+}
+
+.screen-overlay-close-btn {
+  font-size: 1rem;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.screen-overlay-side-menu {
+  position: absolute;
+  z-index: 60;
+  min-width: 160px;
+  display: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  color: #e2e8f0;
+}
+
+.screen-overlay-side-menu:not(.hidden) {
+  display: block;
+}
+
+.screen-overlay-side-menu.hidden {
+  display: none;
+}
+
+.screen-overlay-side-menu__title {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.screen-overlay-color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.screen-overlay-color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.screen-overlay-color-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.screen-overlay-menu-choice {
+  display: block;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.screen-overlay-menu-choice:hover {
+  background: rgba(51, 65, 85, 0.9);
+}
+
+.screen-overlay-menu-choice--active {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(37, 99, 235, 0.35);
+}
+
+.screen-overlay-stack > .peer-cap,
+.screen-overlay-stack > .peer-conn-status,
+.screen-overlay-peer-sibling-hidden {
+  display: none !important;
+}
+
+#roomRemoteScreenStage {
+  min-height: 0;
+  flex: 1 1 0;
+  align-self: stretch;
+  position: relative;
+}
+
+.room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) #roomRemoteScreenStage:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  align-self: stretch;
+}
+
+#roomRemoteScreenStage > .screen-overlay-fab-host,
+#roomRemoteScreenStage > .screen-overlay-toolbar-host {
+  position: absolute !important;
+}
+
+.screen-overlay-text-input {
+  position: absolute;
+  z-index: 3;
+  min-width: 120px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 2px solid #0b57d0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.95);
+  resize: both;
+  overflow: auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  line-height: 1.25;
+  box-sizing: border-box;
+}
+
+.room-remote-screen-stage {
+  position: relative;
+}
+
+.room-remote-screen-stage .remote-peer.screen-overlay-peer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .screen-overlay-fab {
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
+  }
+}

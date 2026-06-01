@@ -218,8 +218,70 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 - **Anotaciones sobre pantalla compartida (sync en sala)**:
   - Estado **solo en RAM** en el servidor (`meetScreenShareInkByRoom` en `src/socket/index.js`), **sin persistencia** en base de datos; se limpia al dejar de compartir o al cambiar de presentador.
   - Eventos Socket: **`screenshare-annotate:update`** (el cliente envía `contenido.elementos`; el servidor sanitiza —trazos y textos únicamente— y rebroadcast); **`screenshare-annotate:state`** para enviar estado actual o vacío a quien entra durante share o cuando termina la captura.
-  - Cliente (`public/index.html`): overlay sobre el vídeo de pantalla (lápiz, texto, emoji, borrador, selección), coordenadas normalizadas para encajar la relación de aspecto útil del vídeo.
-  - **Selección múltiple en anotaciones**: un solo marco de unión cuando hay dos o más ítems; **redimensión conjunta** de trazos y textos con asas en el bbox unión; clic en hueco dentro del bbox (sin golpear otro elemento) inicia **arrastre del grupo**; **flechas** del teclado desplazan la selección (texto + trazos) en modo seleccionar con historial incremental.
+  - **Cliente (MVP implementado)**: módulos [`public/js/screenOverlay.js`](public/js/screenOverlay.js), [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js), [`public/js/annotationInk.js`](public/js/annotationInk.js) y estilos [`public/css/screenOverlay.css`](public/css/screenOverlay.css). Overlay sobre `#roomRemoteScreenStage` con canvas transparente, coords **normalizadas 0–1** respecto al rectángulo útil del vídeo (`object-fit: contain`, misma lógica que la grabación compuesta).
+  - **UX FAB lápiz (por participante)**: botón circular arrastrable (inicial abajo-izquierda) despliega una **barra vertical estilo tablero** encima del FAB; **clic** = abrir/cerrar panel; **arrastre** = reubicar sin toggle. Posición persistida en `localStorage` (`moj_screen_overlay_fab_pos_v2`; la clave legacy se migra o resetea). Panel: puntero, lápiz, borrador, texto, colores, grosor, tamaño, Undo/Redo (barra inferior tipo `#boardBottomBar`) y botón **×**; `Escape` o segundo clic FAB cierran. La captura del canvas solo se activa con lápiz, borrador o texto (puntero = passthrough). Las trazos sincronizados vía socket permanecen visibles al cerrar el panel.
+  - **Nota técnica**: el overlay **no** reutiliza las clases `board-ol` / `board-ol--vbar` del tablero (evita posicionamiento absoluto fijo que ocultaba la barra). Estilos scoped en [`public/css/screenOverlay.css`](public/css/screenOverlay.css).
+  - **Barra inferior de medios (`#roomMediaControls`)**: con `room-shell--remote-screen-dominant` aplica scrim oscuro semitransparente + `backdrop-filter` y sombra en iconos para legibilidad sobre pantallas compartidas claras.
+  - **Herramientas MVP**: lápiz, borrador, texto, colores, grosor, deshacer/rehacer con historial **independiente** del tablero. Cualquier participante en la sala puede anotar mientras hay pantalla compartida activa (UI local; tinta compartida).
+  - **Fase 2 (pendiente)**: emoji, selección múltiple/redimensionado conjunto (requiere ampliar `sanitizeScreenShareInkElementos` en servidor); composición de anotaciones en la grabación vídeo (`compositeMeetingVideoFrame`).
+  - **Performance / conflictos**: repintado con `requestAnimationFrame`; canvas a resolución del contenedor (× DPR, máx. 2); emisión socket al **commit** (fin de trazo/texto/borrado/undo). Modelo **last-write-wins** (estado completo reemplazado); edición simultánea de varios usuarios puede pisarse. Límite servidor: **500** elementos por sala.
+  - Prueba automatizada: `npm run test:screenshare-annotate` (`scripts/test-screenshare-annotate-socket.cjs`).
+  - **Layout vídeo en overlay**: `ensureOverlayDom` mueve el `<video>` dentro de `.screen-overlay-stack`, por lo que el selector `.room-remote-screen-stage .remote-peer > video` deja de aplicar. Reglas equivalentes en [`public/css/screenOverlay.css`](public/css/screenOverlay.css) (`.screen-overlay-stack > video`) y selector defensivo en `index.html`. Sin `object-fit: contain` el preview local (alta resolución nativa) puede verse con zoom excesivo frente al stream remoto codificado.
+  - **Posicionamiento FAB/toolbar (ui layer)**: FAB y toolbar viven en `#screenOverlayUiLayer` (hermano de `#roomRemoteScreenStage`, fuera del flex del vídeo). Posición por defecto **abajo-izquierda**; `localStorage` `moj_screen_overlay_fab_pos_v2_<roomId>` con fallback global (legacy se resetea). `computeToolbarPlacement()` + `resolveToolbarOverlap()`: candidatos `above` / `below` / `rightVertical` / horizontal; en **stage compacto** (`isCompactStage`) prioriza barra **horizontal** a la derecha del FAB; `toolbarPlacementValid` rechaza solape con el FAB. Medición: panel visible + clon off-screen; fallback acotado al alto del wrap. Diagnóstico: `ScreenOverlay.inspectInteractionState()` (`overlap`, `overlapLogical`, `placementAnchor`).
+  - **Geometría del canvas**: coords **0–1** respecto al frame útil del vídeo (`object-fit: contain`). `AnnotationInk.getVideoContentRectForOverlay(video, canvas)` alinea el rectángulo de dibujo con la caja pintada del `<video>` (offset + letterbox). `ResizeObserver` observa stack y `<video>` para recalcular tras `loadedmetadata`.
+  - **Preview local vs remoto**: presentador ve `ensureLocalScreenShareStageWrap()`; invitado ve el peer remoto en stage. Ambos deben compartir el mismo CSS de encuadre; la resolución nativa del `getDisplayMedia` solo afectaba la apariencia cuando faltaba `object-fit: contain` en el vídeo anidado.
+  - **Troubleshooting**:
+    - FAB arriba-derecha o barra en el centro superior → borrar `moj_screen_overlay_fab_pos` y `moj_screen_overlay_fab_pos_v2` en DevTools; recargar sala. Comprobar que el FAB quedó abajo-izquierda y la barra vertical justo encima.
+    - Lápiz no dibuja en mitad inferior → DevTools: comparar `stackEl` vs `videoEl` `getBoundingClientRect()`; comprobar `object-fit: contain` en `.screen-overlay-stack > video`.
+    - Presentador con zoom excesivo → mismo diagnóstico; verificar computed `object-fit` en vídeo dentro del stack (no en hijo directo de `.remote-peer`).
+  - **Módulos overlay (v3)**:
+    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — FAB, toolbar, canvas, socket, historial local undo/redo.
+    - [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) — barra reutilizable (IDs propios).
+    - [`public/js/annotationInk.js`](public/js/annotationInk.js) — geometría 0–1 y dibujo.
+    - [`public/js/overlaySeleccion.js`](public/js/overlaySeleccion.js) — selección/marquee en coords norm.
+    - [`public/js/overlayTransform.js`](public/js/overlayTransform.js) — bounds, handles, resize en norm.
+    - [`public/js/boardToolCatalog.js`](public/js/boardToolCatalog.js) — catálogo de emojis compartido con el tablero.
+    - `historialAcciones.js` es solo para **citas**; no usarlo para tinta de pantalla compartida.
+  - **Regresiones overlay / layout (troubleshooting)**:
+    - **Undo/Redo “no funcionan”**: el servidor reemite `screenshare-annotate:update` al emisor; si `applyRemoteState` hace `resetHistory: true` en el eco propio, se borra la pila local. Solución: pasar `from` del socket y en eco propio (`from === socket.id`) aplicar estado **sin** resetear historial.
+    - **Menús toolbar**: usar solo `.screen-overlay-side-menu`, no `board-side-menu`.
+    - **Pantalla partida (franja `#252525` arriba)**: peer/stack con `flex: 1 1 0; min-height: 0; height: 100%`; vídeo en stack solo `position: absolute; inset: 0` (sin `flex !important` en `.screen-overlay-stack > video`). En consola: comparar alturas `stage` / `peer` / `stack` / `video` con `getBoundingClientRect()` — deben coincidir ±1px.
+    - **Toolbar lejos o cortada**: `computeToolbarPlacement()` prioriza **arriba** del FAB en zona inferior; clases `--v` / `--h`; Undo/Redo dentro de `.screen-overlay-vtoolbar`.
+    - **FAB/toolbar tras fin de share**: `moveStageRemotePeersToContainer` solo mueve `.remote-peer`.
+    - **Selección (cursor)**: puntero + toolbar abierto; hit-test con `POINTER_HIT_NORM` y AABB de trazos (`overlaySeleccion.js`); marco/handlers en coords canvas vía `drawSelectionOverlay(ctx, scaledCr, cssCr, …)`. Si no selecciona, comprobar que la barra superior no tapa el canvas (`pointer-events` del host).
+    - **Pantalla compartida completamente negra (PDF invisible)**:
+      - El canvas de anotaciones es transparente (`clearRect`); no debería tapar el vídeo. Causas habituales: **stream** (`videoWidth === 0`, sin `srcObject`), **layout** (`stack.clientHeight === 0`), **DOM** (`video` fuera de `.screen-overlay-stack`).
+      - Si `inspectLayout()` muestra **`videoWidth > 0` pero `stage`/`stack`/`video` con `clientHeight === 0`**: el stream llega bien; el fallo es **layout del stage** (no el canvas). Revisar `stageDisplay`: si es `none` con `stageHidden: false`, el selector `#roomRemoteScreenStage { display: none }` en el `<style>` de `index.html` ganaba por especificidad a la regla solo por clase — la corrección usa `#roomRemoteScreenStage:not([hidden])` con `display: flex`. También `shellClasses` (`room-shell--remote-screen-dominant`) y `stripInline` vacío.
+      - Diagnóstico: `ScreenOverlay.inspectLayout()` devuelve `shellClasses`, `primary`, `stripInline`, `parentHeights` y el detalle de `stage`/`peer`/`stack`.
+      - Descartar canvas: ocultar `.screen-overlay-canvas` en Elements; si el PDF no aparece, es caja de vídeo en 0px.
+      - Fondo `#111` en el `<video>` (CSS) no es el canvas: con `videoWidth > 0` y altura 0 es colapso de layout; con altura OK puede ser letterbox o captura vacía.
+      - Corrección layout: `applyRemoteScreenShareStripSizing()` al activar share; CSS dominante en `#roomRemoteScreenStage`; overlay: `ResizeObserver` del stage llama `resizeCanvas` cuando la altura pasa de 0 a >0.
+    - **Toolbar / FAB parten el stage al abrir el lápiz**:
+      - Arquitectura: `#roomScreenShareWrap` (flex) contiene solo `#roomRemoteScreenStage` (vídeo + canvas) y `#screenOverlayUiLayer` (FAB + toolbar, `position: absolute; inset: 0`, fuera del flujo flex del vídeo).
+      - `measureToolbarSize()` mide con clon off-screen (sin quitar `.hidden` en el host visible).
+      - Diagnóstico antes/después de abrir toolbar: `const b = ScreenOverlay.inspectLayout(); /* clic FAB */ requestAnimationFrame(() => console.log(b, ScreenOverlay.inspectLayout()));` — `stack.clientWidth` debe ser estable (±1px).
+    - **Invitado: toolbar solapa el FAB o herramientas no dibujan**:
+      - Causa habitual: wrap bajo + FAB abajo → barra vertical con `top` clamped a `FAB_MARGIN` cubre el FAB; el segundo bucle de `computeToolbarPlacement` antes aceptaba `toolbarFitsInStage` sin comprobar solape.
+      - Diagnóstico: `ScreenOverlay.inspectInteractionState()` — `overlap` / `overlapPanel` (rects DOM del host y del panel), `overlapLogical` (coords `style.left/top` + tamaño medido), `placementAnchor` (p. ej. `right`, `compactHorizontal`). Si `overlap: true` pero `overlapLogical: false`, suele ser un menú lateral fuera del panel, no solape real con el FAB.
+      - Tras abrir barra el modo es **puntero**; para dibujar: lápiz/T y `canvasPointerEvents: "auto"` con `--tool-pencil` / `--tool-text`.
+      - Corrección: candidato `rightVertical`, `isCompactStage` prioriza toolbar **horizontal** a la derecha del FAB, `toolbarPlacementValid` filtra solape en todos los candidatos, `resolveToolbarOverlap` no devuelve placement solapado (último recurso horizontal), `alignToolbarTopBesideFab` para alinear `top` al FAB.
+      - `uiAnnotationToolbar.js`: `hostEl.querySelector` + `pointerdown`/`stopPropagation` en botones de herramienta.
+  - **Checklist QA manual (FAB + contraste + overlay)**:
+    - FAB visible en pantalla compartida remota y en preview local del sharer.
+    - Clic FAB muestra barra junto al FAB; en esquina inferior izquierda la barra se despliega **hacia arriba**, pegada; en las cuatro esquinas tras arrastre, orientación `--v` / `--h` según cuadrante.
+    - **Botones toolbar** (puntero, lápiz, paleta, emoji 😀, undo ↶) responden; puntero activo al abrir panel; en **invitado** la barra no tapa el FAB y lápiz/texto dibujan en todo el frame.
+    - Arrastre FAB no abre/cierra panel; clic sí.
+    - Puntero: seleccionar, mover y redimensionar texto/trazos/emojis (marco punteado + handles).
+    - Undo/Redo tras commitear trazo; invitado recibe sync sin romper historial local del presentador.
+    - Lápiz dibuja en todo el frame del vídeo (sin franja gris del 50% en el stage).
+    - Emoji insertado visible y sincronizado entre participantes.
+    - Encuadre del presentador ≈ invitado (`object-fit: contain`, sin zoom aparente); stage sin banda gris superior al activar lápiz.
+    - **Layout vídeos derecha** (`#btnLayoutRight`) visible en galería, tablero y Electron; funcional durante pantalla compartida.
+    - Panel no tapa el centro del vídeo en layout dominante.
+    - Cerrar panel (× / Escape / segundo clic FAB) desactiva dibujo pero mantiene trazos.
+    - Tras resize del stage, FAB y toolbar permanecen dentro del contenedor.
+    - Barra inferior de medios legible sobre share con fondo blanco (contraste AA en DevTools).
+    - `npm run test:screenshare-annotate` sigue pasando (sync socket sin regresión).
 - **Flujo de autorización para compartir pantalla (nuevo)**:
   - Invitado: al pulsar **Compartir**, no arranca captura directa; envía **solicitud** al presentador.
   - Presentador (docente/admin): recibe una solicitud **obvia en modal centrado** con acciones `Aceptar` / `Rechazar`.
@@ -411,6 +473,62 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     5. Cerrar PiP con pestaña aún oculta → reaparece `#miniPlayer`.
     6. Volver a la pestaña → `hideMiniPlayer()` cierra PiP y oculta div.
     7. Arrastrar mini-player; mic/cám desde mini-player afectan la reunión (barra inferior sincronizada).
+- **Cliente de escritorio (Electron)** — [`main.js`](main.js), [`preload.js`](preload.js), orquestador [`scripts/electron-dev.cjs`](scripts/electron-dev.cjs):
+  - **Qué comando usar**:
+    | Comando | Cuándo |
+    |---------|--------|
+    | `npm run electron:dev` | Desarrollo (recomendado): poll `/health`, `npm start` solo si hace falta, Electron con `NO_FORK`, `NO_RELOAD`, `TRUST_HEALTH` |
+    | `npm run electron:start` | Servidor ya en marcha; reintento de health en `main.js` (hasta ~15 s); sin `electron-reload` |
+    | `npm run electron:desktop` | Fork de `server.js` si no hay health (`MOJ_ELECTRON_EMBED_SERVER=1`) |
+    | `npm run electron:dev:hot` | Electron con recarga solo de `main.js`/`preload.js` (`MOJ_ELECTRON_RELOAD=1`) |
+    | `npm run electron-start` | Alias de `electron:start` |
+  - **Variables** (`MOJ_ELECTRON_*`): `MOJ_ELECTRON_NO_FORK` — sin fork; `MOJ_ELECTRON_EMBED_SERVER` — fork si falta health; `MOJ_APP_URL` — base (default `http://127.0.0.1:3000`); `MOJ_ELECTRON_NO_RELOAD` — sin recarga automática; `MOJ_ELECTRON_RELOAD` — recarga solo main/preload; `MOJ_ELECTRON_DEV_TRUST_HEALTH` — sanity check corto tras `electron:dev`; `MOJ_ELECTRON_HEALTH_WAIT_MS` — espera health en `electron:start` (default 15000); `MOJ_ELECTRON_LOAD_TIMEOUT_MS` — timeout solo del bootstrap inicial (default 60000); `MOJ_ELECTRON_DEBUG` — logs de health y `loadURL`; `MOJ_ELECTRON_DEVTOOLS` — abre DevTools; `MOJ_ELECTRON_DEV_WAIT_MS` — timeout del orquestador dev (120000); `MOJ_ELECTRON_DEV_KEEP_SERVER` — no matar `npm start` al cerrar Electron si lo inició `electron:dev`.
+  - **Diagnóstico (Windows)** — si `/health` responde en el navegador pero Electron no muestra login:
+    1. Esperar en consola del servidor: `Servidor en http://localhost:3000` antes de `electron:start`.
+    2. Probar `curl http://127.0.0.1:3000/health` y `curl http://localhost:3000/health`.
+    3. `set MOJ_ELECTRON_DEBUG=1` y `npm run electron:start` — revisar `[electron:debug]` y `did-fail-load`.
+    4. Si la ventana queda en “Comprobando servidor…” o parpadea: usar `electron:dev` (ya fuerza `NO_RELOAD`) o `MOJ_ELECTRON_NO_RELOAD=1`.
+  - **Síntomas**:
+    | Lo que ves | Causa habitual |
+    |------------|----------------|
+    | Mensaje de error en ventana + diálogo | Health no alcanzable desde el proceso main (servidor aún iniciando, puerto distinto, o un solo ping antes del fix) |
+    | Pantalla oscura “Comprobando servidor…” fija | `loadURL` no completó; ver `MOJ_ELECTRON_DEBUG` |
+    | Ventana blanca tras cargar | `electron-reload` recargó `public/` o fallo CDN en DevTools (post-carga) |
+    | **Timeout 30 s en plena reunión** (`Timeout cargando URL…`) | Timer de bootstrap en `loadAppUrl` expiró tarde y forzó navegación de error (corregido: `appBootstrapComplete`, sin `loadURL` tras bootstrap). Confirmar con `MOJ_ELECTRON_DEBUG=1` que aparece `Bootstrap completado` antes de 60 s |
+    | `room:leave` en servidor sin salir manualmente | Suele ser navegación forzada del main frame o cierre de pestaña; revisar si coincide con el timeout anterior |
+    | Electron se cierra al instante | Puerto 3000 con dos `npm start` (menos frecuente tras quitar `concurrently -k`) |
+  - **Errores de arranque**: sin servidor y `NO_FORK`, ventana + `dialog` (no salida silenciosa). Logs `[electron] Esperando /health…` / `[electron] Cargando http://…`.
+  - **Permisos**: `session.setPermissionRequestHandler` para `media` / `display-capture` en localhost; macOS pide acceso OS con `askForMediaAccess`. Windows: Configuración → Privacidad → Cámara/Micrófono → Electron.
+  - **Preload**: `window.__MOJ_ELECTRON = true` → API/socket **same-origin** (ignora `localStorage.moj_api_origin` remoto). `window.mojElectron.getDesktopSources()` / `notifyScreenSourceSelected()` — solo IPC; sin `nodeIntegration`.
+  - **Compartir pantalla (Electron)** — [`electron/screenShareIpc.cjs`](electron/screenShareIpc.cjs) + [`public/js/screenShare.js`](public/js/screenShare.js):
+    - En Electron, el flujo es **Compartir → Pantalla** (el botón principal solo abre el menú; el modal no aparece si solo pulsas «Compartir»).
+    - Modal propio con miniaturas de `desktopCapturer` (IPC `moj:get-desktop-sources`), no el picker del navegador.
+    - Tras elegir fuente: `getUserMedia` con `chromeMediaSource: 'desktop'`; si falla, reintento con `getDisplayMedia` y `setDisplayMediaRequestHandler` en main (fuente guardada al notificar).
+    - Logs main al arrancar: `[electron] screen share IPC registered`; al elegir fuente: `[electron] Screen share source selected: <id>`.
+    - **Diagnóstico**: `MOJ_ELECTRON_DEBUG=1` (main: listado IPC); en renderer `localStorage.setItem('MOJ_SCREEN_SHARE_DEBUG','1')` o `?MOJ_SCREEN_SHARE_DEBUG=1` → `console.debug` con prefijo `[screen-share]`.
+    - **Permisos**: `display-capture` en [`main.js`](main.js); **macOS** → Grabación de pantalla → Electron; **Windows** → Privacidad → Captura de pantalla.
+    - Si falla el audio de sistema, reintento automático solo vídeo.
+    - **Navegador (no Electron)**: `getDisplayMedia` nativo sin cambios.
+    - **Troubleshooting «no pasa nada»**:
+      | Síntoma | Comprobación |
+      |---------|----------------|
+      | Sin modal | ¿Pulsaste **Pantalla** en el menú? ¿`200` en `/js/screenShare.js`? En consola: `!!window.mojElectron?.getDesktopSources` |
+      | Sin logs en DevTools | Normal: `log()` va al panel `#log`. Usa `MOJ_SCREEN_SHARE_DEBUG` o mira terminal main |
+      | Botón Compartir no responde | `#shareSplit.room-tb-share--locked` si no hay permiso/sala; mensaje en barra de estado |
+      | Tras reiniciar servidor | Espera reconexión socket; `rejoin` actualiza rol docente y menú compartir |
+    - **QA Electron**: docente en sala → Compartir → Pantalla → elegir fuente → `meet:screenShare` activo; cancelar modal; `electron:dev:hot` + hard reset; reiniciar `npm run dev` con Electron abierto.
+  - **Reunión navegador + Electron (WebRTC)** — [`public/js/meetingMedia.js`](public/js/meetingMedia.js), [`public/js/meetingAudioPolicy.js`](public/js/meetingAudioPolicy.js), checklist [`scripts/meeting-diagnostics.md`](scripts/meeting-diagnostics.md):
+    - **Cámara estudiante**: si falla al unirse, banner `#mediaCaptureBanner` + «Reintentar cámara y mic»; `getMeetingMediaDiagnostics()` en consola.
+    - **Audio / eco**: `shareWithAudio` desactivado por defecto; silenciar mic también silencia audio de pantalla compartida; AEC activo en modo auriculares (`MeetingAudioPolicy.getAudioMode()`).
+    - **Vista previa sharer**: el emisor no recibe `meet:screenShare` (socket `to`); preview local en `#roomRemoteScreenStage` al compartir.
+    - **QA cruzado**: estudiante navegador + profesor Electron; share sin audio; mic off ambos > 2 min; `npm run test:screen-share-stop`.
+  - **Troubleshooting medios**:
+    | Error | Acción |
+    |-------|--------|
+    | `NotReadableError` | Cerrar Chrome/otra app que use la cámara; «Reiniciar cámara y micrófono» |
+    | `NotAllowedError` | Permisos OS / Electron para cámara y micrófono |
+    | `OverconstrainedError` | Reiniciar medios; revisar selectores de dispositivo |
+  - **QA**: solo Electron + Chrome cerrado → vídeo local; dos clientes en misma máquina sin compartir cámara → WebRTC remoto.
 - **Selección en tablero (puntero)** — implementada en [`public/js/tableroSeleccion.js`](public/js/tableroSeleccion.js) (estado local; no viaja por socket):
   - Click sobre un elemento (texto, imagen o **trazo**) selecciona ese elemento; los trazos son seleccionables, arrastrables y **redimensionables**.
   - **Shift+click** acumulativo: añade o quita del conjunto.
@@ -544,6 +662,12 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `public/js/helpers.js` | `isAdminRole`, `isTeacherRole`, `canManageScheduleRole`, `getUserRoleLabel` (lobby y `admin.html`) |
 | `public/js/tableroSeleccion.js` | Subcapa de selección del tablero: estado (Set), hit-tests (text/image/stroke), drag-box (marquee), helpers de bounds, `getResizeTransform` para resize de elemento o grupo — selección **local**, no se serializa por socket |
 | `public/js/tableroSnap.js` | Snap y guías de alineación durante arrastre: `snapTranslation`, `configure({ thresholdPx })` — puro, sin socket |
+| `preload.js` | Preload Electron: `__MOJ_ELECTRON`, `mojElectron` (fuentes de pantalla vía IPC) |
+| `main.js` | Electron: health IPv4 con reintentos, `loadAppUrl` con timeout, reload opt-in, carga `http://127.0.0.1:3000` |
+| `electron/screenShareIpc.cjs` | `desktopCapturer.getSources` + IPC `moj:get-desktop-sources` |
+| `public/js/screenShare.js` | Modal de selección de pantalla/ventana + captura en Electron |
+| `public/css/screenShare.css` | Estilos del picker de fuentes de escritorio |
+| `scripts/electron-dev.cjs` | Orquestador dev: health → `npm start` condicional → Electron con `MOJ_ELECTRON_NO_FORK=1` |
 | `src/utils/roles.js` | `canManageReuniones()`, `getReunionScopeForUser()` (política de scope: `all` para admin, `owned` para docente, `participating` para el resto) — predicados puros sin Sequelize, reutilizados en `reunionesListing.js` |
 | `src/services/reunionPresenter.js` | `reunionJsonWithReagenda(reunion)` — serializador único de modelos `Reunion` con metadatos de reagendamiento (extraído del router para reuso desde servicios) |
 | `src/services/reunionesListing.js` | `listarReunionesParaUsuario(usuario)` → lista completa por rol; usado por `GET /api/reuniones/calendario` |
@@ -563,12 +687,17 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `npm run test:waiting-room` | Script `scripts/test-waiting-room-socket.cjs` (grant + gate en `room:join`) |
 | `npm run test:room-expel` | Script `scripts/test-room-expel-socket.cjs` (`room:expel` / `room:expelled`) |
 | `npm run test:screen-share-stop` | Script `scripts/test-screen-share-stop-socket.cjs` (solo el sharer puede `meet:screenShare` / `board:presentation` con `active: false`; ACL tablero al iniciar) |
+| `npm run electron:start` | Electron sin fork ni reload; reintento health ~15 s en `main.js` |
+| `npm run electron:desktop` | Fork embebido si no hay `/health`; sin reload |
+| `npm run electron-start` | Alias de `electron:start` |
+| `npm run electron:dev` | Orquestador: health → `npm start` condicional → Electron (`TRUST_HEALTH`, `NO_RELOAD`) |
+| `npm run electron:dev:hot` | Electron con `MOJ_ELECTRON_RELOAD=1` (solo `main.js`/`preload.js`) |
 
-**Módulos cliente de sala** (cargados desde `public/index.html`): `tableroSeleccion.js`, `tableroSnap.js`, `videoEffects.js`, `uiExpulsion.js`, `uiMiniPlayer.js` + `public/css/uiMiniPlayer.css`.
+**Módulos cliente de sala** (cargados desde `public/index.html`): `tableroSeleccion.js`, `tableroSnap.js`, `videoEffects.js`, `uiExpulsion.js`, `uiMiniPlayer.js`, `screenShare.js`, `meetingMedia.js`, `meetingAudioPolicy.js` + `public/css/uiMiniPlayer.css`, `public/css/screenShare.css`.
 
 Scripts adicionales (sin entrada en `package.json`): `validate-reporte-metrics-plan.cjs`, `validate-phase-b-debug.cjs`, `debug-api-reunion-metrics.cjs` — ver § métricas.
 
-Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado), **`ASISTENCIA_PERSISTENCE_ENABLED`** (`true` para flush/lectura BD de métricas sesión; default desactivado).
+Variables útiles: `PORT`, `JWT_SECRET`, `DATABASE_URL`, `STUN_URLS`, `TURN_*`, `NODE_ENV`, **`MOJ_ELECTRON_*`** (ver tabla Electron arriba), **`ASISTENCIA_COPRESENCIA_MS_MIN`** (ms mínimos de copresencia; p. ej. `30000` en pruebas, `3600000` ≈ 60 min en producción), **`ASISTENCIA_LIVE_ENABLED`** (`true` para indicadores/contador/flush anticipado por socket; default desactivado), **`ASISTENCIA_METRICAS_ENABLED`** (`true` para `metrics=chat|session|full` en `GET .../asistencia/reporte`; default desactivado), **`ASISTENCIA_PERSISTENCE_ENABLED`** (`true` para flush/lectura BD de métricas sesión; default desactivado).
 
 ---
 
@@ -601,4 +730,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: mayo 2026 — snap/guías de alineación en tablero (`tableroSnap.js`); control «Dejar de compartir» por rol; tests socket `test:screen-share-stop`, `test:waiting-room`, `test:room-expel`; mini-player, blur y expulsión documentados en §1.*
+*Última actualización de este documento: mayo 2026 — Electron: compartir pantalla con `desktopCapturer` + modal (`screenShare.js`); bootstrap y reconexión socket.*
