@@ -1,0 +1,103 @@
+/* Modo presentador — quien comparte pantalla localmente */
+
+.room-shell.room-shell--presenter-focus {
+  background: #0a0a0a;
+}
+
+.room-shell.room-shell--presenter-focus .room-video-strip,
+.room-shell.room-shell--presenter-focus #roomMainChatSplitter,
+.room-shell.room-shell--presenter-focus .room-chat-panel,
+.room-shell.room-shell--presenter-focus #roomCenterWrap,
+.room-shell.room-shell--presenter-focus #roomVideoBoardSplitter,
+.room-shell.room-shell--presenter-focus .room-bottom-toolbar {
+  display: none !important;
+}
+
+.room-shell.room-shell--presenter-focus .room-primary {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.room-shell.room-shell--presenter-focus .room-screen-share-wrap:not([hidden]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex !important;
+  flex-direction: column;
+}
+
+.room-shell.room-shell--presenter-focus #roomRemoteScreenStage:not([hidden]) {
+  display: flex !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+}
+
+.room-shell.room-shell--presenter-focus .remote-peer--local-screen-share {
+  flex: 1 1 auto;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0;
+  height: 100% !important;
+  margin: 0;
+}
+
+.room-shell.room-shell--presenter-focus .remote-peer--local-screen-share > video {
+  flex: 1 1 auto;
+  width: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  aspect-ratio: auto !important;
+  object-fit: contain;
+}
+
+.remote-peer--presenter-ink-source {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  left: -9999px !important;
+  top: 0 !important;
+}
+
+.room-media-controls--presenter-float {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: min(96vw, 920px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+  padding: 0.25rem 0.45rem 0.45rem;
+}
+
+.presenter-dock-drag-handle {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 10px;
+  min-height: 10px;
+  cursor: grab;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(to bottom, rgba(148, 163, 184, 0.35), transparent);
+  touch-action: none;
+}
+
+.room-media-controls--presenter-float.presenter-dock--dragging .presenter-dock-drag-handle {
+  cursor: grabbing;
+}
+
+.room-media-controls--presenter-float > .room-tb-btn,
+.room-media-controls--presenter-float > .room-tb-share-split,
+.room-media-controls--presenter-float > button,
+.room-media-controls--presenter-float > a {
+  touch-action: manipulation;
+}

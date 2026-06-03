@@ -107,8 +107,44 @@
 }
 
 .screen-overlay-ui-layer > .screen-overlay-fab-host,
-.screen-overlay-ui-layer > .screen-overlay-toolbar-host {
+.screen-overlay-ui-layer > .screen-overlay-toolbar-host,
+.screen-overlay-ui-layer > .screen-overlay-annotate-dock {
   pointer-events: auto;
+}
+
+/* Dock de anotación (modo presentador) */
+.screen-overlay-annotate-dock {
+  position: absolute;
+  z-index: 50;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.screen-overlay-annotate-dock-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.45);
+}
+
+.screen-overlay-annotate-dock--orient-vertical .screen-overlay-annotate-dock-inner {
+  flex-direction: column;
+}
+
+.screen-overlay-annotate-dock--collapsed .screen-overlay-toolbar-host {
+  display: none !important;
+}
+
+.screen-overlay-annotate-dock .screen-overlay-toolbar-host:not(.hidden) {
+  display: flex;
+  position: static;
+  left: auto;
+  top: auto;
 }
 
 .room-screen-share-wrap {

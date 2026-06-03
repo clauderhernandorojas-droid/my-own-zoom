@@ -1,0 +1,118 @@
+/* Panel flotante participantes — modo presentador */
+
+.presenter-float-root {
+  position: fixed;
+  z-index: 1850;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.94);
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
+  overflow: hidden;
+}
+
+.presenter-float-root.hidden {
+  display: none !important;
+}
+
+.presenter-float-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.presenter-float-root--dragging .presenter-float-header,
+.presenter-float-pill--dragging {
+  cursor: grabbing;
+}
+
+.presenter-float-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+  border-radius: 0 0 6px 0;
+  background: linear-gradient(135deg, transparent 50%, rgba(148, 163, 184, 0.55) 50%);
+}
+
+.presenter-float-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.presenter-float-btn-min {
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+}
+
+.presenter-float-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.presenter-float-body #videos,
+.presenter-float-body #videos.presenter-float-videos {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  padding: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  align-content: stretch;
+}
+
+.presenter-float-body #remotesContainer {
+  display: contents !important;
+}
+
+.presenter-float-body .remote-peer {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.presenter-float-body .remote-peer > video {
+  width: 100%;
+  max-height: none;
+  min-height: 72px;
+  flex: 1 1 auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.presenter-float-pill {
+  position: fixed;
+  z-index: 1850;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.presenter-float-pill.hidden {
+  display: none !important;
+}

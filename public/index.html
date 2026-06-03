@@ -6,6 +6,8 @@
   <title>My Own Zoom — Cliente</title>
   <link rel="stylesheet" href="/css/screenShare.css" />
   <link rel="stylesheet" href="/css/screenOverlay.css" />
+  <link rel="stylesheet" href="/css/presenterFocus.css" />
+  <link rel="stylesheet" href="/css/uiPresenterFloat.css" />
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
@@ -29,6 +31,11 @@
   <script src="/js/overlayTransform.js"></script>
   <script src="/js/overlaySeleccion.js"></script>
   <script src="/js/uiAnnotationToolbar.js"></script>
+  <script src="/js/uiFloatClamp.js"></script>
+  <script src="/js/uiPresenterFloat.js"></script>
+  <script src="/js/uiFloatingDock.js"></script>
+  <script src="/js/roomScreenShareLayout.js"></script>
+  <script src="/js/PencilFabToolbar.js"></script>
   <script src="/js/screenOverlay.js"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
@@ -2484,6 +2491,7 @@
           <button type="button" id="btnLogin" class="btn-primary">Iniciar sesión</button>
           <button type="button" id="btnOpenRegister" class="btn-ghost">Crear cuenta</button>
         </div>
+        <p id="authApiHint" class="home-muted hidden" style="margin-top:0.45rem;font-size:0.82rem"></p>
         <p class="home-muted" style="margin-top:0.6rem">
           ¿No tienes cuenta? Pulsa <strong>Crear cuenta</strong> y regresa al login al finalizar.
         </p>
@@ -3252,6 +3260,22 @@
       if (el) el.textContent = text;
     }
 
+    function showJoinUserFeedback(msg) {
+      const text = String(msg || "").trim();
+      if (!text) return;
+      log(text);
+      const waitEl = $("meetWaitingSection");
+      const inWaiting = waitEl && !waitEl.classList.contains("hidden");
+      if (inWaiting) {
+        updateMeetWaitingStatus(text);
+        return;
+      }
+      const cr = $("crearResult");
+      if (cr) cr.textContent = text;
+      const hj = $("homeJoinCodeStatus");
+      if (hj) hj.textContent = text;
+    }
+
     function setMediaStatus(text) {
       const el = $("mediaStatus");
       if (!el) return;
@@ -3476,13 +3500,6 @@
         },
       });
     }
-    if (typeof ScreenOverlay !== "undefined") {
-      ScreenOverlay.init({
-        getSocket: () => socket,
-        getActiveRoomId: () => activeRoomId,
-        normRoomKey,
-      });
-    }
     let boardSideMenuOpen = "";
     const IDB_NAME = "my-own-zoom";
     const IDB_VERSION = 1;
@@ -3490,6 +3507,35 @@
     const CHAT_REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
     const $ = (id) => document.getElementById(id);
+    let authUiBound = false;
+    try {
+      bindAuthUi();
+    } catch (authBindErr) {
+      console.error("[auth] bindAuthUi failed", authBindErr);
+      try {
+        const logEl = document.getElementById("log");
+        if (logEl) {
+          logEl.textContent =
+            "Error al iniciar la pantalla de acceso: " + (authBindErr?.message || authBindErr);
+        }
+      } catch (_) {}
+    }
+
+    if (typeof ScreenOverlay !== "undefined") {
+      try {
+        ScreenOverlay.init({
+          getSocket: () => socket,
+          getActiveRoomId: () => activeRoomId,
+          normRoomKey,
+          isPresenterFocus: () =>
+            typeof RoomScreenShareLayout !== "undefined"
+              ? RoomScreenShareLayout.isPresenterFocusActive()
+              : !!$("roomShell")?.classList.contains("room-shell--presenter-focus"),
+        });
+      } catch (screenOverlayInitErr) {
+        console.error("[screenOverlay] init failed", screenOverlayInitErr);
+      }
+    }
 
     function openIdb() {
       return new Promise((resolve, reject) => {
@@ -4424,132 +4470,32 @@
     }
 
     function updateRemoteScreenShareLayout() {
-      const shell = $("roomShell");
-      const videos = $("videos");
-      const rc = $("remotesContainer");
-      const stage = $("roomRemoteScreenStage");
-      const localWrap = $("localVideo")?.closest(".remote-peer");
-      if (!shell || !videos || !rc || !activeRoomId) return;
+      if (typeof RoomScreenShareLayout !== "undefined") {
+        RoomScreenShareLayout.updateRemoteScreenShareLayout();
+      }
+    }
 
-      for (const [remoteSocketId, vid] of remoteVideos) {
-        const stream = vid.srcObject;
-        const track = stream?.getVideoTracks?.()?.[0];
-        const peerUid = peerSocketToUserId.get(remoteSocketId);
-        const matchesAnnounced =
-          !!remoteScreenShareUserId &&
-          peerUid &&
-          String(peerUid).trim().toLowerCase() ===
-            String(remoteScreenShareUserId).trim().toLowerCase();
-        const isScreen = matchesAnnounced || (!remoteScreenShareUserId && isDisplayCaptureVideoTrack(track));
-        const wrap = vid.closest(".remote-peer");
-        if (!wrap || wrap === localWrap) continue;
-        wrap.classList.toggle("remote-peer--screen-share", isScreen);
-      }
-
-      let screenWrap = null;
-      for (const [, vid] of remoteVideos) {
-        const wrap = vid.closest(".remote-peer");
-        if (!wrap || wrap === localWrap) continue;
-        if (wrap.classList.contains("remote-peer--screen-share")) {
-          screenWrap = wrap;
-        } else {
-          rc.appendChild(wrap);
-        }
-      }
-
-      const screenShareWrap = $("roomScreenShareWrap");
-      function setScreenShareStageVisible(visible) {
-        if (screenShareWrap) {
-          screenShareWrap.hidden = !visible;
-          if (visible) {
-            screenShareWrap.removeAttribute("hidden");
-            screenShareWrap.setAttribute("aria-hidden", "false");
-          } else {
-            screenShareWrap.setAttribute("hidden", "");
-            screenShareWrap.setAttribute("aria-hidden", "true");
-          }
-        }
-        if (!stage) return;
-        stage.hidden = !visible;
-        if (visible) {
-          stage.removeAttribute("hidden");
-          stage.setAttribute("aria-hidden", "false");
-        } else {
-          stage.setAttribute("hidden", "");
-          stage.setAttribute("aria-hidden", "true");
-        }
-      }
-      if (stage) {
-        if (screenWrap) {
-          teardownLocalScreenShareStageWrap();
-          setScreenShareStageVisible(true);
-          stage.appendChild(screenWrap);
-        } else if (isLocallySharingScreen()) {
-          const localPreview = ensureLocalScreenShareStageWrap();
-          if (localPreview) {
-            setScreenShareStageVisible(true);
-            stage.appendChild(localPreview);
-            screenWrap = localPreview;
-          } else {
-            moveStageRemotePeersToContainer(stage, rc);
-            setScreenShareStageVisible(false);
-          }
-        } else {
-          teardownLocalScreenShareStageWrap();
-          moveStageRemotePeersToContainer(stage, rc);
-          setScreenShareStageVisible(false);
-        }
-      }
-
-      if (
-        isScreenShareDebugEnabled() &&
-        remoteScreenShareUserId &&
-        !screenWrap &&
-        !isLocallySharingScreen()
-      ) {
-        console.debug("[screen-share:layout] remoteScreenShareUserId sin peer coincidente", {
-          remoteScreenShareUserId,
-          peers: [...peerSocketToUserId.entries()],
-        });
-      }
-
-      if (localWrap && localWrap.parentElement === videos) {
-        videos.insertBefore(localWrap, videos.firstChild);
-      }
-      if (!rc.parentElement || rc.parentElement !== videos) {
-        if (localWrap?.nextSibling) {
-          videos.insertBefore(rc, localWrap.nextSibling);
-        } else {
-          videos.appendChild(rc);
-        }
-      } else if (localWrap && rc.previousElementSibling !== localWrap) {
-        videos.insertBefore(rc, localWrap.nextSibling);
-      }
-
-      const anyRemoteScreen = !!screenWrap;
-      if (anyRemoteScreen && shell?.classList.contains("room-shell--gallery")) {
-        setMeetView("board");
-      }
-      shell.classList.toggle("room-shell--remote-screen-dominant", anyRemoteScreen);
-      videos.classList.toggle("room-videos--screen-dominant", anyRemoteScreen);
-      if (anyRemoteScreen) {
-        applyRemoteScreenShareStripSizing();
-      } else {
-        applyRoomVideoStripSizing();
-      }
-      syncRemotePlaybackVolumeForShare();
-      const syncScreenOverlay = () => {
-        if (typeof ScreenOverlay !== "undefined") {
-          ScreenOverlay.syncWithStage(stage);
-        }
-      };
-      if (anyRemoteScreen) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(syncScreenOverlay);
-        });
-      } else {
-        syncScreenOverlay();
-      }
+    if (typeof RoomScreenShareLayout !== "undefined") {
+      RoomScreenShareLayout.init({
+        $,
+        getActiveRoomId: () => activeRoomId,
+        remoteVideos,
+        peerSocketToUserId,
+        getRemoteScreenShareUserId: () => remoteScreenShareUserId,
+        isDisplayCaptureVideoTrack,
+        isLocallySharingScreen,
+        isScreenShareDebugEnabled,
+        teardownLocalScreenShareStageWrap,
+        ensureLocalScreenShareStageWrap,
+        moveStageRemotePeersToContainer,
+        setMeetView,
+        applyRemoteScreenShareStripSizing,
+        applyRoomVideoStripSizing,
+        syncRemotePlaybackVolumeForShare,
+        ScreenOverlay,
+        getScreenShareStream: () => screenShareStream,
+        getScreenShareTrack: () => screenShareTrack,
+      });
     }
 
     function applyRemoteBoardPresentationUi(active) {
@@ -4648,6 +4594,9 @@
         screenSharePreviewVideo = null;
       }
       teardownLocalScreenShareStageWrap();
+      if (typeof RoomScreenShareLayout !== "undefined") {
+        RoomScreenShareLayout.onStopScreenShare();
+      }
       const fallbackVideo = localStream?.getVideoTracks()[0] ?? null;
       const fallbackAudio = localStream?.getAudioTracks()[0] ?? null;
       await replaceVideoTrackForAllPeers(fallbackVideo, localStream || null);
@@ -5135,21 +5084,152 @@
 
     function openRegisterModal() {
       const modal = $("registerModal");
+      if (!modal) {
+        log("No se pudo abrir el formulario de registro (modal no encontrado). Recarga la página.");
+        return;
+      }
       const err = $("registerModalError");
-      const email = $("registerEmail");
-      if (!modal || !err || !email) return;
-      err.textContent = "";
-      email.value = String($("email")?.value || "").trim();
-      $("registerNombre").value = "";
-      $("registerPassword").value = "";
+      if (err) err.textContent = "";
+      const emailIn = $("registerEmail");
+      if (emailIn) emailIn.value = String($("email")?.value || "").trim();
+      const nombreIn = $("registerNombre");
+      if (nombreIn) nombreIn.value = "";
+      const passIn = $("registerPassword");
+      if (passIn) passIn.value = "";
       modal.classList.remove("hidden");
+      modal.setAttribute("aria-hidden", "false");
       requestAnimationFrame(() => $("registerNombre")?.focus({ preventScroll: true }));
     }
 
     function closeRegisterModal() {
-      $("registerModal")?.classList.add("hidden");
+      const modal = $("registerModal");
+      modal?.classList.add("hidden");
+      modal?.setAttribute("aria-hidden", "true");
       const err = $("registerModalError");
       if (err) err.textContent = "";
+    }
+
+    function authRequestErrorMessage(e, fallback) {
+      const msg = String(e?.message || e?.data?.error || "").trim();
+      if (!msg || msg === "Failed to fetch" || /network|fetch/i.test(msg)) {
+        const origin = API_ORIGIN || location.origin;
+        return `No se pudo conectar al servidor (${origin}). Comprueba que la app esté en marcha y que no haya un API remoto en localStorage (moj_api_origin).`;
+      }
+      if (e?.status === 401) return "Credenciales inválidas.";
+      if (e?.status === 409) return "Ya existe una cuenta con ese correo.";
+      return msg || fallback;
+    }
+
+    function updateAuthApiHint() {
+      const el = $("authApiHint");
+      if (!el) return;
+      if (API_ORIGIN) {
+        el.textContent =
+          "La API apunta a " +
+          API_ORIGIN +
+          ". Las cuentas de tu servidor local no aplican salvo que borres moj_api_origin del navegador.";
+        el.classList.remove("hidden");
+      } else {
+        el.textContent = "";
+        el.classList.add("hidden");
+      }
+    }
+
+    function bindAuthUi() {
+      if (authUiBound) return;
+      authUiBound = true;
+      updateAuthApiHint();
+
+      $("btnOpenRegister")?.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openRegisterModal();
+      });
+      $("btnRegisterCancel")?.addEventListener("click", () => closeRegisterModal());
+      $("registerModalBackdrop")?.addEventListener("click", () => closeRegisterModal());
+
+      $("btnLogin")?.addEventListener("click", async () => {
+        try {
+          const data = await api("/api/auth/login", {
+            method: "POST",
+            body: JSON.stringify({
+              email: $("email")?.value.trim(),
+              password: $("password")?.value,
+            }),
+          });
+          setToken(data.token);
+          currentUser = data.usuario;
+          setCurrentDisplayName(data.usuario.nombre || getStoredDisplayName());
+          log("Sesión iniciada");
+          _suppressHashRoute = true;
+          location.hash = "#/lobby";
+          _suppressHashRoute = false;
+          applyRouteFromHash();
+        } catch (e) {
+          log("Login: " + authRequestErrorMessage(e, "No se pudo iniciar sesión."));
+        }
+      });
+
+      $("password")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          $("btnLogin")?.click();
+        }
+      });
+
+      $("btnRegisterCreate")?.addEventListener("click", async () => {
+        const nombre = $("registerNombre")?.value.trim();
+        const email = $("registerEmail")?.value.trim();
+        const password = $("registerPassword")?.value || "";
+        const err = $("registerModalError");
+        if (!nombre) {
+          if (err) err.textContent = "El nombre es obligatorio.";
+          $("registerNombre")?.focus({ preventScroll: true });
+          return;
+        }
+        if (!email || !password) {
+          if (err) err.textContent = "Email y contraseña son obligatorios.";
+          if (!email) $("registerEmail")?.focus({ preventScroll: true });
+          else $("registerPassword")?.focus({ preventScroll: true });
+          return;
+        }
+        if (err) err.textContent = "";
+        try {
+          const data = await api("/api/auth/register", {
+            method: "POST",
+            body: JSON.stringify({
+              nombre,
+              email,
+              password,
+              rol: "estudiante",
+            }),
+          });
+          closeRegisterModal();
+          if (data?.token) {
+            setToken(data.token);
+            currentUser = data.usuario;
+            setCurrentDisplayName(data.usuario?.nombre || getStoredDisplayName());
+            log("Cuenta creada. Sesión iniciada.");
+            _suppressHashRoute = true;
+            location.hash = "#/lobby";
+            _suppressHashRoute = false;
+            applyRouteFromHash();
+            return;
+          }
+          if ($("email")) $("email").value = email;
+          if ($("password")) $("password").value = "";
+          log("Cuenta creada. Ahora inicia sesión con tu email y contraseña.");
+          $("password")?.focus({ preventScroll: true });
+        } catch (e) {
+          if (err) err.textContent = authRequestErrorMessage(e, "No se pudo crear la cuenta.");
+        }
+      });
+      $("registerPassword")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          $("btnRegisterCreate")?.click();
+        }
+      });
     }
 
     async function ensureDisplayNameBeforeJoin() {
@@ -6832,7 +6912,9 @@ body.print-calendar-export {
           navigateToMeetWaiting(r.roomId);
           return;
         }
-        void enterRoom(r.roomId).catch(() => {});
+        void enterRoom(r.roomId).catch((e) => {
+          showJoinUserFeedback(e?.message || "No se pudo entrar a la reunión.");
+        });
       });
       actions.appendChild(btnEnter);
       const btnAsist = document.createElement("button");
@@ -7974,7 +8056,9 @@ body.print-calendar-export {
             document.body.classList.remove("app-route-meet");
             document.body.classList.add("app-route-lobby");
             log("Abriendo reunión desde enlace…");
-            void enterRoom(r.roomId).catch(() => {});
+            void enterRoom(r.roomId).catch((e) => {
+              showJoinUserFeedback(e?.message || "No se pudo abrir la reunión.");
+            });
           } catch (e) {
             log(e?.message || "No se pudo abrir la reunión.");
           }
@@ -10285,13 +10369,12 @@ body.print-calendar-export {
       pendingBoardPresentation = null;
       const roomId = String(roomIdInput || "").trim();
       if (!roomId) {
-        log("No se encontró un Room ID válido para entrar.");
+        showJoinUserFeedback("No se encontró un Room ID válido para entrar.");
         return;
       }
       const displayName = await ensureDisplayNameBeforeJoin();
       if (!displayName) {
-        log("El nombre es obligatorio antes de entrar a una reunión.");
-        setMediaStatus("Completa tu nombre para poder entrar.");
+        showJoinUserFeedback("El nombre es obligatorio antes de entrar a una reunión.");
         return;
       }
       setMediaStatus("Preparando cámara y micrófono…");
@@ -10306,7 +10389,7 @@ body.print-calendar-export {
         const msg = e?.name === "NotAllowedError" || e?.message?.includes("Permiso")
           ? humanizeGetUserMediaError(e)
           : e?.message || "Error al preparar la reunión";
-        log(msg);
+        showJoinUserFeedback(msg);
         setMediaStatus(msg);
         await stopLocalMedia({ micRecordingDownload: false });
         return;
@@ -10327,6 +10410,9 @@ body.print-calendar-export {
             activeRoomId = normRoomKey(
               resp.roomId != null && resp.roomId !== "" ? resp.roomId : roomId
             );
+            if (typeof ScreenOverlay !== "undefined") {
+              ScreenOverlay.clear();
+            }
             activeReunionId = resp.reunionId != null ? String(resp.reunionId) : null;
             lastKnownRoomIdForRecording = activeRoomId;
             presenterGrantedScreenShare = false;
@@ -10396,9 +10482,12 @@ body.print-calendar-export {
           });
         });
       } catch (e) {
+        const msg = String(e?.message || e || "Error al unirse a la sala");
         if (isRoomJoinApprovalError(e?.message)) {
           await handleRoomJoinApprovalRequired(roomId, e?.message);
         } else {
+          showJoinUserFeedback(msg);
+          setMediaStatus(msg);
           await stopLocalMedia({ micRecordingDownload: false });
         }
       }
@@ -10411,6 +10500,9 @@ body.print-calendar-export {
       pendingMeetScreenShare = null;
       remoteScreenShareUserId = "";
       teardownLocalScreenShareStageWrap();
+      if (typeof RoomScreenShareLayout !== "undefined") {
+        RoomScreenShareLayout.onLeaveRoom();
+      }
       hideMediaCaptureBanner();
       presenterGrantedScreenShare = false;
       screenShareRequestPending = false;
@@ -10475,7 +10567,8 @@ body.print-calendar-export {
         shell.classList.remove(
           "room-shell--gallery",
           "room-shell--videos-right",
-          "room-shell--remote-screen-dominant"
+          "room-shell--remote-screen-dominant",
+          "room-shell--presenter-focus"
         );
       $("videos")?.classList.remove("room-videos--screen-dominant");
       if (typeof ScreenOverlay !== "undefined") {
@@ -10552,7 +10645,7 @@ body.print-calendar-export {
       const r = parseRoute();
       const rid = String(meetWaitingRoomId || "").trim() || (r.name === "meet" ? String(r.roomId || "").trim() : "");
       if (!rid) {
-        log("No hay sala para unirse.");
+        showJoinUserFeedback("No hay sala para unirse.");
         return;
       }
       void (async () => {
@@ -10560,13 +10653,19 @@ body.print-calendar-export {
           await ensureCurrentUserLoaded();
           const reunion = await resolveReunionMetaForRoom(rid);
           if (isMeetingPresenterForReunion(reunion)) {
-            void enterRoom(rid).catch(() => {});
+            void enterRoom(rid).catch((e) => {
+              showJoinUserFeedback(e?.message || "No se pudo entrar a la reunión.");
+            });
             return;
           }
           await connectSocketIfNeeded();
           const ok = await requestRoomEntryApproval(rid);
           if (ok && !waitingRoomJoinRequestPending) {
-            void enterRoom(rid).catch(() => {});
+            void enterRoom(rid).catch((e) => {
+              showJoinUserFeedback(e?.message || "No se pudo entrar a la reunión.");
+            });
+          } else if (!ok) {
+            updateMeetWaitingStatus("No se pudo enviar la solicitud de entrada. Reintenta.");
           }
         } catch (e) {
           updateMeetWaitingStatus(e?.message || "No se pudo conectar para solicitar entrada.");
@@ -10578,74 +10677,6 @@ body.print-calendar-export {
       location.hash = "#/lobby";
       _suppressHashRoute = false;
       applyRouteFromHash();
-    });
-
-    $("btnLogin").addEventListener("click", async () => {
-      try {
-        const data = await api("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify({
-            email: $("email").value.trim(),
-            password: $("password").value,
-          }),
-        });
-        setToken(data.token);
-        currentUser = data.usuario;
-        setCurrentDisplayName(data.usuario.nombre || getStoredDisplayName());
-        log("Sesión iniciada");
-        _suppressHashRoute = true;
-        location.hash = "#/lobby";
-        _suppressHashRoute = false;
-        applyRouteFromHash();
-      } catch (e) {
-        log("Login: Credenciales inválidas.");
-      }
-    });
-
-    $("btnOpenRegister")?.addEventListener("click", () => openRegisterModal());
-    $("btnRegisterCancel")?.addEventListener("click", () => closeRegisterModal());
-    $("registerModalBackdrop")?.addEventListener("click", () => closeRegisterModal());
-    $("btnRegisterCreate")?.addEventListener("click", async () => {
-      const nombre = $("registerNombre")?.value.trim();
-      const email = $("registerEmail")?.value.trim();
-      const password = $("registerPassword")?.value || "";
-      const err = $("registerModalError");
-      if (!nombre) {
-        if (err) err.textContent = "El nombre es obligatorio.";
-        $("registerNombre")?.focus({ preventScroll: true });
-        return;
-      }
-      if (!email || !password) {
-        if (err) err.textContent = "Email y contraseña son obligatorios.";
-        if (!email) $("registerEmail")?.focus({ preventScroll: true });
-        else $("registerPassword")?.focus({ preventScroll: true });
-        return;
-      }
-      if (err) err.textContent = "";
-      try {
-        await api("/api/auth/register", {
-          method: "POST",
-          body: JSON.stringify({
-            nombre,
-            email,
-            password,
-            rol: "estudiante",
-          }),
-        });
-        closeRegisterModal();
-        if ($("email")) $("email").value = email;
-        if ($("password")) $("password").value = "";
-        log("Cuenta creada. Ahora inicia sesión con tu email y contraseña.");
-        $("password")?.focus({ preventScroll: true });
-      } catch (e) {
-        if (err) err.textContent = "No se pudo crear la cuenta. Verifica los datos o intenta con otro correo.";
-      }
-    });
-    $("registerPassword")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        $("btnRegisterCreate")?.click();
-      }
     });
 
     $("btnLogout").addEventListener("click", () => {
@@ -12554,12 +12585,18 @@ body.print-calendar-export {
       const id = target.id || "";
       if (id === "chatInput" || id === "email" || id === "password" || id === "nombre") return true;
       if (target.closest?.("#authSection")) return true;
+      if (target.closest?.(".screen-overlay-text-input")) return true;
+      if (target.closest?.(".screen-overlay-stack textarea")) return true;
       return false;
     }
 
     window.addEventListener("keydown", (e) => {
       if (!activeRoomId || activeTextInput) return;
+      if (typeof ScreenOverlay !== "undefined" && ScreenOverlay.isEditingText?.()) return;
       if (isBoardShortcutBlockedTarget(e.target)) return;
+      if ($("roomShell")?.classList.contains("room-shell--presenter-focus")) {
+        if (!(typeof ScreenOverlay !== "undefined" && ScreenOverlay.isEditingText?.())) return;
+      }
 
       if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
         if (boardTool === "pointer" && selectedElementIndex >= 0) {
@@ -13076,6 +13113,12 @@ body.print-calendar-export {
         }
       }
       initChatModule();
+      try {
+        bindAuthUi();
+      } catch (authBindLate) {
+        console.error("[auth] bindAuthUi (init) failed", authBindLate);
+      }
+      updateAuthApiHint();
       if (!location.hash || location.hash === "#" || location.hash === "#/") {
         _suppressHashRoute = true;
         location.hash = getToken() ? "#/lobby" : "#/login";

@@ -9,15 +9,9 @@
   const Transform = global.OverlayTransform;
 
   const HISTORY_LIMIT = 80;
+  const FAB_SIZE = 44;
   const ERASER_THRESHOLD_NORM = 0.025;
   const POINTER_HIT_NORM = 0.05;
-  const FAB_SIZE = 44;
-  const FAB_MARGIN = 16;
-  const FAB_DRAG_THRESHOLD_PX = 6;
-  const TOOLBAR_GAP = 6;
-  const TOOLBAR_ATTACH_MAX_PX = 14;
-  const FAB_STORAGE_KEY = "moj_screen_overlay_fab_pos_v2";
-  const FAB_STORAGE_KEY_LEGACY = "moj_screen_overlay_fab_pos";
 
   /** @type {{ getSocket?: function, getActiveRoomId?: function, normRoomKey?: function, log?: function } | null} */
   let deps = null;
@@ -44,12 +38,14 @@
   let toolbarApi = null;
   let fabHostEl = null;
   let fabEl = null;
+  let annotateDockHostEl = null;
+
+  /** @type {ReturnType<typeof global.PencilFabToolbar.create> | null} */
+  let pencilFab = null;
 
   /** @type {{ left: number, top: number } | null} */
   let fabPos = null;
 
-  /** @type {{ anchor: string, orientation: string, left: number, top: number } | null} */
-  let lastToolbarPlacement = null;
 
   let resizeObserver = null;
   let stageResizeObserver = null;
@@ -70,8 +66,6 @@
     resize: () => resizeCanvas(),
   };
 
-  /** @type {{ dragging: boolean, startX: number, startY: number, originLeft: number, originTop: number, pointerId: number } | null} */
-  let fabDrag = null;
 
   /** @type {object | null} */
   let selectionPointerAction = null;
@@ -83,99 +77,84 @@
     cancel: onPointerUp,
   };
 
-  function onFabPointerMove(e) {
-    if (!fabDrag || e.pointerId !== fabDrag.pointerId) return;
-    const dx = e.clientX - fabDrag.startX;
-    const dy = e.clientY - fabDrag.startY;
-    if (!fabDrag.dragging && Math.hypot(dx, dy) >= FAB_DRAG_THRESHOLD_PX) {
-      fabDrag.dragging = true;
-      fabEl?.classList.add("screen-overlay-fab--dragging");
-    }
-    if (!fabDrag.dragging) return;
-    e.preventDefault();
-    const clamped = clampFabPosition(fabDrag.originLeft + dx, fabDrag.originTop + dy);
-    fabPos = clamped;
-    applyFabPosition();
-    if (toolbarOpen) positionToolbarNearFab();
+
+  function syncFabRefs() {
+    const r = pencilFab?.getRefs?.() || {};
+    fabHostEl = r.fabHostEl ?? null;
+    fabEl = r.fabEl ?? null;
+    toolbarHostEl = r.toolbarHostEl ?? null;
+    toolbarApi = r.toolbarApi ?? null;
+    fabPos = r.fabPos ?? null;
+    annotateDockHostEl = r.annotateDockHostEl ?? null;
+    if (typeof r.toolbarOpen === "boolean") toolbarOpen = r.toolbarOpen;
   }
 
-  function onFabPointerUp(e) {
-    if (!fabDrag || e.pointerId !== fabDrag.pointerId) return;
-    const wasDrag = fabDrag.dragging;
-    fabDrag = null;
-    fabEl?.classList.remove("screen-overlay-fab--dragging");
-    try {
-      fabEl?.releasePointerCapture(e.pointerId);
-    } catch (_) {}
-    global.removeEventListener("pointermove", onFabPointerMove);
-    global.removeEventListener("pointerup", onFabPointerUp);
-    global.removeEventListener("pointercancel", onFabPointerUp);
-    if (wasDrag) {
-      saveFabPosition();
-    } else {
-      setToolbarOpen(!toolbarOpen);
-    }
-  }
-
-  function onFabPointerDown(e) {
-    if (!fabEl || !fabHostEl || !stageEl) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (fabPos == null) fabPos = defaultFabPosition();
-    fabDrag = {
-      dragging: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      originLeft: fabPos.left,
-      originTop: fabPos.top,
-      pointerId: e.pointerId,
-    };
-    try {
-      fabEl.setPointerCapture(e.pointerId);
-    } catch (_) {}
-    global.addEventListener("pointermove", onFabPointerMove);
-    global.addEventListener("pointerup", onFabPointerUp);
-    global.addEventListener("pointercancel", onFabPointerUp);
-  }
-
-  function onEscapeKey(e) {
-    if (e.key !== "Escape" || !toolbarOpen) return;
-    if (activeTextInput) return;
-    e.preventDefault();
-    setToolbarOpen(false);
-  }
-
-  function log(...args) {
-    deps?.log?.(...args);
+  function isPresenterFocusMode() {
+    return !!deps?.isPresenterFocus?.();
   }
 
   function getSocket() {
-    return deps?.getSocket?.() || null;
+    return deps?.getSocket?.() ?? null;
   }
 
   function getRoomId() {
     const raw = deps?.getActiveRoomId?.();
-    return raw ? deps?.normRoomKey?.(raw) || String(raw).trim().toLowerCase() : "";
+    if (raw == null || raw === "") return "";
+    const norm = deps?.normRoomKey;
+    return norm ? norm(String(raw)) : String(raw);
   }
 
-  function cloneState(state) {
-    return Ink?.cloneInkState ? Ink.cloneInkState(state) : { elementos: [] };
+  function ensureFab() {
+    pencilFab?.ensureFab?.();
+    syncFabRefs();
   }
 
-  function getFabSize() {
-    if (!fabEl) return FAB_SIZE;
-    const r = fabEl.getBoundingClientRect();
-    return r.width || FAB_SIZE;
+  function removeFab() {
+    pencilFab?.removeFab?.();
+    syncFabRefs();
+  }
+
+  function ensureToolbar() {
+    pencilFab?.ensureToolbar?.();
+    syncFabRefs();
+  }
+
+  function setToolbarOpen(open) {
+    pencilFab?.setToolbarOpen?.(!!open);
+    syncFabRefs();
+  }
+
+  function revalidateFabPosition() {
+    pencilFab?.revalidate?.();
+    syncFabRefs();
+  }
+
+  function scheduleToolbarPlacement() {
+    pencilFab?.scheduleToolbarPlacement?.();
   }
 
   function getStageMetrics() {
+    if (isPresenterFocusMode()) {
+      return {
+        w: global.innerWidth || document.documentElement.clientWidth || 1,
+        h: global.innerHeight || document.documentElement.clientHeight || 1,
+      };
+    }
     const w = wrapEl?.clientWidth || stageEl?.clientWidth || 0;
     const h = wrapEl?.clientHeight || stageEl?.clientHeight || 0;
     return { w, h };
   }
 
+  function resolveDefaultStage() {
+    return (
+      document.getElementById("roomRemoteScreenStage") ||
+      document.querySelector(".room-remote-screen-stage") ||
+      null
+    );
+  }
+
   function resolveStageContainers(stage) {
-    stageEl = stage || null;
+    stageEl = stage || resolveDefaultStage();
     wrapEl =
       stageEl?.closest?.(".room-screen-share-wrap") ||
       document.getElementById("roomScreenShareWrap") ||
@@ -207,602 +186,39 @@
     return uiLayerEl;
   }
 
+  function cloneState(state) {
+    return {
+      elementos: (state?.elementos || []).map((el) => {
+        const copy = { ...el };
+        if (Array.isArray(el.points)) {
+          copy.points = el.points.map((p) => ({ x: p.x, y: p.y }));
+        }
+        return copy;
+      }),
+    };
+  }
+
+  /** Mueve FAB/toolbar/dock huérfanos del stage al ui layer (p. ej. tras cambio de layout). */
+  function removeOrphanOverlayUiFromStage() {
+    const layer = ensureOverlayUiLayer();
+    const stage = stageEl || document.getElementById("roomRemoteScreenStage");
+    if (!layer || !stage) return;
+    const moveIfOrphan = (node) => {
+      if (node && node.parentElement === stage) layer.appendChild(node);
+    };
+    stage.querySelectorAll(".screen-overlay-annotate-dock").forEach(moveIfOrphan);
+    stage.querySelectorAll(".screen-overlay-fab-host").forEach(moveIfOrphan);
+    stage.querySelectorAll(".screen-overlay-toolbar-host").forEach(moveIfOrphan);
+  }
+
   function isStageActive() {
-    if (!stageEl || stageEl.hidden || !Ink) return false;
+    if (!stageEl || !Ink) return false;
+    if (isPresenterFocusMode()) {
+      return !!wrapEl && !wrapEl.hidden;
+    }
+    if (stageEl.hidden || !Ink) return false;
     if (wrapEl?.hidden) return false;
     return true;
-  }
-
-  function defaultFabPosition() {
-    const { w: stageW, h: stageH } = getStageMetrics();
-    const sw = stageW || 400;
-    const sh = stageH || 300;
-    const size = getFabSize();
-    return {
-      left: FAB_MARGIN,
-      top: Math.max(FAB_MARGIN, sh - size - FAB_MARGIN),
-    };
-  }
-
-  function fabStorageKey() {
-    const rid = getRoomId();
-    return rid ? `${FAB_STORAGE_KEY}_${rid}` : FAB_STORAGE_KEY;
-  }
-
-  function loadFabPositionRaw() {
-    try {
-      let raw = global.localStorage?.getItem(fabStorageKey());
-      if (!raw) raw = global.localStorage?.getItem(FAB_STORAGE_KEY);
-      if (!raw) raw = global.localStorage?.getItem(FAB_STORAGE_KEY_LEGACY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (Number.isFinite(parsed?.left) && Number.isFinite(parsed?.top)) {
-        return { left: parsed.left, top: parsed.top, fromLegacy: !parsed.v };
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  function isLegacyFabQuadrant(pos, stageW, stageH, fabSize) {
-    if (!pos || !stageW || !stageH) return true;
-    const topRatio = pos.top / Math.max(1, stageH - fabSize);
-    const leftRatio = pos.left / Math.max(1, stageW - fabSize);
-    return topRatio < 0.28 && leftRatio > 0.52;
-  }
-
-  function normalizeFabPosition(pos, opts = {}) {
-    const { w: stageW, h: stageH } = getStageMetrics();
-    const size = getFabSize();
-    if (!stageW || !stageH) return defaultFabPosition();
-    if (!pos || opts.fromLegacy || isLegacyFabQuadrant(pos, stageW, stageH, size)) {
-      const def = defaultFabPosition();
-      return clampFabPosition(def.left, def.top);
-    }
-    return clampFabPosition(pos.left, pos.top);
-  }
-
-  function revalidateFabPosition() {
-    if (!fabPos || !stageEl) return;
-    fabPos = normalizeFabPosition(fabPos);
-    applyFabPosition();
-    if (toolbarOpen) schedulePositionToolbarNearFab();
-  }
-
-  function saveFabPosition() {
-    if (!fabPos) return;
-    try {
-      global.localStorage?.setItem(
-        fabStorageKey(),
-        JSON.stringify({ v: 2, left: fabPos.left, top: fabPos.top })
-      );
-    } catch (_) {}
-  }
-
-  function removeOrphanOverlayUiFromStage() {
-    if (!stageEl) return;
-    stageEl
-      .querySelectorAll(
-        ":scope > .screen-overlay-fab-host, :scope > .screen-overlay-toolbar-host"
-      )
-      .forEach((el) => el.remove());
-  }
-
-  function rectsOverlapFabToolbar(left, top, toolbarW, toolbarH, fabSize) {
-    if (!fabPos) return false;
-    const fabRight = fabPos.left + fabSize;
-    const fabBottom = fabPos.top + fabSize;
-    const tbRight = left + toolbarW;
-    const tbBottom = top + toolbarH;
-    return !(
-      fabRight <= left ||
-      fabPos.left >= tbRight ||
-      fabBottom <= top ||
-      fabPos.top >= tbBottom
-    );
-  }
-
-  function placementOverlapsFab(left, top, toolbarW, toolbarH, fabSize) {
-    return rectsOverlapFabToolbar(left, top, toolbarW, toolbarH, fabSize);
-  }
-
-  function isCompactStage(stageH, fabSize, _toolbarW, toolbarH) {
-    return toolbarH + fabSize + 3 * FAB_MARGIN > stageH;
-  }
-
-  function alignToolbarTopBesideFab(fabTop, fabSize, toolbarH, stageH) {
-    const maxTop = Math.max(FAB_MARGIN, stageH - toolbarH - FAB_MARGIN);
-    if (fabTop + toolbarH <= stageH - FAB_MARGIN) {
-      return {
-        top: Math.min(maxTop, Math.max(FAB_MARGIN, fabTop)),
-        needsHorizontal: false,
-      };
-    }
-    const bottomAlign = fabTop + fabSize - toolbarH;
-    if (
-      bottomAlign >= FAB_MARGIN &&
-      bottomAlign + toolbarH <= stageH - FAB_MARGIN
-    ) {
-      return { top: bottomAlign, needsHorizontal: false };
-    }
-    return { top: FAB_MARGIN, needsHorizontal: true };
-  }
-
-  function toolbarPlacementValid(left, top, toolbarW, toolbarH, stageW, stageH, fabSize) {
-    return (
-      toolbarFitsInStage(left, top, toolbarW, toolbarH, stageW, stageH) &&
-      !placementOverlapsFab(left, top, toolbarW, toolbarH, fabSize)
-    );
-  }
-
-  function clampFabPosition(left, top) {
-    const { w: stageW, h: stageH } = getStageMetrics();
-    const sw = stageW || 400;
-    const sh = stageH || 300;
-    const size = getFabSize();
-    const maxLeft = Math.max(FAB_MARGIN, sw - size - FAB_MARGIN);
-    const maxTop = Math.max(FAB_MARGIN, sh - size - FAB_MARGIN);
-    return {
-      left: Math.min(maxLeft, Math.max(FAB_MARGIN, left)),
-      top: Math.min(maxTop, Math.max(FAB_MARGIN, top)),
-    };
-  }
-
-  function applyFabPosition() {
-    if (!fabHostEl || !fabPos) return;
-    fabHostEl.style.left = `${fabPos.left}px`;
-    fabHostEl.style.top = `${fabPos.top}px`;
-  }
-
-  function toolbarFitsInStage(left, top, toolbarW, toolbarH, stageW, stageH) {
-    return (
-      left >= FAB_MARGIN &&
-      top >= FAB_MARGIN &&
-      left + toolbarW <= stageW - FAB_MARGIN &&
-      top + toolbarH <= stageH - FAB_MARGIN
-    );
-  }
-
-  function clampToolbarPos(left, top, toolbarW, toolbarH, stageW, stageH) {
-    const maxLeft = Math.max(FAB_MARGIN, stageW - toolbarW - FAB_MARGIN);
-    const maxTop = Math.max(FAB_MARGIN, stageH - toolbarH - FAB_MARGIN);
-    return {
-      left: Math.min(maxLeft, Math.max(FAB_MARGIN, left)),
-      top: Math.min(maxTop, Math.max(FAB_MARGIN, top)),
-    };
-  }
-
-  function toolbarAttachedToFab(left, top, toolbarW, toolbarH, fabSize, gap) {
-    const fabBottom = fabPos.top + fabSize;
-    const fabRight = fabPos.left + fabSize;
-    const toolbarBottom = top + toolbarH;
-    const toolbarRight = left + toolbarW;
-    const above =
-      Math.abs(toolbarBottom + gap - fabPos.top) <= TOOLBAR_ATTACH_MAX_PX &&
-      toolbarRight > fabPos.left - TOOLBAR_ATTACH_MAX_PX &&
-      left < fabRight + TOOLBAR_ATTACH_MAX_PX;
-    const below =
-      Math.abs(top - gap - fabBottom) <= TOOLBAR_ATTACH_MAX_PX &&
-      toolbarRight > fabPos.left - TOOLBAR_ATTACH_MAX_PX &&
-      left < fabRight + TOOLBAR_ATTACH_MAX_PX;
-    const rightOf =
-      Math.abs(left - gap - fabRight) <= TOOLBAR_ATTACH_MAX_PX &&
-      toolbarBottom > fabPos.top - TOOLBAR_ATTACH_MAX_PX &&
-      top < fabBottom + TOOLBAR_ATTACH_MAX_PX;
-    const leftOf =
-      Math.abs(toolbarRight + gap - fabPos.left) <= TOOLBAR_ATTACH_MAX_PX &&
-      toolbarBottom > fabPos.top - TOOLBAR_ATTACH_MAX_PX &&
-      top < fabBottom + TOOLBAR_ATTACH_MAX_PX;
-    return above || below || rightOf || leftOf;
-  }
-
-  function buildToolbarCandidates(stageW, stageH, fabSize, toolbarW, toolbarH, gap, preferVertical) {
-    const alignLeft = Math.max(
-      FAB_MARGIN,
-      Math.min(fabPos.left, stageW - toolbarW - FAB_MARGIN)
-    );
-    const beside = alignToolbarTopBesideFab(fabPos.top, fabSize, toolbarH, stageH);
-    const above = {
-      anchor: "above",
-      orientation: "vertical",
-      left: alignLeft,
-      top: fabPos.top - toolbarH - gap,
-    };
-    const below = {
-      anchor: "below",
-      orientation: "vertical",
-      left: alignLeft,
-      top: fabPos.top + fabSize + gap,
-    };
-    const rightH = {
-      anchor: "right",
-      orientation: "horizontal",
-      left: fabPos.left + fabSize + gap,
-      top: Math.max(
-        FAB_MARGIN,
-        Math.min(fabPos.top, stageH - toolbarH - FAB_MARGIN)
-      ),
-    };
-    const leftH = {
-      anchor: "left",
-      orientation: "horizontal",
-      left: fabPos.left - toolbarW - gap,
-      top: Math.max(
-        FAB_MARGIN,
-        Math.min(fabPos.top, stageH - toolbarH - FAB_MARGIN)
-      ),
-    };
-    const rightVertical = {
-      anchor: "rightVertical",
-      orientation: "vertical",
-      left: fabPos.left + fabSize + gap,
-      top: beside.top,
-    };
-
-    const compact = isCompactStage(stageH, fabSize, toolbarW, toolbarH);
-    const aboveFitsWithoutClamp = fabPos.top - toolbarH - gap >= FAB_MARGIN;
-
-    if (compact) {
-      return [rightH, leftH, rightVertical, below, above];
-    }
-    if (!aboveFitsWithoutClamp) {
-      return [rightVertical, rightH, leftH, below, above];
-    }
-    if (preferVertical) {
-      return [above, below, rightVertical, rightH, leftH];
-    }
-    return [rightH, leftH, above, below, rightVertical];
-  }
-
-  function alignLeftFallback(fabLeft, toolbarW, stageW) {
-    return Math.max(FAB_MARGIN, Math.min(fabLeft, stageW - toolbarW - FAB_MARGIN));
-  }
-
-  function pickValidPlacement(candidates, toolbarW, toolbarH, stageW, stageH, fabSize, gap, requireAttach) {
-    for (const c of candidates) {
-      const clamped = clampToolbarPos(c.left, c.top, toolbarW, toolbarH, stageW, stageH);
-      if (!toolbarPlacementValid(clamped.left, clamped.top, toolbarW, toolbarH, stageW, stageH, fabSize)) {
-        continue;
-      }
-      if (
-        requireAttach &&
-        !toolbarAttachedToFab(clamped.left, clamped.top, toolbarW, toolbarH, fabSize, gap)
-      ) {
-        continue;
-      }
-      return { ...c, ...clamped };
-    }
-    return null;
-  }
-
-  function buildCompactHorizontalPlacement(stageW, stageH, fabSize, gap) {
-    if (!toolbarHostEl) return null;
-    toolbarHostEl.classList.remove("screen-overlay-toolbar-host--v");
-    toolbarHostEl.classList.add("screen-overlay-toolbar-host--h");
-    const m = measureToolbarSize("horizontal");
-    const toolbarW = m.w || 320;
-    const toolbarH = m.h || 48;
-    const left = fabPos.left + fabSize + gap;
-    const top = Math.max(
-      FAB_MARGIN,
-      Math.min(fabPos.top, stageH - toolbarH - FAB_MARGIN)
-    );
-    const clamped = clampToolbarPos(left, top, toolbarW, toolbarH, stageW, stageH);
-    if (placementOverlapsFab(clamped.left, clamped.top, toolbarW, toolbarH, fabSize)) {
-      return null;
-    }
-    return {
-      anchor: "compactHorizontal",
-      orientation: "horizontal",
-      left: clamped.left,
-      top: clamped.top,
-      toolbarW,
-      toolbarH,
-    };
-  }
-
-  function computeToolbarPlacement(stageW, stageH, fabSize, toolbarW, toolbarH, gap) {
-    const preferVertical = fabPos.top > stageH * 0.42;
-    const candidates = buildToolbarCandidates(
-      stageW,
-      stageH,
-      fabSize,
-      toolbarW,
-      toolbarH,
-      gap,
-      preferVertical
-    );
-
-    let chosen = pickValidPlacement(
-      candidates,
-      toolbarW,
-      toolbarH,
-      stageW,
-      stageH,
-      fabSize,
-      gap,
-      true
-    );
-
-    if (!chosen) {
-      chosen = pickValidPlacement(
-        candidates,
-        toolbarW,
-        toolbarH,
-        stageW,
-        stageH,
-        fabSize,
-        gap,
-        false
-      );
-    }
-
-    if (!chosen) {
-      const compact = buildCompactHorizontalPlacement(stageW, stageH, fabSize, gap);
-      if (compact) {
-        chosen = compact;
-      }
-    }
-
-    return chosen;
-  }
-
-  function measureToolbarSizeFromClone(orientation) {
-    if (!toolbarHostEl) return { w: 0, h: 0 };
-    const panel = toolbarHostEl.querySelector(".screen-overlay-toolbar-panel");
-    if (!panel) return { w: 0, h: 0 };
-
-    const probe = document.createElement("div");
-    probe.className = "screen-overlay-toolbar-host";
-    probe.setAttribute("aria-hidden", "true");
-    probe.style.cssText =
-      "position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;width:auto;height:auto;";
-    probe.classList.toggle("screen-overlay-toolbar-host--v", orientation === "vertical");
-    probe.classList.toggle("screen-overlay-toolbar-host--h", orientation === "horizontal");
-    const clone = panel.cloneNode(true);
-    probe.appendChild(clone);
-    document.body.appendChild(probe);
-    const rect = clone.getBoundingClientRect();
-    probe.remove();
-    return {
-      w: Math.ceil(rect.width || clone.offsetWidth || 0),
-      h: Math.ceil(rect.height || clone.offsetHeight || 0),
-    };
-  }
-
-  function measureToolbarSizeFallback(orientation, stageH, fabSize) {
-    const probe = measureToolbarSizeFromClone(orientation);
-    const defaultH = orientation === "vertical" ? 280 : 48;
-    const defaultW = orientation === "vertical" ? 40 : 320;
-    let h = probe.h || defaultH;
-    if (orientation === "vertical" && stageH > 0) {
-      h = Math.min(h, Math.max(120, stageH - fabSize - 2 * FAB_MARGIN));
-    }
-    return {
-      w: probe.w || defaultW,
-      h,
-    };
-  }
-
-  function measureToolbarSize(orientation) {
-    if (!toolbarHostEl) return { w: 0, h: 0 };
-    const panel = toolbarHostEl.querySelector(".screen-overlay-toolbar-panel");
-    if (!panel) return { w: 0, h: 0 };
-
-    if (!toolbarHostEl.classList.contains("hidden")) {
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--v",
-        orientation === "vertical"
-      );
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--h",
-        orientation === "horizontal"
-      );
-      const liveRect = panel.getBoundingClientRect();
-      if (liveRect.width > 0 && liveRect.height > 0) {
-        return {
-          w: Math.ceil(liveRect.width),
-          h: Math.ceil(liveRect.height),
-        };
-      }
-    }
-
-    return measureToolbarSizeFromClone(orientation);
-  }
-
-  function applyToolbarPlacementStyles(placement, toolbarW, toolbarH) {
-    if (!toolbarHostEl || !placement) return;
-    toolbarHostEl.classList.toggle(
-      "screen-overlay-toolbar-host--v",
-      placement.orientation === "vertical"
-    );
-    toolbarHostEl.classList.toggle(
-      "screen-overlay-toolbar-host--h",
-      placement.orientation === "horizontal"
-    );
-    toolbarHostEl.style.left = `${placement.left}px`;
-    toolbarHostEl.style.top = `${placement.top}px`;
-    lastToolbarPlacement = {
-      anchor: placement.anchor,
-      orientation: placement.orientation,
-      left: placement.left,
-      top: placement.top,
-      toolbarW,
-      toolbarH,
-    };
-  }
-
-  function positionToolbarNearFab() {
-    if (!toolbarHostEl || !fabHostEl || !stageEl || !fabPos) return;
-    const { w: stageW, h: stageH } = getStageMetrics();
-    if (stageW < 2 || stageH < 2) return;
-    const fabSize = getFabSize();
-    const gap = TOOLBAR_GAP;
-
-    toolbarHostEl.classList.add("screen-overlay-toolbar-host--v");
-    toolbarHostEl.classList.remove("screen-overlay-toolbar-host--h");
-    let { w: toolbarW, h: toolbarH } = measureToolbarSize("vertical");
-    if (!toolbarW || !toolbarH) {
-      const fb = measureToolbarSizeFallback("vertical", stageH, fabSize);
-      toolbarW = fb.w;
-      toolbarH = fb.h;
-    }
-
-    let placement = computeToolbarPlacement(stageW, stageH, fabSize, toolbarW, toolbarH, gap);
-    if (!placement) {
-      log("screenOverlay: sin placement válido, intentando compact horizontal");
-      placement = buildCompactHorizontalPlacement(stageW, stageH, fabSize, gap);
-    }
-    if (!placement) return;
-
-    if (placement.toolbarW && placement.toolbarH) {
-      toolbarW = placement.toolbarW;
-      toolbarH = placement.toolbarH;
-    } else {
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--v",
-        placement.orientation === "vertical"
-      );
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--h",
-        placement.orientation === "horizontal"
-      );
-      const remeasured = measureToolbarSize(placement.orientation);
-      if (remeasured.w && remeasured.h) {
-        toolbarW = remeasured.w;
-        toolbarH = remeasured.h;
-        const refined = computeToolbarPlacement(
-          stageW,
-          stageH,
-          fabSize,
-          toolbarW,
-          toolbarH,
-          gap
-        );
-        if (refined) placement = refined;
-      }
-    }
-
-    placement = resolveToolbarOverlap(
-      placement,
-      stageW,
-      stageH,
-      fabSize,
-      toolbarW,
-      toolbarH,
-      gap
-    );
-    if (placement.toolbarW) toolbarW = placement.toolbarW;
-    if (placement.toolbarH) toolbarH = placement.toolbarH;
-    applyToolbarPlacementStyles(placement, toolbarW, toolbarH);
-  }
-
-  function resolveToolbarOverlap(placement, stageW, stageH, fabSize, toolbarW, toolbarH, gap) {
-    if (!placement) return placement;
-
-    const sizesFor = (orientation) => {
-      if (orientation === placement.orientation) {
-        return { w: toolbarW, h: toolbarH };
-      }
-      if (!toolbarHostEl) return { w: toolbarW, h: toolbarH };
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--v",
-        orientation === "vertical"
-      );
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--h",
-        orientation === "horizontal"
-      );
-      const m = measureToolbarSize(orientation);
-      if (m.w && m.h) return m;
-      return measureToolbarSizeFallback(orientation, stageH, fabSize);
-    };
-
-    if (
-      !placementOverlapsFab(
-        placement.left,
-        placement.top,
-        toolbarW,
-        toolbarH,
-        fabSize
-      )
-    ) {
-      return placement;
-    }
-
-    const beside = alignToolbarTopBesideFab(fabPos.top, fabSize, toolbarH, stageH);
-    const tries = [
-      {
-        anchor: "rightVertical",
-        orientation: "vertical",
-        left: fabPos.left + fabSize + gap,
-        top: beside.top,
-      },
-      {
-        anchor: "rightVerticalBottom",
-        orientation: "vertical",
-        left: fabPos.left + fabSize + gap,
-        top: fabPos.top + fabSize - toolbarH,
-      },
-      {
-        anchor: "below",
-        orientation: "vertical",
-        left: alignLeftFallback(fabPos.left, toolbarW, stageW),
-        top: fabPos.top + fabSize + gap,
-      },
-      {
-        anchor: "right",
-        orientation: "horizontal",
-        left: fabPos.left + fabSize + gap,
-        top: Math.max(
-          FAB_MARGIN,
-          Math.min(fabPos.top, stageH - toolbarH - FAB_MARGIN)
-        ),
-      },
-    ];
-
-    for (const t of tries) {
-      const { w: tw, h: th } = sizesFor(t.orientation);
-      const clamped = clampToolbarPos(t.left, t.top, tw, th, stageW, stageH);
-      if (toolbarPlacementValid(clamped.left, clamped.top, tw, th, stageW, stageH, fabSize)) {
-        return { ...t, ...clamped, toolbarW: tw, toolbarH: th };
-      }
-    }
-
-    const compact = buildCompactHorizontalPlacement(stageW, stageH, fabSize, gap);
-    if (compact) {
-      return compact;
-    }
-
-    const hSizes = sizesFor("horizontal");
-    const lastLeft = fabPos.left + fabSize + gap;
-    const lastTop = Math.max(
-      FAB_MARGIN,
-      Math.min(fabPos.top, stageH - hSizes.h - FAB_MARGIN)
-    );
-    const clamped = clampToolbarPos(
-      lastLeft,
-      lastTop,
-      hSizes.w,
-      hSizes.h,
-      stageW,
-      stageH
-    );
-    if (
-      !placementOverlapsFab(clamped.left, clamped.top, hSizes.w, hSizes.h, fabSize)
-    ) {
-      log("screenOverlay: placement horizontal de último recurso");
-      return {
-        anchor: "lastResortHorizontal",
-        orientation: "horizontal",
-        left: clamped.left,
-        top: clamped.top,
-        toolbarW: hSizes.w,
-        toolbarH: hSizes.h,
-      };
-    }
-
-    log("screenOverlay: no se pudo resolver solape toolbar/FAB");
-    return placement;
   }
 
   function syncAnnotateCapture() {
@@ -813,14 +229,6 @@
     syncStackClasses();
   }
 
-  function schedulePositionToolbarNearFab() {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        positionToolbarNearFab();
-        requestAnimationFrame(() => positionToolbarNearFab());
-      });
-    });
-  }
 
   function updatePointerHoverCursor(clientX, clientY) {
     if (!stackEl || !toolbarOpen || overlayTool !== "pointer" || selectionPointerAction) return;
@@ -839,29 +247,6 @@
     );
   }
 
-  function setToolbarOpen(open) {
-    toolbarOpen = !!open;
-    if (uiLayerEl) {
-      uiLayerEl.setAttribute("aria-hidden", toolbarOpen ? "false" : "true");
-    }
-    if (toolbarHostEl) {
-      toolbarHostEl.classList.toggle("hidden", !toolbarOpen);
-      toolbarHostEl.setAttribute("aria-hidden", toolbarOpen ? "false" : "true");
-    }
-    fabEl?.classList.toggle("screen-overlay-fab--active", toolbarOpen);
-    fabEl?.setAttribute("aria-expanded", toolbarOpen ? "true" : "false");
-    if (!toolbarOpen) {
-      toolbarApi?.closeMenus?.();
-      closeInlineTextInput(false);
-      drawing = false;
-      currentStroke = null;
-    } else {
-      schedulePositionToolbarNearFab();
-      overlayTool = "pointer";
-      toolbarApi?.setTool?.("pointer");
-    }
-    syncAnnotateCapture();
-  }
 
   function updateHistoryButtons() {
     toolbarApi?.setHistoryButtons?.(overlayHistory.length > 0, overlayFuture.length > 0);
@@ -1458,99 +843,6 @@
     canvasEl.removeEventListener("click", onCanvasClick);
   }
 
-  function ensureFab() {
-    if (!stageEl) return;
-    removeOrphanOverlayUiFromStage();
-    if (fabHostEl) return;
-    const layer = ensureOverlayUiLayer();
-    if (!layer) return;
-
-    const raw = loadFabPositionRaw();
-    fabPos = normalizeFabPosition(raw, { fromLegacy: !!raw?.fromLegacy });
-
-    fabHostEl = document.createElement("div");
-    fabHostEl.className = "screen-overlay-fab-host";
-
-    fabEl = document.createElement("button");
-    fabEl.type = "button";
-    fabEl.className = "screen-overlay-fab";
-    fabEl.title = "Anotaciones (arrastrar para mover)";
-    fabEl.setAttribute("aria-label", "Anotaciones sobre pantalla compartida");
-    fabEl.setAttribute("aria-expanded", "false");
-    fabEl.textContent = "✏️";
-
-    fabHostEl.appendChild(fabEl);
-    layer.appendChild(fabHostEl);
-    layer.setAttribute("aria-hidden", toolbarOpen ? "false" : "true");
-    applyFabPosition();
-
-    fabEl.addEventListener("pointerdown", onFabPointerDown);
-    global.addEventListener("keydown", onEscapeKey);
-  }
-
-  function removeFab() {
-    global.removeEventListener("keydown", onEscapeKey);
-    global.removeEventListener("pointermove", onFabPointerMove);
-    global.removeEventListener("pointerup", onFabPointerUp);
-    global.removeEventListener("pointercancel", onFabPointerUp);
-    fabDrag = null;
-    if (fabEl) {
-      fabEl.removeEventListener("pointerdown", onFabPointerDown);
-    }
-    if (fabHostEl?.parentElement) fabHostEl.remove();
-    fabHostEl = null;
-    fabEl = null;
-    fabPos = null;
-  }
-
-  function removeToolbar() {
-    toolbarApi?.destroy?.();
-    toolbarApi = null;
-    if (toolbarHostEl?.parentElement) toolbarHostEl.remove();
-    toolbarHostEl = null;
-  }
-
-  function ensureToolbar() {
-    if (!stageEl) return;
-    removeOrphanOverlayUiFromStage();
-    const layer = ensureOverlayUiLayer();
-    if (!layer) return;
-    if (toolbarApi && toolbarHostEl && toolbarHostEl.parentElement === layer) return;
-    removeToolbar();
-
-    toolbarHostEl = document.createElement("div");
-    toolbarHostEl.className = "screen-overlay-toolbar-host screen-overlay-toolbar-host--v hidden";
-    toolbarHostEl.setAttribute("aria-hidden", "true");
-    layer.appendChild(toolbarHostEl);
-
-    if (!Toolbar?.create) {
-      log("UiAnnotationToolbar no disponible");
-      return;
-    }
-
-    toolbarApi = Toolbar.create({
-      idPrefix: "screenOverlay",
-      hostEl: toolbarHostEl,
-      onClose: () => setToolbarOpen(false),
-      onToolChange(tool) {
-        overlayTool = tool;
-        syncAnnotateCapture();
-      },
-      onColorChange(c) {
-        overlayColor = c;
-      },
-      onLineWidthChange(w) {
-        overlayLineWidth = w;
-      },
-      onTextSizeChange(s) {
-        overlayTextSize = s;
-      },
-      onEmojiInsert: insertEmojiOnOverlay,
-      onUndo: performUndo,
-      onRedo: performRedo,
-    });
-    updateHistoryButtons();
-  }
 
   function unbindVideoLayoutEvents() {
     if (!boundVideoForLayout) return;
@@ -1625,7 +917,7 @@
     }
 
     let overlapLogical = null;
-    const fabSize = getFabSize();
+    const fabSize = pencilFab?.getFabSize?.() || FAB_SIZE;
     const metrics = getStageMetrics();
     if (toolbarOpen && fabPos && toolbarHost && !toolbarHost.classList.contains("hidden")) {
       const left = parseFloat(toolbarHost.style.left) || 0;
@@ -1633,10 +925,10 @@
       const orient = toolbarHost.classList.contains("screen-overlay-toolbar-host--h")
         ? "horizontal"
         : "vertical";
-      const sz = measureToolbarSize(orient);
-      const tw = lastToolbarPlacement?.toolbarW || sz.w || 40;
-      const th = lastToolbarPlacement?.toolbarH || sz.h || 48;
-      overlapLogical = placementOverlapsFab(left, top, tw, th, fabSize);
+      const sz = pencilFab?.measureToolbarSize?.(orient) || { w: 40, h: 48 };
+      const tw = pencilFab?.getLastToolbarPlacement?.()?.toolbarW || sz.w || 40;
+      const th = pencilFab?.getLastToolbarPlacement?.()?.toolbarH || sz.h || 48;
+      overlapLogical = pencilFab?.placementOverlapsFab?.(left, top, tw, th, fabSize);
     }
 
     const canvas =
@@ -1649,10 +941,11 @@
       overlap,
       overlapPanel,
       overlapLogical,
-      placementAnchor: lastToolbarPlacement?.anchor ?? null,
-      toolbarSize: lastToolbarPlacement
-        ? { w: lastToolbarPlacement.toolbarW, h: lastToolbarPlacement.toolbarH }
-        : null,
+      placementAnchor: pencilFab?.getLastToolbarPlacement?.()?.anchor ?? null,
+      toolbarSize: (() => {
+        const lp = pencilFab?.getLastToolbarPlacement?.();
+        return lp ? { w: lp.toolbarW, h: lp.toolbarH } : null;
+      })(),
       stageMetrics: metrics,
       canvasPointerEvents: canvas
         ? getComputedStyle(canvas).pointerEvents
@@ -1885,7 +1178,9 @@
     ensureFab();
     ensureToolbar();
 
-    const peerWrap = stageEl.querySelector(".remote-peer");
+    const peerWrap =
+      stageEl.querySelector(".remote-peer--local-screen-share") ||
+      stageEl.querySelector(".remote-peer:not(.remote-peer--presenter-ink-source)");
     if (!peerWrap) {
       setToolbarOpen(false);
       detachOverlay();
@@ -1906,6 +1201,9 @@
 
   function destroy() {
     setToolbarOpen(false);
+    pencilFab?.destroy?.();
+    pencilFab = null;
+    syncFabRefs();
     applyOverlayState({ elementos: [] }, { resetHistory: true });
     removeToolbar();
     removeFab();
@@ -1921,6 +1219,57 @@
 
   function init(options = {}) {
     deps = options;
+    pencilFab = global.PencilFabToolbar?.create({
+      getStageEl: () => stageEl,
+      getUiLayerEl: () => uiLayerEl,
+      getIsPresenterFocus: () => !!deps?.isPresenterFocus?.(),
+      getRoomId: () => getRoomId(),
+      getStageMetrics,
+      ensureOverlayUiLayer,
+      removeOrphanOverlayUiFromStage,
+      isEditingText: () => !!activeTextInput,
+      log: (...args) => deps?.log?.(...args),
+      onGuestLayoutSync: (reason) => {
+        if (typeof syncGuestOverlayLayout === "function") syncGuestOverlayLayout(reason);
+      },
+      onToolbarBuilt: () => updateHistoryButtons(),
+      onToolbarOpenChange: (open) => {
+        toolbarOpen = !!open;
+        if (!open) {
+          closeInlineTextInput(false);
+          drawing = false;
+          currentStroke = null;
+        } else {
+          overlayTool = "pointer";
+          toolbarApi?.setTool?.("pointer");
+        }
+        syncAnnotateCapture();
+      },
+      buildToolbar: (hostEl) => {
+        if (!Toolbar?.create) return null;
+        return Toolbar.create({
+          idPrefix: "screenOverlay",
+          hostEl,
+          onClose: () => setToolbarOpen(false),
+          onToolChange(tool) {
+            overlayTool = tool;
+            syncAnnotateCapture();
+          },
+          onColorChange(c) {
+            overlayColor = c;
+          },
+          onLineWidthChange(w) {
+            overlayLineWidth = w;
+          },
+          onTextSizeChange(s) {
+            overlayTextSize = s;
+          },
+          onEmojiInsert: insertEmojiOnOverlay,
+          onUndo: performUndo,
+          onRedo: performRedo,
+        });
+      },
+    });
   }
 
   const ScreenOverlay = {
