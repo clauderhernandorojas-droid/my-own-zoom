@@ -1,0 +1,36 @@
+/* Invitado web: FAB/toolbar por encima de wrap-ink; pointer-events del chrome */
+
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-wrap-ink.screen-overlay-wrap-ink--capture {
+  z-index: 1;
+  pointer-events: auto !important;
+}
+
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host {
+  z-index: 62;
+}
+
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host {
+  z-index: 65;
+}
+
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host
+  .screen-overlay-toolbar-panel,
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host
+  .screen-overlay-side-menu:not(.hidden) {
+  pointer-events: auto;
+}

@@ -1,0 +1,140 @@
+/* Panel flotante participantes (web) + pointer-events con share dominante */
+
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant
+  .web-float-peers-root {
+  pointer-events: none;
+}
+
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant
+  .web-float-peers-header,
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant
+  .web-float-peers-resize-handle,
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant
+  .web-float-peers-pill,
+html.moj-web-client
+  .room-shell--web-layout.room-shell--remote-screen-dominant
+  .web-float-peers-body .remote-peer {
+  pointer-events: auto;
+}
+
+.web-float-peers-root {
+  position: fixed;
+  z-index: 1850;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.94);
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55);
+  overflow: hidden;
+}
+
+.web-float-peers-root.hidden {
+  display: none !important;
+}
+
+.web-float-peers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.web-float-peers-root--dragging .web-float-peers-header,
+.web-float-peers-pill--dragging {
+  cursor: grabbing;
+}
+
+.web-float-peers-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+  border-radius: 0 0 6px 0;
+  background: linear-gradient(135deg, transparent 50%, rgba(148, 163, 184, 0.55) 50%);
+}
+
+.web-float-peers-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.web-float-peers-btn-min {
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+}
+
+.web-float-peers-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.web-float-peers-body #videos,
+.web-float-peers-body #videos.web-float-peers-videos {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  padding: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  align-content: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.web-float-peers-body #videos .remote-peer {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  min-height: 72px;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+}
+
+.web-float-peers-body #videos .remote-peer > video {
+  max-height: none !important;
+  min-height: 48px !important;
+  object-fit: cover !important;
+  aspect-ratio: auto !important;
+}
+
+.web-float-peers-pill {
+  position: fixed;
+  z-index: 1850;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 6px 16px rgba(2, 6, 23, 0.45);
+}
+
+.web-float-peers-pill.hidden {
+  display: none !important;
+}

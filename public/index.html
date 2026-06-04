@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/css/screenOverlay.css" />
   <link rel="stylesheet" href="/css/presenterFocus.css" />
   <link rel="stylesheet" href="/css/uiPresenterFloat.css" />
-  <link rel="stylesheet" href="/css/webOverrides.css?v=20250603l" media="not all" id="mojWebOverridesCss" />
+  <link rel="stylesheet" href="/css/webOverrides.css?v=20250603m" media="not all" id="mojWebOverridesCss" />
   <script>
     if (!window.__MOJ_ELECTRON) {
       var _mojWebCss = document.getElementById("mojWebOverridesCss");
@@ -50,7 +50,13 @@
   <script src="/js/roomScreenShareLayout.js?v=20250603l"></script>
   <script>
     if (!window.__MOJ_ELECTRON) {
-      document.write('<script src="/js/WebLayoutOverrides.js?v=20250603l"><\/script>');
+      document.write('<script src="/js/clientEnv.js?v=20250603m"><\/script>');
+      document.write('<script src="/js/modules/NotificationsModule.js?v=20250603m"><\/script>');
+      document.write('<script src="/js/modules/FloatPanelModule.js?v=20250603m"><\/script>');
+      document.write('<script src="/js/modules/ChatRoomUiModule.js?v=20250603m"><\/script>');
+      document.write('<script src="/js/modules/ToolbarModule.js?v=20250603m"><\/script>');
+      document.write('<script src="/js/modules/LayoutModule.js?v=20250603m"><\/script>');
+      document.write('<script src="/js/WebLayoutOverrides.js?v=20250603m"><\/script>');
     }
   </script>
   <script src="/js/PencilFabToolbar.js?v=20250603f"></script>
@@ -7905,28 +7911,17 @@ body.print-calendar-export {
       });
     }
 
-    let roomChatBarModulesReady = false;
+    function getChatPanelHidden() {
+      return !!chatPanelHidden;
+    }
+
     function initRoomChatBarModules() {
-      if (roomChatBarModulesReady) return;
-      if (typeof ChatModule === "undefined" || typeof Notificaciones === "undefined" || typeof UiBarra === "undefined") {
-        return;
-      }
-      roomChatBarModulesReady = true;
-      Notificaciones.initNotificaciones({
-        getChatThreads: () => ChatModule.getChatThreads(),
-        onUpdate: (state) => {
-          UiBarra.updateBadge(state?.totalUnread);
-        },
-      });
-      UiBarra.mountRoomBottomBar({
-        onOpenChat: () => {
-          const chatHidden = $("roomShell")?.classList.contains("room-shell--chat-hidden");
-          if (isWebClient() && !chatHidden) {
-            setChatPanelHidden(true);
-          } else {
-            ChatModule.openChatFromBar();
-          }
-        },
+      if (typeof ChatRoomUiModule === "undefined") return;
+      ChatRoomUiModule.bindBottomBar({
+        ChatModule: typeof ChatModule !== "undefined" ? ChatModule : null,
+        UiBarra: typeof UiBarra !== "undefined" ? UiBarra : null,
+        NotificationsModule: typeof NotificationsModule !== "undefined" ? NotificationsModule : null,
+        Notificaciones: typeof Notificaciones !== "undefined" ? Notificaciones : null,
       });
     }
 
@@ -13188,12 +13183,12 @@ body.print-calendar-export {
         location.hash = getToken() ? "#/lobby" : "#/login";
         _suppressHashRoute = false;
       }
-      if (isWebClient() && typeof WebLayoutOverrides !== "undefined") {
+      if (window.ClientEnv?.isWebLayoutEnabled?.() && window.WebLayoutOverrides) {
         WebLayoutOverrides.init({
           $,
           getActiveRoomId: () => activeRoomId,
           setChatPanelHidden,
-          scheduleRemoteScreenLayoutUpdate,
+          getChatPanelHidden,
         });
       }
       applyRouteFromHash();
