@@ -4,10 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Own Zoom — Cliente</title>
+  <script>
+    (function () {
+      if (window.__MOJ_ELECTRON) return;
+      document.documentElement.classList.add("moj-web-client");
+    })();
+  </script>
   <link rel="stylesheet" href="/css/screenShare.css" />
   <link rel="stylesheet" href="/css/screenOverlay.css" />
   <link rel="stylesheet" href="/css/presenterFocus.css" />
   <link rel="stylesheet" href="/css/uiPresenterFloat.css" />
+  <link rel="stylesheet" href="/css/webOverrides.css?v=20250603l" media="not all" id="mojWebOverridesCss" />
+  <script>
+    if (!window.__MOJ_ELECTRON) {
+      var _mojWebCss = document.getElementById("mojWebOverridesCss");
+      if (_mojWebCss) _mojWebCss.media = "all";
+    }
+  </script>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
@@ -20,7 +33,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js" crossorigin="anonymous"></script>
   <script src="/js/videoEffects.js"></script>
   <script src="/js/notificaciones.js"></script>
-  <script src="/js/uiBarra.js"></script>
+  <script src="/js/uiBarra.js?v=20250603l"></script>
   <script src="/js/uiExpulsion.js"></script>
   <script src="/js/uiMiniPlayer.js"></script>
   <script src="/js/screenShare.js"></script>
@@ -34,9 +47,14 @@
   <script src="/js/uiFloatClamp.js"></script>
   <script src="/js/uiPresenterFloat.js"></script>
   <script src="/js/uiFloatingDock.js"></script>
-  <script src="/js/roomScreenShareLayout.js"></script>
-  <script src="/js/PencilFabToolbar.js"></script>
-  <script src="/js/screenOverlay.js"></script>
+  <script src="/js/roomScreenShareLayout.js?v=20250603l"></script>
+  <script>
+    if (!window.__MOJ_ELECTRON) {
+      document.write('<script src="/js/WebLayoutOverrides.js?v=20250603l"><\/script>');
+    }
+  </script>
+  <script src="/js/PencilFabToolbar.js?v=20250603f"></script>
+  <script src="/js/screenOverlay.js?v=20250603l"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -3177,6 +3195,8 @@
   </section>
 
   <script>
+    let _suppressHashRoute = false;
+
     const LS = "moj_token";
     const API_ORIGIN_STORAGE_KEY = "moj_api_origin";
     const DEFAULT_RENDER_API_ORIGIN = "https://lc-zoom.onrender.com";
@@ -3184,6 +3204,9 @@
       typeof location !== "undefined" && /\.onrender\.com$/i.test(String(location.hostname || ""));
     function isElectronClient() {
       return !!window.__MOJ_ELECTRON;
+    }
+    function isWebClient() {
+      return !isElectronClient();
     }
     function isScreenShareDebugEnabled() {
       return (
@@ -3306,6 +3329,8 @@
     let activeRoomId = null;
     /** Room id mostrado en sala de espera (antes de `enterRoom`). */
     let meetWaitingRoomId = "";
+    /** Evita dos `enterRoom` concurrentes (p. ej. aprobación + clic en Entrar). */
+    let enterRoomInFlight = null;
     /** UUID de reunión en BD (p. ej. historial / adjuntos); la sala Socket usa `activeRoomId` (room_id). */
     let activeReunionId = null;
     /** Sala de espera: solicitud de ingreso pendiente para el usuario actual. */
@@ -4473,6 +4498,7 @@
       if (typeof RoomScreenShareLayout !== "undefined") {
         RoomScreenShareLayout.updateRemoteScreenShareLayout();
       }
+      window.WebLayoutOverrides?.onShareLayoutChange?.();
     }
 
     if (typeof RoomScreenShareLayout !== "undefined") {
@@ -4492,9 +4518,10 @@
         applyRemoteScreenShareStripSizing,
         applyRoomVideoStripSizing,
         syncRemotePlaybackVolumeForShare,
-        ScreenOverlay,
+        ScreenOverlay: typeof ScreenOverlay !== "undefined" ? ScreenOverlay : undefined,
         getScreenShareStream: () => screenShareStream,
         getScreenShareTrack: () => screenShareTrack,
+        enablePresenterDesktopUi: isElectronClient(),
       });
     }
 
@@ -7736,9 +7763,8 @@ body.print-calendar-export {
         applyRoomVideoStripSizing();
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
+      window.WebLayoutOverrides?.onEnterRoom?.();
     }
-
-    let _suppressHashRoute = false;
 
     function parseRoute() {
       let h = (location.hash || "").replace(/^#/, "");
@@ -7892,7 +7918,16 @@ body.print-calendar-export {
           UiBarra.updateBadge(state?.totalUnread);
         },
       });
-      UiBarra.mountRoomBottomBar({ onOpenChat: () => ChatModule.openChatFromBar() });
+      UiBarra.mountRoomBottomBar({
+        onOpenChat: () => {
+          const chatHidden = $("roomShell")?.classList.contains("room-shell--chat-hidden");
+          if (isWebClient() && !chatHidden) {
+            setChatPanelHidden(true);
+          } else {
+            ChatModule.openChatFromBar();
+          }
+        },
+      });
     }
 
     function closeBoardSideMenus() {
@@ -10226,8 +10261,8 @@ body.print-calendar-export {
           maybeShowNextRoomEntryRequestModal();
         });
         socket.on("room:entry:decision", ({ roomId, approved, byUserId }) => {
-          const rid = String(roomId || "").trim().toLowerCase();
-          const waitingRid = String(meetWaitingRoomId || "").trim().toLowerCase();
+          const rid = normRoomKey(roomId);
+          const waitingRid = normRoomKey(meetWaitingRoomId);
           if (!rid || !waitingRid || rid !== waitingRid) return;
           waitingRoomJoinRequestPending = false;
           const btn = $("btnMeetWaitingJoin");
@@ -10237,7 +10272,16 @@ body.print-calendar-export {
           const approverName = approver?.nombre || approver?.email || "el presentador";
           if (approved) {
             updateMeetWaitingStatus("Entrada autorizada. Ingresando a la reunión…");
-            void enterRoom(meetWaitingRoomId).catch(() => {});
+            void enterRoom(meetWaitingRoomId).catch((e) => {
+              const msg = String(e?.message || e || "No se pudo entrar a la reunión.");
+              if (isRoomJoinApprovalError(msg)) {
+                void handleRoomJoinApprovalRequired(meetWaitingRoomId, msg);
+                return;
+              }
+              updateMeetWaitingStatus(msg);
+              showJoinUserFeedback(msg);
+              setMediaStatus(msg);
+            });
           } else {
             updateMeetWaitingStatus(`${approverName} rechazó tu solicitud. No puedes entrar por ahora.`);
           }
@@ -10365,6 +10409,16 @@ body.print-calendar-export {
     }
 
     async function enterRoom(roomIdInput = "") {
+      if (enterRoomInFlight) {
+        return enterRoomInFlight;
+      }
+      enterRoomInFlight = enterRoomImpl(roomIdInput).finally(() => {
+        enterRoomInFlight = null;
+      });
+      return enterRoomInFlight;
+    }
+
+    async function enterRoomImpl(roomIdInput = "") {
       closeToolbarMenus();
       pendingBoardPresentation = null;
       const roomId = String(roomIdInput || "").trim();
@@ -10398,87 +10452,96 @@ body.print-calendar-export {
       try {
         await api("/api/reuniones/room/" + encodeURIComponent(roomId) + "/unirse", { method: "POST", body: "{}" });
         await new Promise((resolve, reject) => {
+          const joinTimeoutId = setTimeout(() => {
+            reject(new Error("Tiempo de espera agotado al unirse a la sala (socket)."));
+          }, 45000);
           socket.emit("room:join", { roomId: normRoomKey(roomId) }, async (resp) => {
-            if (!resp?.ok) {
-              const errMsg =
-                resp?.error || "No se pudo unir a la sala (Socket)";
-              log(errMsg);
-              setMediaStatus(errMsg);
-              reject(new Error(errMsg));
-              return;
-            }
-            activeRoomId = normRoomKey(
-              resp.roomId != null && resp.roomId !== "" ? resp.roomId : roomId
-            );
-            if (typeof ScreenOverlay !== "undefined") {
-              ScreenOverlay.clear();
-            }
-            activeReunionId = resp.reunionId != null ? String(resp.reunionId) : null;
-            lastKnownRoomIdForRecording = activeRoomId;
-            presenterGrantedScreenShare = false;
-            screenShareRequestPending = false;
-            autoStartShareAfterApproval = false;
-            roomDocenteUsuarioId =
-              resp.docenteUsuarioId != null
-                ? String(resp.docenteUsuarioId)
-                : roomDocenteUsuarioId;
-            {
-              const arl = $("activeRoomLabel");
-              if (arl) arl.textContent = activeRoomId;
-            }
-            showRoom();
-            const initialMeetView = isElectronClient() ? "board" : "gallery";
-            setMeetView(initialMeetView);
-            setRoomBoardLayout("top");
-            _suppressHashRoute = true;
-            location.hash =
-              "#/meet/" +
-              encodeURIComponent(activeRoomId) +
-              (initialMeetView === "board" ? "/board" : "/gallery");
-            _suppressHashRoute = false;
-            ChatModule?.markAllRead?.();
-            connectedUserIds.clear();
-            peerSocketToUserId.clear();
-            if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
-            (resp.peers || []).forEach((p) => {
-              if (p.userId) connectedUserIds.add(p.userId);
-              if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
-            });
-            await loadParticipantsForRoom(activeRoomId);
-            ChatModule?.setActiveChatThread?.("general");
-            log("En sala. Peers: " + JSON.stringify(resp.peers));
-            const peers = resp.peers || [];
-            for (const p of peers) {
-              try {
-                await negotiateOffer(p.socketId);
-              } catch (e) {
-                console.error(e);
-                log("Error al negociar con un peer: " + (e?.message || e));
+            clearTimeout(joinTimeoutId);
+            try {
+              if (!resp?.ok) {
+                const errMsg =
+                  resp?.error || "No se pudo unir a la sala (Socket)";
+                log(errMsg);
+                setMediaStatus(errMsg);
+                reject(new Error(errMsg));
+                return;
               }
-            }
-            syncMediaButtons();
-            updateMeetingVideoRecordButton();
-            updateLocalAggregateStatus();
-            refreshMediaDeviceSelectors().catch(() => {});
-            const localWrap = $("localVideo")?.closest(".remote-peer");
-            if (localWrap) {
-              const dn = currentUser?.nombre?.trim();
-              localWrap.setAttribute("data-label", dn ? dn + " (tú)" : "Tú");
-            }
-            setTimeout(() => {
-              if (!followingPresenter) {
-                resetBoardCamera();
-              } else {
-                syncZoomUi();
-                drawBoard();
+              activeRoomId = normRoomKey(
+                resp.roomId != null && resp.roomId !== "" ? resp.roomId : roomId
+              );
+              if (typeof ScreenOverlay !== "undefined") {
+                ScreenOverlay.clear();
               }
-            }, 0);
-            flushPendingBoardPresentationAfterJoin();
-            flushPendingMeetScreenShareAfterJoin();
-            if (lastMediaCaptureLevel !== "av") {
-              showMediaCaptureBanner(lastMediaCaptureLevel, "");
+              activeReunionId = resp.reunionId != null ? String(resp.reunionId) : null;
+              lastKnownRoomIdForRecording = activeRoomId;
+              presenterGrantedScreenShare = false;
+              screenShareRequestPending = false;
+              autoStartShareAfterApproval = false;
+              roomDocenteUsuarioId =
+                resp.docenteUsuarioId != null
+                  ? String(resp.docenteUsuarioId)
+                  : roomDocenteUsuarioId;
+              {
+                const arl = $("activeRoomLabel");
+                if (arl) arl.textContent = activeRoomId;
+              }
+              showRoom();
+              const initialMeetView = isElectronClient() ? "board" : "gallery";
+              setMeetView(initialMeetView);
+              setRoomBoardLayout("top");
+              _suppressHashRoute = true;
+              location.hash =
+                "#/meet/" +
+                encodeURIComponent(activeRoomId) +
+                (initialMeetView === "board" ? "/board" : "/gallery");
+              _suppressHashRoute = false;
+              ChatModule?.markAllRead?.();
+              connectedUserIds.clear();
+              peerSocketToUserId.clear();
+              if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
+              (resp.peers || []).forEach((p) => {
+                if (p.userId) connectedUserIds.add(p.userId);
+                if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
+              });
+              resolve();
+              void loadParticipantsForRoom(activeRoomId)
+                .then(() => {
+                  ChatModule?.setActiveChatThread?.("general");
+                  log("En sala. Peers: " + JSON.stringify(resp.peers));
+                  const peers = resp.peers || [];
+                  for (const p of peers) {
+                    negotiateOffer(p.socketId).catch((e) => {
+                      console.error(e);
+                      log("Error al negociar con un peer: " + (e?.message || e));
+                    });
+                  }
+                  syncMediaButtons();
+                  updateMeetingVideoRecordButton();
+                  updateLocalAggregateStatus();
+                  refreshMediaDeviceSelectors().catch(() => {});
+                  const localWrap = $("localVideo")?.closest(".remote-peer");
+                  if (localWrap) {
+                    const dn = currentUser?.nombre?.trim();
+                    localWrap.setAttribute("data-label", dn ? dn + " (tú)" : "Tú");
+                  }
+                  setTimeout(() => {
+                    if (!followingPresenter) {
+                      resetBoardCamera();
+                    } else {
+                      syncZoomUi();
+                      drawBoard();
+                    }
+                  }, 0);
+                  flushPendingBoardPresentationAfterJoin();
+                  flushPendingMeetScreenShareAfterJoin();
+                  if (lastMediaCaptureLevel !== "av") {
+                    showMediaCaptureBanner(lastMediaCaptureLevel, "");
+                  }
+                })
+                .catch((e) => console.warn("[enterRoom] post-join setup", e));
+            } catch (joinCbErr) {
+              reject(joinCbErr);
             }
-            resolve();
           });
         });
       } catch (e) {
@@ -10494,6 +10557,7 @@ body.print-calendar-export {
     }
 
     async function leaveRoom() {
+      window.WebLayoutOverrides?.onLeaveRoom?.();
       MiniPlayerControls?.hideMiniPlayer?.();
       closeToolbarMenus();
       pendingBoardPresentation = null;
@@ -13123,6 +13187,14 @@ body.print-calendar-export {
         _suppressHashRoute = true;
         location.hash = getToken() ? "#/lobby" : "#/login";
         _suppressHashRoute = false;
+      }
+      if (isWebClient() && typeof WebLayoutOverrides !== "undefined") {
+        WebLayoutOverrides.init({
+          $,
+          getActiveRoomId: () => activeRoomId,
+          setChatPanelHidden,
+          scheduleRemoteScreenLayoutUpdate,
+        });
       }
       applyRouteFromHash();
     })();

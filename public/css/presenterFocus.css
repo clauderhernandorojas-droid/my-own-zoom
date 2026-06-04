@@ -35,6 +35,43 @@
   align-items: stretch;
   justify-content: stretch;
   overflow: hidden;
+  position: relative;
+}
+
+/* Presentador: stack + canvas cubren todo el stage (no solo franja inferior) */
+.room-shell.room-shell--presenter-focus
+  #roomRemoteScreenStage:not([hidden])
+  > .remote-peer--local-screen-share {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-height: 0;
+  flex: none !important;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.room-shell.room-shell--presenter-focus
+  #roomRemoteScreenStage:not([hidden])
+  > .remote-peer--local-screen-share
+  > .screen-overlay-stack {
+  pointer-events: auto;
+}
+
+.room-shell.room-shell--presenter-focus
+  #roomRemoteScreenStage:not([hidden])
+  > .remote-peer--local-screen-share
+  > .screen-overlay-stack {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  flex: none !important;
+  min-height: 100% !important;
 }
 
 .room-shell.room-shell--presenter-focus .remote-peer--local-screen-share {
@@ -45,6 +82,20 @@
   min-height: 0;
   height: 100% !important;
   margin: 0;
+}
+
+.room-shell.room-shell--presenter-focus
+  .remote-peer--local-screen-share
+  > .screen-overlay-stack
+  > video {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  aspect-ratio: auto !important;
+  object-fit: contain;
 }
 
 .room-shell.room-shell--presenter-focus .remote-peer--local-screen-share > video {

@@ -1,5 +1,6 @@
 /**
  * PencilFabToolbar.js — FAB, barra de herramientas y dock de anotación (screen overlay).
+ * @version 20250603c
  */
 (function (global) {
   const FAB_SIZE = 44;
@@ -172,6 +173,21 @@
 
   function isPresenterFocusMode() {
     return !!getIsPresenterFocus?.();
+  }
+
+  /** Reserva inferior en coords del ui layer (barra de medios flotante de la sala). */
+  function getGuestBottomUiReserve() {
+    if (isPresenterFocusMode()) return FAB_MARGIN;
+    const layer = getUiLayerEl?.();
+    if (!layer) return 88;
+    const layerRect = layer.getBoundingClientRect();
+    const bar =
+      document.querySelector(
+        ".room-shell--remote-screen-dominant .room-media-controls--presenter-float"
+      ) || document.getElementById("roomMediaControls");
+    if (!bar || bar.offsetParent === null) return 88;
+    const barRect = bar.getBoundingClientRect();
+    return Math.max(72, Math.ceil(layerRect.bottom - barRect.top + 14));
   }
   function annotateDockStorageKey() {
     const rid = getRoomId();
@@ -394,10 +410,10 @@
   function onWindowResizeForOverlay() {
     if (isPresenterFocusMode()) {
       revalidateAnnotateDockPosition();
-    } else {
-      if (fabPos) revalidateFabPosition();
-      onGuestLayoutSync("window-resize");
+    } else if (fabPos) {
+      revalidateFabPosition();
     }
+    onGuestLayoutSync("window-resize");
   }
 
   function bindWindowResize() {
@@ -498,12 +514,12 @@
 
   function defaultFabPosition() {
     const { w: stageW, h: stageH } = getStageMetrics();
-    const sw = stageW || 400;
     const sh = stageH || 300;
     const size = getFabSize();
+    const bottomPad = isPresenterFocusMode() ? FAB_MARGIN : getGuestBottomUiReserve();
     return {
       left: FAB_MARGIN,
-      top: Math.max(FAB_MARGIN, sh - size - FAB_MARGIN),
+      top: Math.max(FAB_MARGIN, sh - size - bottomPad),
     };
   }
 
@@ -624,8 +640,9 @@
     const sw = stageW || 400;
     const sh = stageH || 300;
     const size = getFabSize();
+    const bottomPad = isPresenterFocusMode() ? FAB_MARGIN : getGuestBottomUiReserve();
     const maxLeft = Math.max(FAB_MARGIN, sw - size - FAB_MARGIN);
-    const maxTop = Math.max(FAB_MARGIN, sh - size - FAB_MARGIN);
+    const maxTop = Math.max(FAB_MARGIN, sh - size - bottomPad);
     return {
       left: Math.min(maxLeft, Math.max(FAB_MARGIN, left)),
       top: Math.min(maxTop, Math.max(FAB_MARGIN, top)),
@@ -1038,16 +1055,13 @@
     };
   }
 
-  function positionToolbarNearFab() {
-    if (isPresenterFocusMode()) {
-      scheduleToolbarPlacement();
-      return;
-    }
-    if (!toolbarHostEl || !fabHostEl || !getStageEl() || !fabPos) return;
+  function positionGuestToolbarBesideFab() {
+    if (!toolbarHostEl || !fabHostEl || !fabPos) return;
     const { w: stageW, h: stageH } = getStageMetrics();
     if (stageW < 2 || stageH < 2) return;
     const fabSize = getFabSize();
     const gap = TOOLBAR_GAP;
+    const bottomSafe = getGuestBottomUiReserve();
 
     toolbarHostEl.classList.add("screen-overlay-toolbar-host--v");
     toolbarHostEl.classList.remove("screen-overlay-toolbar-host--h");
@@ -1058,53 +1072,40 @@
       toolbarH = fb.h;
     }
 
-    let placement = computeToolbarPlacement(stageW, stageH, fabSize, toolbarW, toolbarH, gap);
-    if (!placement) {
-      log("screenOverlay: sin placement válido, intentando compact horizontal");
-      placement = buildCompactHorizontalPlacement(stageW, stageH, fabSize, gap);
-    }
-    if (!placement) return;
+    let left = fabPos.left + fabSize + gap;
+    let top = fabPos.top;
+    const maxLeft = Math.max(FAB_MARGIN, stageW - toolbarW - FAB_MARGIN);
+    const maxTop = Math.max(FAB_MARGIN, stageH - toolbarH - bottomSafe);
+    left = Math.min(maxLeft, Math.max(FAB_MARGIN, left));
+    top = Math.min(maxTop, Math.max(FAB_MARGIN, top));
 
-    if (placement.toolbarW && placement.toolbarH) {
-      toolbarW = placement.toolbarW;
-      toolbarH = placement.toolbarH;
-    } else {
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--v",
-        placement.orientation === "vertical"
-      );
-      toolbarHostEl.classList.toggle(
-        "screen-overlay-toolbar-host--h",
-        placement.orientation === "horizontal"
-      );
-      const remeasured = measureToolbarSize(placement.orientation);
-      if (remeasured.w && remeasured.h) {
-        toolbarW = remeasured.w;
-        toolbarH = remeasured.h;
-        const refined = computeToolbarPlacement(
-          stageW,
-          stageH,
-          fabSize,
-          toolbarW,
-          toolbarH,
-          gap
-        );
-        if (refined) placement = refined;
+    if (top + toolbarH > fabPos.top && top < fabPos.top + fabSize) {
+      top = Math.min(maxTop, fabPos.top + fabSize + gap);
+      if (top + toolbarH > stageH - bottomSafe) {
+        top = Math.max(FAB_MARGIN, fabPos.top - toolbarH - gap);
       }
     }
 
-    placement = resolveToolbarOverlap(
-      placement,
-      stageW,
-      stageH,
-      fabSize,
+    applyToolbarPlacementStyles(
+      {
+        anchor: "guestBesideFab",
+        orientation: "vertical",
+        left,
+        top,
+        toolbarW,
+        toolbarH,
+      },
       toolbarW,
-      toolbarH,
-      gap
+      toolbarH
     );
-    if (placement.toolbarW) toolbarW = placement.toolbarW;
-    if (placement.toolbarH) toolbarH = placement.toolbarH;
-    applyToolbarPlacementStyles(placement, toolbarW, toolbarH);
+  }
+
+  function positionToolbarNearFab() {
+    if (isPresenterFocusMode()) {
+      scheduleToolbarPlacement();
+      return;
+    }
+    positionGuestToolbarBesideFab();
   }
 
   function resolveToolbarOverlap(placement, stageW, stageH, fabSize, toolbarW, toolbarH, gap) {
@@ -1237,7 +1238,7 @@
     } else {
       if (!isPresenterFocusMode()) scheduleToolbarPlacement();
       if (isPresenterFocusMode()) saveAnnotateDockPosition();
-      else onGuestLayoutSync("toolbar-open");
+      onGuestLayoutSync("toolbar-open");
     }
     onToolbarOpenChange?.(toolbarOpen);
   }
@@ -1344,33 +1345,7 @@
     layer.appendChild(toolbarHostEl);
     toolbarHostEl.addEventListener("pointerdown", onToolbarPointerDown);
 
-    if (!Toolbar?.create) {
-      log("UiAnnotationToolbar no disponible");
-      return;
-    }
-
-    toolbarApi = Toolbar.create({
-      idPrefix: "screenOverlay",
-      hostEl: toolbarHostEl,
-      onClose: () => setToolbarOpen(false),
-      onToolChange(tool) {
-        overlayTool = tool;
-        syncAnnotateCapture();
-      },
-      onColorChange(c) {
-        overlayColor = c;
-      },
-      onLineWidthChange(w) {
-        overlayLineWidth = w;
-      },
-      onTextSizeChange(s) {
-        overlayTextSize = s;
-      },
-      onEmojiInsert: insertEmojiOnOverlay,
-      onUndo: performUndo,
-      onRedo: performRedo,
-    });
-    updateHistoryButtons();
+    createToolbarInHost(toolbarHostEl);
   }
     function getRefs() {
       return {

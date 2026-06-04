@@ -55,12 +55,18 @@
     return wrap;
   }
 
+  function usePresenterDesktopUi() {
+    return deps?.enablePresenterDesktopUi !== false;
+  }
+
   function exitPresenterFocusUi() {
     presenterFocusActive = false;
     const shell = $("roomShell");
     shell?.classList.remove("room-shell--presenter-focus");
-    global.UiPresenterFloat?.deactivate?.();
-    global.UiFloatingDock?.deactivate?.();
+    if (usePresenterDesktopUi()) {
+      global.UiPresenterFloat?.deactivate?.();
+      global.UiFloatingDock?.deactivate?.();
+    }
     teardownPresenterInkPeer();
     deps?.teardownLocalScreenShareStageWrap?.();
   }
@@ -88,9 +94,12 @@
       stage.insertBefore(shareWrap, stage.firstChild);
     }
     ensurePresenterInkPeer();
-    global.UiPresenterFloat?.activate?.();
-    global.UiFloatingDock?.activate?.();
+    if (usePresenterDesktopUi()) {
+      global.UiPresenterFloat?.activate?.();
+      global.UiFloatingDock?.activate?.();
+    }
     const onResize = () => {
+      if (!usePresenterDesktopUi()) return;
       global.UiPresenterFloat?.reclamp?.();
       global.UiFloatingDock?.reclamp?.();
     };

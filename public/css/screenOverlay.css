@@ -8,6 +8,38 @@
   flex: 1 1 0;
   align-self: stretch;
   overflow: hidden;
+  isolation: isolate;
+}
+
+/* Capa transparente sobre el vídeo (el compositor de Chrome queda debajo) */
+.screen-overlay-wrap-ink {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  touch-action: none;
+  background: transparent;
+}
+
+.screen-overlay-wrap-ink--capture {
+  pointer-events: auto !important;
+}
+
+.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-pencil,
+.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-eraser {
+  cursor: crosshair;
+}
+
+.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-pointer {
+  cursor: default;
+}
+
+.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-pointer.screen-overlay-wrap-ink--selection-hit {
+  cursor: move;
+}
+
+.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-text {
+  cursor: text;
 }
 
 .screen-overlay-peer {
@@ -29,6 +61,7 @@
   display: block;
   background: #111;
   z-index: 1;
+  pointer-events: none !important;
 }
 
 .screen-overlay-stack--active {
@@ -41,19 +74,17 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 2;
-  pointer-events: none;
+  z-index: 11;
+  pointer-events: none !important;
   touch-action: none;
 }
 
 .screen-overlay-stack--annotate-active .screen-overlay-canvas {
-  pointer-events: auto;
   cursor: crosshair;
 }
 
 .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open .screen-overlay-canvas {
-  pointer-events: auto;
-  cursor: default;
+  pointer-events: none !important;
 }
 
 .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open.screen-overlay-stack--selection-hit .screen-overlay-canvas {
@@ -106,6 +137,32 @@
   overflow: visible;
 }
 
+/* Tinta + puntero en ui-layer (encima del vídeo en el stage) */
+.screen-overlay-ui-layer > .screen-overlay-wrap-ink,
+.screen-overlay-ui-layer > .screen-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.screen-overlay-ui-layer > .screen-overlay-wrap-ink {
+  z-index: 1;
+  pointer-events: none;
+  background: transparent;
+}
+
+.screen-overlay-ui-layer > .screen-overlay-canvas {
+  z-index: 2;
+  pointer-events: none !important;
+}
+
+.screen-overlay-ui-layer > .screen-overlay-text-input {
+  z-index: 12;
+  pointer-events: auto;
+}
+
 .screen-overlay-ui-layer > .screen-overlay-fab-host,
 .screen-overlay-ui-layer > .screen-overlay-toolbar-host,
 .screen-overlay-ui-layer > .screen-overlay-annotate-dock {
@@ -155,11 +212,101 @@
   flex-direction: column;
   align-self: stretch;
   display: none;
+  overflow: hidden;
+}
+
+.room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]),
+.room-shell.room-shell--presenter-focus .room-screen-share-wrap:not([hidden]) {
+  position: relative;
+}
+
+.room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) #roomRemoteScreenStage:not([hidden]),
+.room-shell.room-shell--presenter-focus .room-screen-share-wrap:not([hidden]) #roomRemoteScreenStage:not([hidden]) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  flex: none !important;
+  z-index: 1;
 }
 
 .room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) {
   display: flex;
 }
+
+/* Invitado: FAB por encima de la toolbar; área de tinta = todo el contenedor del share */
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host {
+  z-index: 60;
+}
+
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host {
+  z-index: 55;
+  max-height: calc(100% - 80px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host
+  .screen-overlay-toolbar-panel,
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host
+  .screen-overlay-side-menu:not(.hidden) {
+  pointer-events: auto;
+}
+
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  #roomRemoteScreenStage:not([hidden]) {
+  display: flex !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+/* Invitado: peer + stack ocupan todo el stage (evita canvas recortado en franja inferior) */
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  #roomRemoteScreenStage:not([hidden])
+  > .remote-peer.screen-overlay-peer {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-height: 0;
+  flex: none !important;
+  margin: 0 !important;
+}
+
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  #roomRemoteScreenStage:not([hidden])
+  > .remote-peer.screen-overlay-peer
+  > .screen-overlay-stack {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  flex: none !important;
+  min-height: 100% !important;
+}
+
+/* Invitado: el vídeo no captura clics; el canvas sí cuando la barra está abierta */
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-stack.screen-overlay-stack--toolbar-open
+  > video,
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-stack.screen-overlay-stack--annotate-active
+  > video {
+  pointer-events: none;
+}
+
 
 .room-shell.room-shell--remote-screen-dominant.room-shell--videos-right .room-screen-share-wrap:not([hidden]) {
   align-self: stretch;
@@ -222,8 +369,9 @@
   pointer-events: auto;
 }
 
+/* El host no captura clics fuera de la barra (evita bloquear wrap-ink en el stage) */
 .screen-overlay-toolbar-host:not(.hidden) {
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .screen-overlay-toolbar-host.hidden {
@@ -512,6 +660,16 @@
   min-height: 0;
   z-index: 1;
   overflow: hidden;
+  pointer-events: none;
+}
+
+.room-remote-screen-stage .remote-peer.screen-overlay-peer > .screen-overlay-stack {
+  pointer-events: auto;
+}
+
+.room-shell.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .room-screen-share-wrap:not([hidden]) {
+  pointer-events: auto;
 }
 
 @media (max-width: 720px) {

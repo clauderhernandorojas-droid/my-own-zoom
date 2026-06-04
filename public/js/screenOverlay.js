@@ -59,11 +59,22 @@
   let boundPeerWrap = null;
   /** @type {HTMLVideoElement | null} */
   let boundVideoForLayout = null;
+  /** @type {HTMLDivElement | null} — capa sobre el vídeo (compositor) para capturar puntero */
+  let wrapInkEl = null;
 
   const videoLayoutHandlers = {
-    loadedmetadata: () => resizeCanvas(),
-    loadeddata: () => resizeCanvas(),
-    resize: () => resizeCanvas(),
+    loadedmetadata: () => {
+      syncOverlayStackLayout("video-metadata");
+      resizeCanvas();
+    },
+    loadeddata: () => {
+      syncOverlayStackLayout("video-data");
+      resizeCanvas();
+    },
+    resize: () => {
+      syncOverlayStackLayout("video-resize");
+      resizeCanvas();
+    },
   };
 
 
@@ -131,6 +142,32 @@
 
   function scheduleToolbarPlacement() {
     pencilFab?.scheduleToolbarPlacement?.();
+  }
+
+  /** Reajusta peer/stack/canvas para llenar el stage (presentador e invitado). */
+  function syncOverlayStackLayout(_reason) {
+    ensureInkOnUiLayer();
+    const stage = stageEl;
+    const peer = stackEl?.closest?.(".remote-peer");
+    if (stage && peer && stackEl) {
+      const sh = stage.clientHeight;
+      const sw = stage.clientWidth;
+      if (sh >= 2 && sw >= 2) {
+        peer.style.height = "100%";
+        peer.style.width = "100%";
+        stackEl.style.height = "100%";
+        stackEl.style.width = "100%";
+      }
+    }
+    if (!isPresenterFocusMode()) {
+      revalidateFabPosition();
+      if (toolbarOpen) scheduleToolbarPlacement();
+    }
+    resizeCanvas();
+  }
+
+  function syncGuestOverlayLayout(reason) {
+    syncOverlayStackLayout(reason);
   }
 
   function getStageMetrics() {
@@ -241,10 +278,9 @@
       getContentRect(),
       POINTER_HIT_NORM
     );
-    stackEl.classList.toggle(
-      "screen-overlay-stack--selection-hit",
-      !!(hit || OverlaySel?.size?.() > 0)
-    );
+    const selectionHit = !!(hit || OverlaySel?.size?.() > 0);
+    stackEl.classList.toggle("screen-overlay-stack--selection-hit", selectionHit);
+    wrapInkEl?.classList.toggle("screen-overlay-wrap-ink--selection-hit", selectionHit);
   }
 
 
@@ -265,19 +301,91 @@
     );
     stackEl.classList.add(`screen-overlay-stack--tool-${overlayTool}`);
     if (badgeEl) badgeEl.classList.toggle("hidden", !toolbarOpen);
+    syncWrapInkCapture();
   }
 
+  function firstUiLayerChromeChild(layer) {
+    return layer?.querySelector?.(
+      ":scope > .screen-overlay-fab-host, :scope > .screen-overlay-toolbar-host, :scope > .screen-overlay-annotate-dock"
+    );
+  }
+
+  function ensureWrapInkLayer() {
+    const layer = ensureOverlayUiLayer();
+    if (!layer) return null;
+    if (!wrapInkEl || wrapInkEl.parentElement !== layer) {
+      wrapInkEl = layer.querySelector(":scope > .screen-overlay-wrap-ink");
+    }
+    if (!wrapInkEl) {
+      wrapInkEl = document.createElement("div");
+      wrapInkEl.className = "screen-overlay-wrap-ink";
+      wrapInkEl.setAttribute("aria-hidden", "true");
+      const chrome = firstUiLayerChromeChild(layer);
+      if (chrome) layer.insertBefore(wrapInkEl, chrome);
+      else layer.appendChild(wrapInkEl);
+    }
+    wrapEl?.querySelector(":scope > .screen-overlay-wrap-ink")?.remove();
+    syncWrapInkCapture();
+    return wrapInkEl;
+  }
+
+  /** Tinta y puntero en #screenOverlayUiLayer (por encima del compositor de vídeo). */
+  function ensureInkOnUiLayer() {
+    const layer = ensureOverlayUiLayer();
+    if (!layer) return;
+
+    ensureWrapInkLayer();
+
+    if (!canvasEl) {
+      canvasEl = layer.querySelector(":scope > .screen-overlay-canvas");
+    }
+    if (!canvasEl) {
+      canvasEl = document.createElement("canvas");
+      canvasEl.className = "screen-overlay-canvas";
+      canvasEl.setAttribute("aria-hidden", "true");
+    }
+
+    const chrome = firstUiLayerChromeChild(layer);
+    if (canvasEl.parentElement !== layer) {
+      layer.insertBefore(canvasEl, chrome);
+    } else if (chrome && canvasEl.compareDocumentPosition(chrome) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      layer.insertBefore(canvasEl, chrome);
+    }
+    if (wrapInkEl && wrapInkEl.nextSibling !== canvasEl) {
+      layer.insertBefore(wrapInkEl, canvasEl);
+    }
+
+    stackEl?.querySelectorAll(":scope > .screen-overlay-canvas").forEach((node) => {
+      if (node !== canvasEl) node.remove();
+    });
+  }
+
+  function syncWrapInkCapture() {
+    if (!wrapInkEl) return;
+    wrapInkEl.classList.toggle("screen-overlay-wrap-ink--capture", !!toolbarOpen);
+    wrapInkEl.classList.remove(
+      "screen-overlay-wrap-ink--tool-pointer",
+      "screen-overlay-wrap-ink--tool-pencil",
+      "screen-overlay-wrap-ink--tool-eraser",
+      "screen-overlay-wrap-ink--tool-text"
+    );
+    if (toolbarOpen) {
+      wrapInkEl.classList.add(`screen-overlay-wrap-ink--tool-${overlayTool}`);
+    }
+  }
+
+  function getOverlayLayoutBox() {
+    const box = wrapEl || stageEl || stackEl;
+    return {
+      w: Math.max(1, box?.clientWidth || stackEl?.clientWidth || 1),
+      h: Math.max(1, box?.clientHeight || stackEl?.clientHeight || 1),
+    };
+  }
+
+  /** Área de tinta = todo el stack (0–1), sin recorte letterbox. */
   function getContentRect() {
-    if (!Ink || !canvasEl) {
-      const w = stackEl?.clientWidth || 1;
-      const h = stackEl?.clientHeight || 1;
-      return { x: 0, y: 0, w, h };
-    }
-    if (Ink.getVideoContentRectForOverlay) {
-      return Ink.getVideoContentRectForOverlay(videoEl, canvasEl);
-    }
-    const sz = { width: stackEl?.clientWidth || 1, height: stackEl?.clientHeight || 1 };
-    return Ink.getVideoContentRect(videoEl, sz);
+    const { w, h } = getOverlayLayoutBox();
+    return { x: 0, y: 0, w, h };
   }
 
   function scheduleDeferredResizeCanvas() {
@@ -292,8 +400,9 @@
 
   function resizeCanvas() {
     if (!canvasEl || !stackEl) return;
-    const cssW = stackEl.clientWidth;
-    const cssH = stackEl.clientHeight;
+    const { w: cssW, h: cssH } = getOverlayLayoutBox();
+    if (cssW >= 2) stackEl.style.width = "100%";
+    if (cssH >= 2) stackEl.style.height = "100%";
     if (cssW < 2 || cssH < 2) {
       scheduleDeferredResizeCanvas();
       return;
@@ -305,10 +414,8 @@
       canvasEl.width = w;
       canvasEl.height = h;
     }
-    if (fabPos) {
-      fabPos = clampFabPosition(fabPos.left, fabPos.top);
-      applyFabPosition();
-      if (toolbarOpen) positionToolbarNearFab();
+    if (toolbarOpen && !isPresenterFocusMode()) {
+      scheduleToolbarPlacement();
     }
     scheduleDraw();
   }
@@ -322,11 +429,12 @@
   }
 
   function drawOverlay() {
-    if (!canvasEl || !Ink || !stackEl) return;
-    if (stackEl.clientWidth < 2 || stackEl.clientHeight < 2) return;
+    if (!canvasEl || !Ink) return;
+    const { w: layoutW, h: layoutH } = getOverlayLayoutBox();
+    if (layoutW < 2 || layoutH < 2) return;
     const ctx = canvasEl.getContext("2d");
     if (!ctx) return;
-    const dpr = canvasEl.width / Math.max(1, stackEl?.clientWidth || 1);
+    const dpr = canvasEl.width / Math.max(1, layoutW);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
     const contentRect = getContentRect();
@@ -638,10 +746,21 @@
 
   function normFromEvent(e) {
     if (!canvasEl) return { x: 0, y: 0, inBounds: false };
-    const dpr = canvasEl.width / Math.max(1, stackEl?.clientWidth || 1);
-    const cr = getContentRect();
-    const scaled = { x: cr.x * dpr, y: cr.y * dpr, w: cr.w * dpr, h: cr.h * dpr };
-    return Ink.clientToNorm(e.clientX, e.clientY, canvasEl, scaled);
+    const box = wrapEl || stageEl || stackEl;
+    const rect = box?.getBoundingClientRect?.();
+    if (!rect?.width || !rect?.height) {
+      const dpr = canvasEl.width / Math.max(1, stackEl?.clientWidth || 1);
+      const cr = getContentRect();
+      const scaled = { x: 0, y: 0, w: cr.w * dpr, h: cr.h * dpr };
+      return Ink.clientToNorm(e.clientX, e.clientY, canvasEl, scaled);
+    }
+    const nx = (e.clientX - rect.left) / rect.width;
+    const ny = (e.clientY - rect.top) / rect.height;
+    return {
+      x: nx,
+      y: ny,
+      inBounds: nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1,
+    };
   }
 
   function eraseAtPoints(points) {
@@ -659,20 +778,33 @@
     return true;
   }
 
+  function isGuestOverlayUiTarget(el) {
+    return !!el?.closest?.(
+      ".screen-overlay-fab-host, .screen-overlay-toolbar-host, .screen-overlay-annotate-dock, .screen-overlay-side-menu, .screen-overlay-fab, .screen-overlay-text-input"
+    );
+  }
+
   function onPointerDown(e) {
+    if (isGuestOverlayUiTarget(e.target)) return;
     if (toolbarOpen && overlayTool === "pointer" && canvasEl && !activeTextInput) {
       onSelectionPointerDown(e);
       return;
     }
     if (!annotateActive || !canvasEl || activeTextInput) return;
     if (overlayTool === "pointer") return;
-    e.preventDefault();
-    try {
-      canvasEl.setPointerCapture(e.pointerId);
-    } catch (_) {}
     const p = normFromEvent(e);
-    if (!p.inBounds && overlayTool !== "eraser") return;
-    if (overlayTool === "text") return;
+    if (overlayTool === "text") {
+      if (p.inBounds) openInlineTextInput(p);
+      return;
+    }
+    e.preventDefault();
+    const captureEl = wrapInkEl || canvasEl;
+    try {
+      captureEl?.setPointerCapture?.(e.pointerId);
+    } catch (_) {}
+    if (!p.inBounds && overlayTool !== "eraser") {
+      return;
+    }
 
     drawing = true;
     if (overlayTool === "eraser") {
@@ -720,7 +852,7 @@
     if (!drawing) return;
     drawing = false;
     try {
-      canvasEl?.releasePointerCapture(e.pointerId);
+      (wrapInkEl || canvasEl)?.releasePointerCapture?.(e.pointerId);
     } catch (_) {}
     if (!currentStroke) return;
 
@@ -809,7 +941,7 @@
     input.style.fontSize = `${overlayTextSize}px`;
     input.style.color = overlayColor;
 
-    stackEl.appendChild(input);
+    (uiLayerEl || stackEl).appendChild(input);
     activeTextInput = input;
     input.focus();
 
@@ -826,21 +958,24 @@
   }
 
   function bindCanvasEvents() {
-    if (!canvasEl) return;
-    canvasEl.addEventListener("pointerdown", pointerHandlers.down);
-    canvasEl.addEventListener("pointermove", pointerHandlers.move);
-    canvasEl.addEventListener("pointerup", pointerHandlers.up);
-    canvasEl.addEventListener("pointercancel", pointerHandlers.cancel);
-    canvasEl.addEventListener("click", onCanvasClick);
+    ensureWrapInkLayer();
+    const surface = wrapInkEl || canvasEl;
+    if (!surface) return;
+    surface.addEventListener("pointerdown", pointerHandlers.down);
+    surface.addEventListener("pointermove", pointerHandlers.move);
+    surface.addEventListener("pointerup", pointerHandlers.up);
+    surface.addEventListener("pointercancel", pointerHandlers.cancel);
+    surface.addEventListener("click", onCanvasClick);
   }
 
   function unbindCanvasEvents() {
-    if (!canvasEl) return;
-    canvasEl.removeEventListener("pointerdown", pointerHandlers.down);
-    canvasEl.removeEventListener("pointermove", pointerHandlers.move);
-    canvasEl.removeEventListener("pointerup", pointerHandlers.up);
-    canvasEl.removeEventListener("pointercancel", pointerHandlers.cancel);
-    canvasEl.removeEventListener("click", onCanvasClick);
+    const surface = wrapInkEl || canvasEl;
+    if (!surface) return;
+    surface.removeEventListener("pointerdown", pointerHandlers.down);
+    surface.removeEventListener("pointermove", pointerHandlers.move);
+    surface.removeEventListener("pointerup", pointerHandlers.up);
+    surface.removeEventListener("pointercancel", pointerHandlers.cancel);
+    surface.removeEventListener("click", onCanvasClick);
   }
 
 
@@ -1061,10 +1196,6 @@
       badgeEl.className = "screen-overlay-active-badge hidden";
       badgeEl.textContent = "Anotando";
 
-      const canvas = document.createElement("canvas");
-      canvas.className = "screen-overlay-canvas";
-      canvas.setAttribute("aria-hidden", "true");
-
       const video = peerWrap.querySelector("video");
       if (video) {
         peerWrap.insertBefore(stack, video);
@@ -1072,7 +1203,6 @@
       } else {
         peerWrap.appendChild(stack);
       }
-      stack.appendChild(canvas);
       stack.appendChild(badgeEl);
     } else {
       badgeEl = stack.querySelector(".screen-overlay-active-badge");
@@ -1088,10 +1218,13 @@
 
     stackEl = stack;
     videoEl = stack.querySelector("video");
-    canvasEl = stack.querySelector(".screen-overlay-canvas");
+
+    ensureInkOnUiLayer();
 
     if (canvasEl && canvasEl !== boundPeerWrap?.canvas) {
       unbindCanvasEvents();
+      bindCanvasEvents();
+    } else if (canvasEl) {
       bindCanvasEvents();
     }
 
@@ -1112,16 +1245,20 @@
     if (resizeObserver) resizeObserver.disconnect();
     if (stageResizeObserver) stageResizeObserver.disconnect();
 
-    if (stackEl) {
+    const layoutRoot = wrapEl || stageEl;
+    if (stackEl || uiLayerEl || layoutRoot) {
       resizeObserver = new ResizeObserver(() => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(resizeCanvas, 50);
       });
-      resizeObserver.observe(stackEl);
+      if (stackEl) resizeObserver.observe(stackEl);
       if (videoEl) resizeObserver.observe(videoEl);
+      if (uiLayerEl) resizeObserver.observe(uiLayerEl);
+      if (layoutRoot && layoutRoot !== stackEl && layoutRoot !== uiLayerEl) {
+        resizeObserver.observe(layoutRoot);
+      }
     }
 
-    const layoutRoot = wrapEl || stageEl;
     if (layoutRoot) {
       lastObservedStageHeight = layoutRoot.clientHeight || 0;
       stageResizeObserver = new ResizeObserver(() => {
@@ -1160,6 +1297,9 @@
     badgeEl = null;
     boundPeerWrap = null;
     lastObservedStageHeight = 0;
+    if (wrapInkEl) {
+      wrapInkEl.classList.remove("screen-overlay-wrap-ink--capture");
+    }
   }
 
   function syncWithStage(stage) {
@@ -1177,6 +1317,7 @@
 
     ensureFab();
     ensureToolbar();
+    syncFabRefs();
 
     const peerWrap =
       stageEl.querySelector(".remote-peer--local-screen-share") ||
@@ -1189,6 +1330,8 @@
 
     ensureOverlayDom(peerWrap);
     observeResize();
+    ensureInkOnUiLayer();
+    syncOverlayStackLayout("syncWithStage");
     revalidateFabPosition();
     scheduleDeferredResizeCanvas();
   }
@@ -1244,6 +1387,8 @@
           toolbarApi?.setTool?.("pointer");
         }
         syncAnnotateCapture();
+        ensureInkOnUiLayer();
+        syncOverlayStackLayout(open ? "toolbar-open-change" : "toolbar-close");
       },
       buildToolbar: (hostEl) => {
         if (!Toolbar?.create) return null;
@@ -1254,6 +1399,7 @@
           onToolChange(tool) {
             overlayTool = tool;
             syncAnnotateCapture();
+            syncFabRefs();
           },
           onColorChange(c) {
             overlayColor = c;
@@ -1279,8 +1425,8 @@
     clear,
     destroy,
     getElementos,
-    inspectLayout,
     inspectInteractionState,
+    inspectLayout,
     getStageMetrics,
   };
 

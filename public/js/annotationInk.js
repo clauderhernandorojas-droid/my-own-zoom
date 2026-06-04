@@ -48,27 +48,10 @@
     if (!canvasRect?.width || !canvasRect?.height) {
       return { x: 0, y: 0, w: 1, h: 1 };
     }
-    let offsetX = 0;
-    let offsetY = 0;
-    let containerWidth = canvasRect.width;
-    let containerHeight = canvasRect.height;
-    if (videoEl) {
-      const videoRect = videoEl.getBoundingClientRect();
-      offsetX = videoRect.left - canvasRect.left;
-      offsetY = videoRect.top - canvasRect.top;
-      containerWidth = videoRect.width || containerWidth;
-      containerHeight = videoRect.height || containerHeight;
-    }
-    const inner = getVideoContentRect(videoEl, {
-      width: containerWidth,
-      height: containerHeight,
+    return getVideoContentRect(videoEl, {
+      width: canvasRect.width,
+      height: canvasRect.height,
     });
-    return {
-      x: offsetX + inner.x,
-      y: offsetY + inner.y,
-      w: inner.w,
-      h: inner.h,
-    };
   }
 
   /**
