@@ -1,17 +1,19 @@
-/* Layout shell web — html.moj-web-client + room-shell--web-layout + share + chat */
+/* Layout modular — solo con .room-shell--share-layout-modular durante pantalla compartida */
 
-html.moj-web-client .room-shell--web-layout .room-video-strip {
+.room-shell--share-layout-modular.room-shell--presenter-focus .room-video-strip,
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant .room-video-strip {
   display: none !important;
 }
 
-html.moj-web-client .room-shell--web-layout .room-primary {
+.room-shell--share-layout-modular.room-shell--presenter-focus .room-primary,
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant .room-primary {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-html.moj-web-client .room-shell--web-layout.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) {
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) {
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
@@ -19,12 +21,11 @@ html.moj-web-client .room-shell--web-layout.room-shell--remote-screen-dominant .
   height: 100%;
 }
 
-html.moj-web-client .room-shell--web-layout.room-shell--remote-screen-dominant .room-primary {
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant .room-primary {
   min-height: 0;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .room-screen-share-wrap:not([hidden])
   #roomRemoteScreenStage:not([hidden]) {
   flex: 1 1 0;
@@ -32,24 +33,27 @@ html.moj-web-client
   height: 100%;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .screen-overlay-stack
   > video,
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .room-remote-screen-stage
   .remote-peer
+  > video,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .screen-overlay-stack
+  > video,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .room-remote-screen-stage
+  .remote-peer:not(.remote-peer--presenter-ink-source)
   > video {
-  object-fit: cover !important;
+  object-fit: contain !important;
 }
 
-html.moj-web-client .room-shell--web-layout.room-shell--presenter-focus .room-primary {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-html.moj-web-client .room-shell--web-layout:not(.room-shell--chat-hidden) .room-chat-panel {
+.room-shell--share-layout-modular.room-shell--presenter-focus:not(.room-shell--chat-hidden)
+  .room-chat-panel,
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--chat-hidden)
+  .room-chat-panel {
   position: fixed;
   right: 0;
   top: 0;
@@ -59,24 +63,22 @@ html.moj-web-client .room-shell--web-layout:not(.room-shell--chat-hidden) .room-
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.45);
 }
 
-html.moj-web-client .room-shell--web-layout:not(.room-shell--chat-hidden) .room-body {
-  /* El chat flotante no resta ancho al área principal */
-}
-
-/* Pantalla compartida por encima del panel flotante (evita tapar vídeo y anotaciones) */
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
+  .room-screen-share-wrap:not([hidden]),
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .room-screen-share-wrap:not([hidden]) {
   position: relative;
   z-index: 50;
   isolation: isolate;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .web-float-peers-root,
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
+  .web-float-peers-pill,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .web-float-peers-root,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .web-float-peers-pill {
   z-index: 40;
 }

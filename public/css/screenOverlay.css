@@ -81,10 +81,11 @@
 
 .screen-overlay-stack--annotate-active .screen-overlay-canvas {
   cursor: crosshair;
+  pointer-events: auto !important;
 }
 
 .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open .screen-overlay-canvas {
-  pointer-events: none !important;
+  pointer-events: auto !important;
 }
 
 .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open.screen-overlay-stack--selection-hit .screen-overlay-canvas {

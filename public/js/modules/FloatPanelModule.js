@@ -396,10 +396,20 @@
     return true;
   }
 
+  function shareModularClass() {
+    return deps?.shareModularClass || "room-shell--share-layout-modular";
+  }
+
+  function suppressDesktopPresenterUi() {
+    global.UiPresenterFloat?.deactivate?.();
+    if (!global.ClientEnv?.isElectron?.()) {
+      global.UiFloatingDock?.deactivate?.();
+    }
+  }
+
   function activate() {
     ensureDom();
-    global.UiPresenterFloat?.deactivate?.();
-    global.UiFloatingDock?.deactivate?.();
+    suppressDesktopPresenterUi();
     if (!active) {
       state = loadState() || defaultState();
       const c = clampBox(state.left, state.top, state.width, state.height);
@@ -407,7 +417,9 @@
       active = true;
     }
     const shell = getShellEl();
-    shell?.classList.toggle("room-shell--web-layout", true);
+    const modClass = shareModularClass();
+    shell?.classList.toggle(modClass, true);
+    shell?.classList.remove("room-shell--web-layout");
     mountVideos();
     rootEl?.classList.remove("hidden");
     applyLayout();
@@ -420,7 +432,9 @@
     unmountVideos();
     rootEl?.classList.add("hidden");
     pillEl?.classList.add("hidden");
-    getShellEl()?.classList.toggle("room-shell--web-layout", false);
+    const shell = getShellEl();
+    shell?.classList.toggle(shareModularClass(), false);
+    shell?.classList.remove("room-shell--web-layout");
     active = false;
     drag = null;
     resizeDrag = null;
@@ -436,8 +450,7 @@
 
   function onShareLayoutChange() {
     if (!active) return;
-    global.UiPresenterFloat?.deactivate?.();
-    global.UiFloatingDock?.deactivate?.();
+    suppressDesktopPresenterUi();
     if (state) {
       const c = clampBox(state.left, state.top, state.width, state.height);
       state.left = c.left;

@@ -1,22 +1,27 @@
-/* Panel flotante participantes (web) + pointer-events con share dominante */
+/* Panel flotante participantes + pointer-events (solo share modular) */
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
+  .web-float-peers-root,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .web-float-peers-root {
   pointer-events: none;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .web-float-peers-header,
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .web-float-peers-resize-handle,
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
   .web-float-peers-pill,
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant
+  .web-float-peers-body .remote-peer,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .web-float-peers-header,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .web-float-peers-resize-handle,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .web-float-peers-pill,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .web-float-peers-body .remote-peer {
   pointer-events: auto;
 }

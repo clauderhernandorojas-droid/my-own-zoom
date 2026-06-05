@@ -1,4 +1,4 @@
-/* Layout exclusivo navegador — html.moj-web-client (Electron no carga este archivo) */
+/* Layout modular share — reglas en modules/ scoped por .room-shell--share-layout-modular */
 
 @import url("modules/layoutShell.css");
 @import url("modules/floatPanel.css");

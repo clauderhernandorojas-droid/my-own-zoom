@@ -1,24 +1,14 @@
 /**
- * WebLayoutOverrides.js — fachada temporal: Electron stubs; web → LayoutModule.
+ * WebLayoutOverrides.js — fachada a LayoutModule (web + Electron).
  */
 (function (global) {
-  if (global.__MOJ_ELECTRON) {
-    global.WebLayoutOverrides = {
-      init() {},
-      isActive: () => false,
-      onEnterRoom() {},
-      onLeaveRoom() {},
-      onShareLayoutChange() {},
-    };
-    return;
-  }
-
   const lm = global.LayoutModule;
   global.WebLayoutOverrides = {
     init: (opts) => lm?.init?.(opts),
     isActive: () => lm?.isActive?.() ?? false,
     onEnterRoom: () => lm?.onEnterRoom?.(),
     onLeaveRoom: () => lm?.onLeaveRoom?.(),
+    syncShareLayout: () => lm?.syncShareLayout?.(),
     onShareLayoutChange: () => lm?.onShareLayoutChange?.(),
   };
 })(typeof window !== "undefined" ? window : global);

@@ -1,34 +1,62 @@
-/* Invitado web: FAB/toolbar por encima de wrap-ink; pointer-events del chrome */
+/* FAB/toolbar vs canvas de tinta durante share modular (invitado y presentador) */
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-stack--annotate-active
+  .screen-overlay-canvas,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .screen-overlay-stack--annotate-active
+  .screen-overlay-canvas,
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open
+  .screen-overlay-canvas,
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open
+  .screen-overlay-canvas {
+  pointer-events: auto !important;
+}
+
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-wrap-ink.screen-overlay-wrap-ink--capture,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .screen-overlay-ui-layer
   > .screen-overlay-wrap-ink.screen-overlay-wrap-ink--capture {
   z-index: 1;
   pointer-events: auto !important;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .screen-overlay-ui-layer
   > .screen-overlay-toolbar-host {
   z-index: 62;
+  pointer-events: none;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .screen-overlay-ui-layer
   > .screen-overlay-fab-host {
   z-index: 65;
 }
 
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
   .screen-overlay-ui-layer
   > .screen-overlay-toolbar-host
   .screen-overlay-toolbar-panel,
-html.moj-web-client
-  .room-shell--web-layout.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host
+  .screen-overlay-side-menu:not(.hidden),
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .screen-overlay-ui-layer
+  > .screen-overlay-toolbar-host
+  .screen-overlay-toolbar-panel,
+.room-shell--share-layout-modular.room-shell--presenter-focus
   .screen-overlay-ui-layer
   > .screen-overlay-toolbar-host
   .screen-overlay-side-menu:not(.hidden) {

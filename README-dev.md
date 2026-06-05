@@ -215,7 +215,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 - **Medios locales**: si cámara y micrófono fallan, se intenta **solo micrófono** y, en último caso, unión con **stream vacío** y transceiver de vídeo **`recvonly`** para seguir en la sala. Los textos de estado de medios **no** se muestran bajo el título en la franja de vídeo (no hay `#mediaStatus` en esa zona); `setMediaStatus` puede seguir en código sin ese nodo en DOM.
 - **Barra de medios estilo Zoom**: controles inferiores con patrón botón principal + menú desplegable para **Audio**, **Vídeo**, **Compartir** y **Grabar**; listas de dispositivos movidas al menú (incluye acciones rápidas de refresco/reinicio de medios). Se simplificó UI quitando botones redundantes de aplicar/actualizar.
 - **Compartir pantalla y tablero**: menú con `Pantalla` / `Tablero`. Al compartir pantalla, se usa `getDisplayMedia`, se reemplaza la pista de vídeo enviada por WebRTC y al terminar se restaura la cámara automáticamente.
-- **Layout reunión en navegador (modular)**: `ClientEnv` + módulos en `public/js/modules/` (`LayoutModule`, `FloatPanelModule`, `ChatRoomUiModule`, `NotificationsModule`, `ToolbarModule`); fachada `WebLayoutOverrides` (~25 líneas). CSS en `public/css/modules/`. Electron sin cambios (stubs + sin cargar bundle web). Detalle y QA en la sección «Layout web vs Electron» más abajo.
+- **Layout reunión (modular, solo share)**: `ClientEnv` + módulos en `public/js/modules/`; activación vía `syncShareLayout()`. Paridad web/Electron al compartir; sala normal sin cambios. Detalle en «Layout modular — solo pantalla compartida».
 - **Anotaciones sobre pantalla compartida (sync en sala)**:
   - Estado **solo en RAM** en el servidor (`meetScreenShareInkByRoom` en `src/socket/index.js`), **sin persistencia** en base de datos; se limpia al dejar de compartir o al cambiar de presentador.
   - Eventos Socket: **`screenshare-annotate:update`** (el cliente envía `contenido.elementos`; el servidor sanitiza —trazos y textos únicamente— y rebroadcast); **`screenshare-annotate:state`** para enviar estado actual o vacío a quien entra durante share o cuando termina la captura.
@@ -243,38 +243,46 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Barra de medios flotante**: [`public/js/uiFloatingDock.js`](public/js/uiFloatingDock.js) — `#roomMediaControls` a `document.body`, asa `.presenter-dock-drag-handle`; `moj_presenter_float_dock_v1_<roomId>`.
     - **Clamp viewport**: [`public/js/uiFloatClamp.js`](public/js/uiFloatClamp.js) — límites para dock y panel participantes.
     - **Invitado** (`room-shell--remote-screen-dominant`): `attachRemoteScreenToStage` mueve el `.remote-peer` del sharer al stage (primero vacía peers del stage hacia `#remotesContainer`, luego `appendChild` del peer objetivo — **no** usar `stage.textContent = ""` ni devolver el peer al contenedor tras montarlo). Desocultar `#roomRemoteScreenStage` (`hidden` / `aria-hidden`). FAB lápiz flotante en capa UI (no dock).
-  - **Layout web vs Electron (navegador)**:
-    - **Entorno**: [`public/js/clientEnv.js`](public/js/clientEnv.js) — `ClientEnv.isElectron()` / `isWeb()` / `isWebLayoutEnabled()` desde `window.__MOJ_ELECTRON` (preload). Solo el bootstrap y la fachada leen Electron; los módulos de feature no ramifican por rol.
-    - **Fachada**: [`public/js/WebLayoutOverrides.js`](public/js/WebLayoutOverrides.js) — stubs en Electron; en web reexporta [`LayoutModule`](public/js/modules/LayoutModule.js). `index.html` sigue usando `window.WebLayoutOverrides?.` en hooks de sala.
-    - **Módulos web** (`public/js/modules/`):
+  - **Layout modular — solo pantalla compartida (web + Electron, todos los roles)**:
+    - **Alcance**: panel flotante `#webFloatPeersRoot` y CSS modular para **presentador, docente, estudiante e invitado** (web y Electron) cuando hay share (`presenter-focus` o `remote-screen-dominant`). Fuera de share la sala no cambia.
+    - **Vídeo en invitados**: depende de `meet:screenShare` → `remoteScreenShareUserId` → `attachRemoteScreenToStage` (con reintentos si el track WebRTC llega tarde) → clases `remote-screen-dominant` + `share-layout-modular`. El presentador ya ve su captura local en stage; los invitados deben ver el peer remoto con `inspectLayout().stream.videoWidth > 0`.
+    - **Clase activa**: `room-shell--share-layout-modular` (`FloatPanelModule`). CSS en [`public/css/modules/`](public/css/modules/) scoped por esa clase (no depende de `html.moj-web-client`; Electron también aplica reglas).
+    - **Entorno**: [`public/js/clientEnv.js`](public/js/clientEnv.js) — `isElectron()` / `isWeb()` desde `__MOJ_ELECTRON` o `mojElectron` (defensivo). Sin `localStorage` ni rol. `isShareLayoutActive(shell)` detecta share.
+    - **Fachada**: [`public/js/WebLayoutOverrides.js`](public/js/WebLayoutOverrides.js) delega siempre a [`LayoutModule`](public/js/modules/LayoutModule.js) (web y Electron). Activación: `updateRemoteScreenShareLayout()` → `WebLayoutOverrides.syncShareLayout()`.
+    - **Módulos** (`public/js/modules/`):
       | Módulo | Responsabilidad | API principal |
       |--------|-----------------|---------------|
-      | `LayoutModule` | Orquestación al entrar/salir y share | `init`, `onEnterRoom`, `onLeaveRoom`, `onShareLayoutChange` |
-      | `FloatPanelModule` | `#webFloatPeersRoot`, reparent `#videos`, snap, `localStorage` | `init`, `activate`, `deactivate`, `onShareLayoutChange` |
-      | `ChatRoomUiModule` | Panel chat + botón barra (no socket/mensajes) | `bindBottomBar`, `onEnterRoomWeb`, `toggleFromBar` |
-      | `NotificationsModule` | Fachada sobre `notificaciones.js` | `init`, `getTotalUnread` |
-      | `ToolbarModule` | Política z-index chrome (FAB/toolbar vs tinta) | `initWebLayerPolicy`, `getBottomUiReserve` |
-    - **CSS modular** (solo `html.moj-web-client`): [`webOverrides.css`](public/css/webOverrides.css) importa [`layoutShell.css`](public/css/modules/layoutShell.css), [`floatPanel.css`](public/css/modules/floatPanel.css), [`toolbarWeb.css`](public/css/modules/toolbarWeb.css). Electron: hoja con `media="not all"` — sin impacto.
-    - **Share / roles**: sin ramas por rol en módulos web; clases `room-shell--presenter-focus` / `room-shell--remote-screen-dominant` las alterna [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) (`enablePresenterDesktopUi: isElectronClient()`).
-    - **Panel flotante web** (`#webFloatPeersRoot`): en `FloatPanelModule`; `avoidStageOverlap()` si tapa `#roomRemoteScreenStage`; con share dominante, cuerpo del panel `pointer-events: none`.
-    - **Chat web**: `ChatRoomUiModule.onEnterRoomWeb()` oculta chat al entrar; `bindBottomBar` en `initRoomChatBarModules()`; toggle abrir/cerrar en web vía barra inferior.
-    - **Anotaciones web (invitado)**: reglas en `toolbarWeb.css` — `wrap-ink` z-index 1; toolbar 62, FAB 65; host toolbar `pointer-events: none`, panel/menús `auto`. Tinta sigue en `screenOverlay.js` / `PencilFabToolbar.js`.
-    - **Electron**: sin `moj-web-client`; `UiPresenterFloat` + `UiFloatingDock`; no se cargan scripts de módulos web.
+      | `LayoutModule` | Orquestación share | `init`, `syncShareLayout`, `onLeaveRoom` |
+      | `FloatPanelModule` | Panel flotante participantes | `activate` / `deactivate` según share |
+      | `ChatRoomUiModule` | Chat + barra | `bindBottomBar`, `onShareLayoutEnter` |
+      | `NotificationsModule` | Badge no-leídos | `init`, `getTotalUnread` |
+      | `ToolbarModule` | Solo política CSS de capas | `initWebLayerPolicy` |
+    - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationInk.js`](public/js/annotationInk.js). **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
+    - **Caché de assets**: al desplegar, misma query `?v=20250604c` en `clientEnv`, módulos layout, `roomScreenShareLayout`, `screenOverlay`, `webOverrides.css` e `index.html` (recarga forzada en todas las ventanas de prueba).
+    - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`, `enablePresenterMediaDock: isElectronClient()` (dock nativo; sin panel superior `UiPresenterFloat` en share).
+    - **Probe DevTools** (comparar presentador vs invitado con share activo):
+      ```js
+      ({
+        electron: !!window.__MOJ_ELECTRON,
+        hasSyncShareLayout: typeof WebLayoutOverrides?.syncShareLayout === "function",
+        remoteDominant: document.getElementById("roomShell")?.classList.contains("room-shell--remote-screen-dominant"),
+        presenterFocus: document.getElementById("roomShell")?.classList.contains("room-shell--presenter-focus"),
+        shareModular: document.getElementById("roomShell")?.classList.contains("room-shell--share-layout-modular"),
+        floatPanel: !!document.getElementById("webFloatPeersRoot") && !document.getElementById("webFloatPeersRoot")?.classList.contains("hidden"),
+        overlay: ScreenOverlay?.inspectLayout?.(),
+        inkCapture: document.querySelector(".screen-overlay-stack--annotate-active .screen-overlay-canvas") &&
+          getComputedStyle(document.querySelector(".screen-overlay-stack--annotate-active .screen-overlay-canvas")).pointerEvents,
+      })
+      ```
+      Invitado esperado: `remoteDominant` + `shareModular` + `overlay.stream.videoWidth > 0` + `inkCapture === "auto"` (con toolbar abierta y herramienta lápiz).
     - **Smoke**: `node scripts/test-web-layout-modules.cjs`
-    - **QA web (todos los roles en navegador)**:
-      - [ ] Invitado + share remoto: stage grande; panel no tapa centro; dibujo en todo el stage
-      - [ ] Presentador web + share local: layout web sin panel presentador Electron; FAB overlay OK
-      - [ ] Admin en sala: mismo layout según share activo
-      - [ ] Chat oculto al entrar; botón barra abre/cierra; badge actualiza
-      - [ ] Herramientas lápiz/texto/borrador con barra izquierda/derecha; texto abre input en stage
-    - **QA Electron**:
-      - [ ] Sin `moj-web-client`; presentador panel + dock; invitado franja fija
-      - [ ] Consola sin `WebLayoutOverrides is not defined`
+    - **QA — sin share**: galería habitual; chat no forzado oculto al entrar; sin panel flotante ni `share-layout-modular`.
+    - **QA — con share (prof/invitado, web/Electron)**: misma UI; vídeo visible (`inspectLayout`: `video.videoWidth > 0`); lápiz dibuja; `__MOJ_ELECTRON` en cada ventana Electron; dock + captura nativos OK en presentador Electron.
     - **Overlay peer**: `syncWithStage` enlaza canvas al peer visible (`.remote-peer--local-screen-share` o `:not(.remote-peer--presenter-ink-source)`), no al peer oculto de tinta (`.remote-peer--presenter-ink-source`, 1×1 px para geometría).
     - **Auth / entrar a sala**: `bindAuthUi()` debe ejecutarse **después** de declarar `let authUiBound` en `index.html` (evita TDZ). `ScreenOverlay.init` en `try/catch` tras el bind.
   - **Módulos overlay (v3)**:
-    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — canvas, socket, historial local undo/redo; delega FAB/toolbar/dock a `PencilFabToolbar.create()`.
-    - [`public/js/PencilFabToolbar.js`](public/js/PencilFabToolbar.js) — FAB flotante (invitado) y dock de anotación (presentador); callbacks `getIsPresenterFocus`, `getStageEl`, `buildToolbar` — **no** usar variable `deps` dentro del módulo.
+    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — canvas, socket, FAB y toolbar (`ensureFab` / `ensureToolbar` + `UiAnnotationToolbar`); historial local undo/redo.
+    - [`public/js/PencilFabToolbar.js`](public/js/PencilFabToolbar.js) — alternativa de FAB/dock (cargado en `index.html`; **no** usado por `screenOverlay.js` en el flujo actual).
     - [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) — barra reutilizable (IDs propios).
     - [`public/js/annotationInk.js`](public/js/annotationInk.js) — geometría 0–1 y dibujo.
     - [`public/js/overlaySeleccion.js`](public/js/overlaySeleccion.js) — selección/marquee en coords norm.
@@ -769,4 +777,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: junio 2026 — Layout web modular (`clientEnv.js`, módulos en `public/js/modules/`, CSS en `public/css/modules/`, fachada `WebLayoutOverrides`); Electron sin regresiones.*
+*Última actualización de este documento: junio 2026 — Share invitados: `attachRemoteScreenToStage` con reintento; canvas `pointer-events` para anotaciones; `?v=20250604c`; `object-fit: contain` en layout modular.*

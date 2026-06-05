@@ -15,9 +15,13 @@
     return global.ClientEnv?.isWeb?.() ?? !global.__MOJ_ELECTRON;
   }
 
-  function onEnterRoomWeb() {
-    if (!isWebEnv()) return;
+  /** Ocultar chat al entrar en modo pantalla compartida (todos los entornos). */
+  function onShareLayoutEnter() {
     deps?.setChatPanelHidden?.(true);
+  }
+
+  function onEnterRoomWeb() {
+    onShareLayoutEnter();
   }
 
   function toggleFromBar() {
@@ -53,6 +57,7 @@
   global.ChatRoomUiModule = {
     init,
     bindBottomBar,
+    onShareLayoutEnter,
     onEnterRoomWeb,
     toggleFromBar,
   };

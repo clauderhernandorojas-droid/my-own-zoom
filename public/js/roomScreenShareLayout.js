@@ -7,6 +7,11 @@
   let presenterFocusActive = false;
   /** @type {HTMLElement | null} */
   let presenterInkPeerWrap = null;
+  let attachRemoteRetryRaf = 0;
+  let attachRemoteRetryCount = 0;
+  const ATTACH_REMOTE_MAX_RETRIES = 4;
+  /** @type {HTMLVideoElement | null} */
+  let attachRemoteVideoListener = null;
 
   function init(options = {}) {
     deps = options;
@@ -55,16 +60,22 @@
     return wrap;
   }
 
-  function usePresenterDesktopUi() {
-    return deps?.enablePresenterDesktopUi !== false;
+  function usePresenterFloatUi() {
+    return deps?.enablePresenterFloatUi === true;
+  }
+
+  function usePresenterMediaDock() {
+    return deps?.enablePresenterMediaDock !== false;
   }
 
   function exitPresenterFocusUi() {
     presenterFocusActive = false;
     const shell = $("roomShell");
     shell?.classList.remove("room-shell--presenter-focus");
-    if (usePresenterDesktopUi()) {
+    if (usePresenterFloatUi()) {
       global.UiPresenterFloat?.deactivate?.();
+    }
+    if (usePresenterMediaDock()) {
       global.UiFloatingDock?.deactivate?.();
     }
     teardownPresenterInkPeer();
@@ -94,14 +105,15 @@
       stage.insertBefore(shareWrap, stage.firstChild);
     }
     ensurePresenterInkPeer();
-    if (usePresenterDesktopUi()) {
+    if (usePresenterFloatUi()) {
       global.UiPresenterFloat?.activate?.();
+    }
+    if (usePresenterMediaDock()) {
       global.UiFloatingDock?.activate?.();
     }
     const onResize = () => {
-      if (!usePresenterDesktopUi()) return;
-      global.UiPresenterFloat?.reclamp?.();
-      global.UiFloatingDock?.reclamp?.();
+      if (usePresenterFloatUi()) global.UiPresenterFloat?.reclamp?.();
+      if (usePresenterMediaDock()) global.UiFloatingDock?.reclamp?.();
     };
     if (!global.__mojPresenterFloatResizeBound) {
       global.__mojPresenterFloatResizeBound = true;
@@ -111,12 +123,72 @@
     deps?.ScreenOverlay?.syncWithStage?.(stage);
   }
 
+  function unbindSharerVideoMetadata() {
+    if (attachRemoteVideoListener) {
+      attachRemoteVideoListener.removeEventListener(
+        "loadedmetadata",
+        onSharerVideoMetadata
+      );
+      attachRemoteVideoListener.removeEventListener("loadeddata", onSharerVideoMetadata);
+      attachRemoteVideoListener = null;
+    }
+  }
+
+  function clearAttachRemoteRetry() {
+    if (attachRemoteRetryRaf) {
+      cancelAnimationFrame(attachRemoteRetryRaf);
+      attachRemoteRetryRaf = 0;
+    }
+    attachRemoteRetryCount = 0;
+    unbindSharerVideoMetadata();
+  }
+
+  function onSharerVideoMetadata() {
+    const stage = $("roomRemoteScreenStage");
+    if (!stage || stage.hidden) return;
+    if (attachRemoteScreenToStage()) {
+      deps?.ScreenOverlay?.syncWithStage?.(stage);
+      clearAttachRemoteRetry();
+    }
+  }
+
+  function bindSharerVideoMetadata(video) {
+    if (!video || attachRemoteVideoListener === video) return;
+    unbindSharerVideoMetadata();
+    attachRemoteVideoListener = video;
+    video.addEventListener("loadedmetadata", onSharerVideoMetadata);
+    video.addEventListener("loadeddata", onSharerVideoMetadata);
+  }
+
+  function scheduleAttachRemoteRetry() {
+    if (attachRemoteRetryRaf) return;
+    const tick = () => {
+      attachRemoteRetryRaf = 0;
+      const stage = $("roomRemoteScreenStage");
+      if (!stage || stage.hidden) {
+        clearAttachRemoteRetry();
+        return;
+      }
+      if (attachRemoteScreenToStage()) {
+        deps?.ScreenOverlay?.syncWithStage?.(stage);
+        clearAttachRemoteRetry();
+        return;
+      }
+      attachRemoteRetryCount += 1;
+      if (attachRemoteRetryCount < ATTACH_REMOTE_MAX_RETRIES) {
+        attachRemoteRetryRaf = requestAnimationFrame(tick);
+      }
+    };
+    attachRemoteRetryRaf = requestAnimationFrame(tick);
+  }
+
+  /** @returns {boolean} true si el peer del sharer quedó en el stage */
   function attachRemoteScreenToStage() {
     const stage = $("roomRemoteScreenStage");
     const rc = $("remotesContainer");
-    if (!stage || !rc || !deps?.remoteVideos || !deps?.peerSocketToUserId) return;
+    if (!stage || !rc || !deps?.remoteVideos || !deps?.peerSocketToUserId) return false;
     const uid = String(deps.getRemoteScreenShareUserId?.() || "").trim().toLowerCase();
-    if (!uid) return;
+    if (!uid) return false;
     let targetVideo = null;
     for (const [socketId, vid] of deps.remoteVideos.entries()) {
       const u = deps.peerSocketToUserId.get(socketId);
@@ -125,15 +197,19 @@
         break;
       }
     }
-    if (!targetVideo) return;
+    if (!targetVideo) return false;
     const peerWrap = targetVideo.closest?.(".remote-peer");
-    if (!peerWrap) return;
+    if (!peerWrap) return false;
     deps?.moveStageRemotePeersToContainer?.(stage, rc);
     if (peerWrap.parentElement !== stage) {
       stage.appendChild(peerWrap);
     }
     const vid = peerWrap.querySelector("video");
-    if (vid) vid.play?.().catch(() => {});
+    if (vid) {
+      vid.play?.().catch(() => {});
+      bindSharerVideoMetadata(vid);
+    }
+    return peerWrap.parentElement === stage;
   }
 
   function updateRemoteScreenShareLayout() {
@@ -174,10 +250,12 @@
         stage.removeAttribute("hidden");
         stage.setAttribute("aria-hidden", "false");
       }
-      attachRemoteScreenToStage();
+      const attached = attachRemoteScreenToStage();
       deps.applyRemoteScreenShareStripSizing?.();
       deps.ScreenOverlay?.syncWithStage?.($("roomRemoteScreenStage"));
+      if (!attached) scheduleAttachRemoteRetry();
     } else {
+      clearAttachRemoteRetry();
       shell.classList.remove("room-shell--remote-screen-dominant");
       $("videos")?.classList.remove("room-videos--screen-dominant");
       const wrap = $("roomScreenShareWrap");
@@ -196,6 +274,7 @@
   }
 
   function onLeaveRoom() {
+    clearAttachRemoteRetry();
     exitPresenterFocusUi();
     const shell = $("roomShell");
     shell?.classList.remove("room-shell--remote-screen-dominant");

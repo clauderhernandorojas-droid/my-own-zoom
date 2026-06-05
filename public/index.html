@@ -4,9 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Own Zoom — Cliente</title>
+  <script src="/js/clientEnv.js?v=20250604c"></script>
   <script>
     (function () {
-      if (window.__MOJ_ELECTRON) return;
+      if (window.ClientEnv?.isElectron?.()) return;
       document.documentElement.classList.add("moj-web-client");
     })();
   </script>
@@ -14,13 +15,7 @@
   <link rel="stylesheet" href="/css/screenOverlay.css" />
   <link rel="stylesheet" href="/css/presenterFocus.css" />
   <link rel="stylesheet" href="/css/uiPresenterFloat.css" />
-  <link rel="stylesheet" href="/css/webOverrides.css?v=20250603m" media="not all" id="mojWebOverridesCss" />
-  <script>
-    if (!window.__MOJ_ELECTRON) {
-      var _mojWebCss = document.getElementById("mojWebOverridesCss");
-      if (_mojWebCss) _mojWebCss.media = "all";
-    }
-  </script>
+  <link rel="stylesheet" href="/css/webOverrides.css?v=20250604c" media="all" id="mojWebOverridesCss" />
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
@@ -33,7 +28,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js" crossorigin="anonymous"></script>
   <script src="/js/videoEffects.js"></script>
   <script src="/js/notificaciones.js"></script>
-  <script src="/js/uiBarra.js?v=20250603l"></script>
+  <script src="/js/uiBarra.js?v=20250604c"></script>
   <script src="/js/uiExpulsion.js"></script>
   <script src="/js/uiMiniPlayer.js"></script>
   <script src="/js/screenShare.js"></script>
@@ -47,20 +42,15 @@
   <script src="/js/uiFloatClamp.js"></script>
   <script src="/js/uiPresenterFloat.js"></script>
   <script src="/js/uiFloatingDock.js"></script>
-  <script src="/js/roomScreenShareLayout.js?v=20250603l"></script>
-  <script>
-    if (!window.__MOJ_ELECTRON) {
-      document.write('<script src="/js/clientEnv.js?v=20250603m"><\/script>');
-      document.write('<script src="/js/modules/NotificationsModule.js?v=20250603m"><\/script>');
-      document.write('<script src="/js/modules/FloatPanelModule.js?v=20250603m"><\/script>');
-      document.write('<script src="/js/modules/ChatRoomUiModule.js?v=20250603m"><\/script>');
-      document.write('<script src="/js/modules/ToolbarModule.js?v=20250603m"><\/script>');
-      document.write('<script src="/js/modules/LayoutModule.js?v=20250603m"><\/script>');
-      document.write('<script src="/js/WebLayoutOverrides.js?v=20250603m"><\/script>');
-    }
-  </script>
-  <script src="/js/PencilFabToolbar.js?v=20250603f"></script>
-  <script src="/js/screenOverlay.js?v=20250603l"></script>
+  <script src="/js/roomScreenShareLayout.js?v=20250604c"></script>
+  <script src="/js/modules/NotificationsModule.js?v=20250604c"></script>
+  <script src="/js/modules/FloatPanelModule.js?v=20250604c"></script>
+  <script src="/js/modules/ChatRoomUiModule.js?v=20250604c"></script>
+  <script src="/js/modules/ToolbarModule.js?v=20250604c"></script>
+  <script src="/js/modules/LayoutModule.js?v=20250604c"></script>
+  <script src="/js/WebLayoutOverrides.js?v=20250604c"></script>
+  <script src="/js/PencilFabToolbar.js?v=20250604c"></script>
+  <script src="/js/screenOverlay.js?v=20250604c"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -3209,7 +3199,7 @@
     const isLikelyRenderHost = () =>
       typeof location !== "undefined" && /\.onrender\.com$/i.test(String(location.hostname || ""));
     function isElectronClient() {
-      return !!window.__MOJ_ELECTRON;
+      return window.ClientEnv?.isElectron?.() ?? !!window.__MOJ_ELECTRON;
     }
     function isWebClient() {
       return !isElectronClient();
@@ -4504,7 +4494,7 @@
       if (typeof RoomScreenShareLayout !== "undefined") {
         RoomScreenShareLayout.updateRemoteScreenShareLayout();
       }
-      window.WebLayoutOverrides?.onShareLayoutChange?.();
+      window.WebLayoutOverrides?.syncShareLayout?.();
     }
 
     if (typeof RoomScreenShareLayout !== "undefined") {
@@ -4527,7 +4517,8 @@
         ScreenOverlay: typeof ScreenOverlay !== "undefined" ? ScreenOverlay : undefined,
         getScreenShareStream: () => screenShareStream,
         getScreenShareTrack: () => screenShareTrack,
-        enablePresenterDesktopUi: isElectronClient(),
+        enablePresenterFloatUi: false,
+        enablePresenterMediaDock: isElectronClient(),
       });
     }
 
@@ -7769,7 +7760,7 @@ body.print-calendar-export {
         applyRoomVideoStripSizing();
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
-      window.WebLayoutOverrides?.onEnterRoom?.();
+      window.WebLayoutOverrides?.syncShareLayout?.();
     }
 
     function parseRoute() {
@@ -13183,7 +13174,7 @@ body.print-calendar-export {
         location.hash = getToken() ? "#/lobby" : "#/login";
         _suppressHashRoute = false;
       }
-      if (window.ClientEnv?.isWebLayoutEnabled?.() && window.WebLayoutOverrides) {
+      if (window.WebLayoutOverrides) {
         WebLayoutOverrides.init({
           $,
           getActiveRoomId: () => activeRoomId,
