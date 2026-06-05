@@ -170,6 +170,21 @@
   pointer-events: auto;
 }
 
+.room-shell.room-shell--presenter-focus .room-screen-share-wrap:not([hidden]) .screen-overlay-ui-layer,
+.room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) .screen-overlay-ui-layer {
+  min-height: 100%;
+  width: 100%;
+}
+
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host,
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host {
+  z-index: 1900;
+}
+
 /* Dock de anotación (modo presentador) */
 .screen-overlay-annotate-dock {
   position: absolute;

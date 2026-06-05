@@ -180,6 +180,61 @@ if (!/if\s*\(\s*!initialized\s*\)[\s\S]*init\s*\(\s*deps\s*\)/.test(lmSrc)) {
   console.error("LayoutModule.js: syncShareLayout must call init(deps) when !initialized");
   failed++;
 }
+if (!lmSrc.includes("onEnterRoom") || !/isShareActive\(\)[\s\S]*resyncScreenOverlay/.test(lmSrc)) {
+  console.error("LayoutModule.js: onEnterRoom must resync overlay when share active");
+  failed++;
+}
+if (!lmSrc.includes("resyncScreenOverlay") || !/ScreenOverlay\.syncWithStage/.test(lmSrc)) {
+  console.error("LayoutModule.js: resyncScreenOverlay must call ScreenOverlay.syncWithStage");
+  failed++;
+}
+
+const soSrc = fs.readFileSync(path.join(root, "screenOverlay.js"), "utf8");
+if (!soSrc.includes("ensureFab") || !/ensureOverlayUiLayer|screenOverlayUiLayer/.test(soSrc)) {
+  console.error("screenOverlay.js: ensureFab must mount in screenOverlayUiLayer");
+  failed++;
+}
+if (!soSrc.includes("isFabStageReady") || !soSrc.includes("isOverlayInkReady")) {
+  console.error("screenOverlay.js: FAB stage gate must be separate from ink gate");
+  failed++;
+}
+if (!/fabHostEl\.isConnected/.test(soSrc)) {
+  console.error("screenOverlay.js: ensureFab must reset disconnected fabHostEl");
+  failed++;
+}
+if (!/scheduleFabPositionWhenReady/.test(soSrc)) {
+  console.error("screenOverlay.js: deferred FAB reposition when layout not ready");
+  failed++;
+}
+if (!soSrc.includes("fabConnected") || !soSrc.includes("fabVisible")) {
+  console.error("screenOverlay.js: inspectLayout must expose fabConnected/fabVisible");
+  failed++;
+}
+
+if (!/min-height:\s*100%/.test(overlayCss) || !/z-index:\s*1900/.test(overlayCss)) {
+  console.error("screenOverlay.css: share ui-layer min-height and FAB z-index 1900 required");
+  failed++;
+}
+if (!/\.screen-overlay-fab-host[\s\S]*position:\s*absolute/.test(overlayCss)) {
+  console.error("screenOverlay.css: fab-host must use position absolute");
+  failed++;
+}
+
+const fpSrc = fs.readFileSync(path.join(root, "modules", "FloatPanelModule.js"), "utf8");
+if (!fpSrc.includes("screen-overlay-fab-host") || !fpSrc.includes("fabZone")) {
+  console.error("FloatPanelModule.js: avoidStageOverlap must respect FAB zone");
+  failed++;
+}
+
+const indexHtml = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+if (!indexHtml.includes("screenOverlay.js?v=20250610a")) {
+  console.error("index.html: screenOverlay.js cache-bust missing");
+  failed++;
+}
+if (!indexHtml.includes("onEnterRoom")) {
+  console.error("index.html: showRoom must call WebLayoutOverrides.onEnterRoom");
+  failed++;
+}
 
 const rssSrc = fs.readFileSync(path.join(root, "roomScreenShareLayout.js"), "utf8");
 if (!rssSrc.includes("scheduleAttachRemoteRetry") || !rssSrc.includes("ATTACH_REMOTE_MAX_RETRIES")) {

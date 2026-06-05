@@ -772,6 +772,23 @@ function attachSocketIO(io) {
       }
     });
 
+    socket.on('meet:screenShare:trackRefresh', async ({ roomId }) => {
+      try {
+        const roomKey = normRoomId(roomId || socket.data.roomId);
+        if (!roomKey) return;
+        const reunion = await obtenerReunionPorRoom(roomKey);
+        if (!reunion || !(await usuarioEnReunion(userId, reunion.reunionId))) return;
+        const canonicalRoomId = normRoomId(reunion.roomId) || roomKey;
+        const sharer = meetScreenShareSharer.get(canonicalRoomId);
+        if (!sharer || !sameUsuarioId(sharer, userId)) return;
+        socket.to(canonicalRoomId).emit('meet:screenShare:trackRefresh', {
+          roomId: canonicalRoomId,
+        });
+      } catch (e) {
+        console.error('meet:screenShare:trackRefresh error', e);
+      }
+    });
+
     socket.on('meet:screenShare', async ({ roomId, active }) => {
       try {
         const roomKey = normRoomId(roomId || socket.data.roomId);

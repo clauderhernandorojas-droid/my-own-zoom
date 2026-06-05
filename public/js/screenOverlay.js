@@ -207,10 +207,42 @@
     return uiLayerEl;
   }
 
-  function isStageActive() {
-    if (!stageEl || stageEl.hidden || !Ink) return false;
+  function isFabStageReady() {
+    if (!stageEl || stageEl.hidden) return false;
     if (wrapEl?.hidden) return false;
     return true;
+  }
+
+  function isOverlayInkReady() {
+    return !!Ink;
+  }
+
+  function isStageActive() {
+    return isFabStageReady() && isOverlayInkReady();
+  }
+
+  function fabVisibleInViewport(fabHost) {
+    if (!fabHost?.isConnected) return false;
+    const r = fabHost.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const vw = global.innerWidth || document.documentElement?.clientWidth || 0;
+    const vh = global.innerHeight || document.documentElement?.clientHeight || 0;
+    return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+  }
+
+  function scheduleFabPositionWhenReady() {
+    const metrics = getStageMetrics();
+    if (metrics.h >= 2 && metrics.w >= 2) {
+      revalidateFabPosition();
+      return;
+    }
+    global.requestAnimationFrame(() => {
+      revalidateFabPosition();
+      const m = getStageMetrics();
+      if (m.h < 2 || m.w < 2) {
+        global.requestAnimationFrame(() => revalidateFabPosition());
+      }
+    });
   }
 
   function defaultFabPosition() {
@@ -1459,8 +1491,12 @@
   }
 
   function ensureFab() {
-    if (!stageEl) return;
+    if (!stageEl || !isFabStageReady()) return;
     removeOrphanOverlayUiFromStage();
+    if (fabHostEl && !fabHostEl.isConnected) {
+      fabHostEl = null;
+      fabEl = null;
+    }
     if (fabHostEl) return;
     const layer = ensureOverlayUiLayer();
     if (!layer) return;
@@ -1511,10 +1547,14 @@
   }
 
   function ensureToolbar() {
-    if (!stageEl) return;
+    if (!stageEl || !isFabStageReady()) return;
     removeOrphanOverlayUiFromStage();
     const layer = ensureOverlayUiLayer();
     if (!layer) return;
+    if (toolbarHostEl && !toolbarHostEl.isConnected) {
+      toolbarHostEl = null;
+      toolbarApi = null;
+    }
     if (toolbarApi && toolbarHostEl && toolbarHostEl.parentElement === layer) return;
     removeToolbar();
 
@@ -1700,9 +1740,14 @@
 
     const stageCs = stage ? getComputedStyle(stage) : null;
     const metrics = getStageMetrics();
+    const fabBtn = fabHost?.querySelector?.(".screen-overlay-fab");
 
     return {
       toolbarOpen,
+      inkLoaded: isOverlayInkReady(),
+      fabStageReady: isFabStageReady(),
+      fabConnected: !!(fabHost && fabHost.isConnected),
+      fabVisible: fabVisibleInViewport(fabHost),
       shellClasses: shell ? [...shell.classList] : [],
       stageHidden: !!stage?.hidden,
       wrapHidden: !!wrap?.hidden,
@@ -1727,6 +1772,7 @@
       wrap: elInfo(wrap),
       uiLayer: elInfo(uiLayer),
       fabHost: elInfo(fabHost),
+      fabButton: elInfo(fabBtn),
       toolbarHost: elInfo(toolbarHost),
       stage: elInfo(stage),
       peer: elInfo(peer),
@@ -1755,7 +1801,7 @@
   }
 
   function ensureOverlayDom(peerWrap) {
-    if (!peerWrap || !Ink) return null;
+    if (!peerWrap || !isOverlayInkReady()) return null;
 
     let stack = peerWrap.querySelector(".screen-overlay-stack");
     if (!stack) {
@@ -1881,7 +1927,7 @@
 
   function syncWithStage(stage) {
     resolveStageContainers(stage);
-    if (!isStageActive()) {
+    if (!isFabStageReady()) {
       setToolbarOpen(false);
       detachOverlay();
       removeFab();
@@ -1894,6 +1940,13 @@
 
     ensureFab();
     ensureToolbar();
+    scheduleFabPositionWhenReady();
+
+    if (!isOverlayInkReady()) {
+      setToolbarOpen(false);
+      detachOverlay();
+      return;
+    }
 
     const peerWrap = resolveSharePeerWrap(stageEl);
     if (!peerWrap) {

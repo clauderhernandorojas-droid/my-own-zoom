@@ -221,6 +221,20 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - Eventos Socket: **`screenshare-annotate:update`** (el cliente envía `contenido.elementos`; el servidor sanitiza —trazos y textos únicamente— y rebroadcast); **`screenshare-annotate:state`** para enviar estado actual o vacío a quien entra durante share o cuando termina la captura.
   - **Cliente (MVP implementado)**: módulos [`public/js/screenOverlay.js`](public/js/screenOverlay.js), [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js), [`public/js/annotationInk.js`](public/js/annotationInk.js) y estilos [`public/css/screenOverlay.css`](public/css/screenOverlay.css). Overlay sobre `#roomRemoteScreenStage` con canvas transparente, coords **normalizadas 0–1** respecto al rectángulo útil del vídeo (`object-fit: contain`, misma lógica que la grabación compuesta).
   - **UX FAB lápiz (por participante)**: botón circular arrastrable (inicial abajo-izquierda) despliega una **barra vertical estilo tablero** encima del FAB; **clic** = abrir/cerrar panel; **arrastre** = reubicar sin toggle. Posición persistida en `localStorage` (`moj_screen_overlay_fab_pos_v2`; la clave legacy se migra o resetea). Panel: puntero, lápiz, borrador, texto, colores, grosor, tamaño, Undo/Redo (barra inferior tipo `#boardBottomBar`) y botón **×**; `Escape` o segundo clic FAB cierran. La captura del canvas solo se activa con lápiz, borrador o texto (puntero = passthrough). Las trazos sincronizados vía socket permanecen visibles al cerrar el panel.
+  - **FAB lápiz — inicialización y diagnóstico**:
+    - **Cuándo aparece**: solo con pantalla compartida activa (`room-shell--presenter-focus` o `room-shell--remote-screen-dominant` + `#roomScreenShareWrap` / `#roomRemoteScreenStage` visibles). No se monta en galería sin share.
+    - **Cadena de montaje**: `updateRemoteScreenShareLayout()` → [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) → `ScreenOverlay.syncWithStage(#roomRemoteScreenStage)` → `ensureFab()` en `#screenOverlayUiLayer`. [`LayoutModule`](public/js/modules/LayoutModule.js) solo re-sincroniza vía `resyncScreenOverlay()` cuando hay share; [`ToolbarModule`](public/js/modules/ToolbarModule.js) y [`PencilFabToolbar.js`](public/js/PencilFabToolbar.js) **no** montan el FAB del flujo principal.
+    - **`syncAnnotateCapture()`** controla pointer-events del canvas al abrir toolbar / cambiar herramienta; **no** afecta la visibilidad del FAB.
+    - **Probe DevTools** (con share activo):
+      ```js
+      ({ ScreenOverlay: !!ScreenOverlay, Ink: !!AnnotationInk })
+      ScreenOverlay.inspectLayout()
+      // fabConnected, fabVisible, fabStageReady, inkLoaded, fabHost, uiLayer
+      ScreenOverlay.inspectInteractionState()
+      document.querySelector('#screenOverlayUiLayer .screen-overlay-fab')?.getBoundingClientRect()
+      ScreenOverlay.syncWithStage(document.getElementById('roomRemoteScreenStage'))
+      ```
+    - **Checklist visual**: botón azul ~44×44 px (✏️), abajo-izquierda del área de share; clic abre toolbar (`inspectInteractionState().toolbarOpen === true`). Si no aparece: borrar `moj_screen_overlay_fab_pos*` en localStorage; recarga forzada con `screenOverlay.js?v=20250610a`.
   - **Nota técnica**: el overlay **no** reutiliza las clases `board-ol` / `board-ol--vbar` del tablero (evita posicionamiento absoluto fijo que ocultaba la barra). Estilos scoped en [`public/css/screenOverlay.css`](public/css/screenOverlay.css).
   - **Barra inferior de medios (`#roomMediaControls`)**: con `room-shell--remote-screen-dominant` aplica scrim oscuro semitransparente + `backdrop-filter` y sombra en iconos para legibilidad sobre pantallas compartidas claras.
   - **Herramientas MVP**: lápiz, borrador, texto, colores, grosor, deshacer/rehacer con historial **independiente** del tablero. Cualquier participante en la sala puede anotar mientras hay pantalla compartida activa (UI local; tinta compartida).

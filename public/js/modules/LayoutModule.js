@@ -54,7 +54,13 @@
     return !!global.FloatPanelModule?.isActive?.();
   }
 
-  function onEnterRoom() {}
+  function onEnterRoom() {
+    if (!isShareActive()) return;
+    global.requestAnimationFrame(() => {
+      resyncScreenOverlay();
+      global.requestAnimationFrame(() => resyncScreenOverlay());
+    });
+  }
 
   function onLeaveRoom() {
     global.FloatPanelModule?.deactivate?.();

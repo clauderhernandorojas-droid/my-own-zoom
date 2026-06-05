@@ -380,7 +380,20 @@
     if (!stage) return false;
     const sr = stage.getBoundingClientRect();
     const pr = rootEl.getBoundingClientRect();
-    if (sr.width < 8 || sr.height < 8 || !rectsIntersect(sr, pr)) return false;
+    const fabHost = document.querySelector("#screenOverlayUiLayer .screen-overlay-fab-host");
+    let overlapsStage = sr.width >= 8 && sr.height >= 8 && rectsIntersect(sr, pr);
+    if (fabHost) {
+      const fr = fabHost.getBoundingClientRect();
+      const fabPad = 12;
+      const fabZone = {
+        left: fr.left - fabPad,
+        top: fr.top - fabPad,
+        right: fr.right + fabPad,
+        bottom: fr.bottom + fabPad,
+      };
+      if (rectsIntersect(pr, fabZone)) overlapsStage = true;
+    }
+    if (!overlapsStage) return false;
     const vw = global.innerWidth || document.documentElement.clientWidth || 800;
     const vh = global.innerHeight || document.documentElement.clientHeight || 600;
     state.left = Math.max(MARGIN, vw - MARGIN - state.width);

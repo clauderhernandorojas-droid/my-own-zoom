@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Own Zoom — Cliente</title>
-  <script src="/js/clientEnv.js?v=20250604c"></script>
+  <script src="/js/clientEnv.js?v=20250607a"></script>
   <script>
     (function () {
       if (window.ClientEnv?.isElectron?.()) return;
@@ -12,10 +12,10 @@
     })();
   </script>
   <link rel="stylesheet" href="/css/screenShare.css" />
-  <link rel="stylesheet" href="/css/screenOverlay.css" />
+  <link rel="stylesheet" href="/css/screenOverlay.css?v=20250610a" />
   <link rel="stylesheet" href="/css/presenterFocus.css" />
   <link rel="stylesheet" href="/css/uiPresenterFloat.css" />
-  <link rel="stylesheet" href="/css/webOverrides.css?v=20250604c" media="all" id="mojWebOverridesCss" />
+  <link rel="stylesheet" href="/css/webOverrides.css?v=20250607a" media="all" id="mojWebOverridesCss" />
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="/js/helpers.js"></script>
@@ -28,29 +28,29 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js" crossorigin="anonymous"></script>
   <script src="/js/videoEffects.js"></script>
   <script src="/js/notificaciones.js"></script>
-  <script src="/js/uiBarra.js?v=20250604c"></script>
+  <script src="/js/uiBarra.js?v=20250607a"></script>
   <script src="/js/uiExpulsion.js"></script>
-  <script src="/js/uiMiniPlayer.js"></script>
+  <script src="/js/uiMiniPlayer.js?v=20250607a"></script>
   <script src="/js/screenShare.js"></script>
   <script src="/js/meetingAudioPolicy.js"></script>
   <script src="/js/meetingMedia.js"></script>
-  <script src="/js/annotationInk.js"></script>
+  <script src="/js/annotationInk.js?v=20250609a"></script>
   <script src="/js/boardToolCatalog.js"></script>
-  <script src="/js/overlayTransform.js"></script>
-  <script src="/js/overlaySeleccion.js"></script>
+  <script src="/js/overlayTransform.js?v=20250609a"></script>
+  <script src="/js/overlaySeleccion.js?v=20250608a"></script>
   <script src="/js/uiAnnotationToolbar.js"></script>
   <script src="/js/uiFloatClamp.js"></script>
   <script src="/js/uiPresenterFloat.js"></script>
   <script src="/js/uiFloatingDock.js"></script>
-  <script src="/js/roomScreenShareLayout.js?v=20250604c"></script>
-  <script src="/js/modules/NotificationsModule.js?v=20250604c"></script>
-  <script src="/js/modules/FloatPanelModule.js?v=20250604c"></script>
-  <script src="/js/modules/ChatRoomUiModule.js?v=20250604c"></script>
-  <script src="/js/modules/ToolbarModule.js?v=20250604c"></script>
-  <script src="/js/modules/LayoutModule.js?v=20250604c"></script>
-  <script src="/js/WebLayoutOverrides.js?v=20250604c"></script>
-  <script src="/js/PencilFabToolbar.js?v=20250604c"></script>
-  <script src="/js/screenOverlay.js?v=20250604c"></script>
+  <script src="/js/roomScreenShareLayout.js?v=20250607a"></script>
+  <script src="/js/modules/NotificationsModule.js?v=20250607a"></script>
+  <script src="/js/modules/FloatPanelModule.js?v=20250610a"></script>
+  <script src="/js/modules/ChatRoomUiModule.js?v=20250607a"></script>
+  <script src="/js/modules/ToolbarModule.js?v=20250607a"></script>
+  <script src="/js/modules/LayoutModule.js?v=20250610a"></script>
+  <script src="/js/WebLayoutOverrides.js?v=20250610a"></script>
+  <script src="/js/PencilFabToolbar.js?v=20250607a"></script>
+  <script src="/js/screenOverlay.js?v=20250610a"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -3457,6 +3457,10 @@
     let autoStartShareAfterApproval = false;
     /** `meet:screenShare` recibido antes de asignar `activeRoomId` (orden al unirse). */
     let pendingMeetScreenShare = null;
+    /** Polling invitado: esperar frames tras replaceTrack del presentador. */
+    let shareVideoPollTimer = 0;
+    let shareVideoPollStartedAt = 0;
+    let shareVideoPollRenegotiated = false;
     /** socket.io peer id → usuarioId del participante (vincula vídeo WebRTC al anuncio de pantalla). */
     const peerSocketToUserId = new Map();
     /** Cola de solicitudes de compartir pantalla pendientes para el presentador. */
@@ -3552,6 +3556,9 @@
             typeof RoomScreenShareLayout !== "undefined"
               ? RoomScreenShareLayout.isPresenterFocusActive()
               : !!$("roomShell")?.classList.contains("room-shell--presenter-focus"),
+          getRemoteScreenShareUserId: () => remoteScreenShareUserId,
+          findSocketForUserId: findPeerSocketForUserId,
+          getVideoForSocket: (socketId) => remoteVideos.get(socketId),
         });
       } catch (screenOverlayInitErr) {
         console.error("[screenOverlay] init failed", screenOverlayInitErr);
@@ -4429,6 +4436,16 @@
       const oid = uid != null ? String(uid).trim().toLowerCase() : "";
       if (active) {
         remoteScreenShareUserId = oid;
+        if (!isLocallySharingScreen()) {
+          const socketId = findPeerSocketForUserId(oid);
+          if (socketId) {
+            refreshSharerVideoFromReceivers(socketId);
+            if (isScreenShareDebugEnabled()) {
+              console.info("[screen-share] meet:screenShare active", inspectGuestShareProbe());
+            }
+          }
+          startShareVideoPoll();
+        }
       } else {
         if (
           remoteScreenShareUserId &&
@@ -4438,6 +4455,7 @@
           return;
         }
         remoteScreenShareUserId = "";
+        clearShareVideoPoll();
       }
       scheduleRemoteScreenLayoutUpdate();
     }
@@ -4490,12 +4508,201 @@
       for (const peer of peers) rc.appendChild(peer);
     }
 
+    function findPeerSocketForUserId(userId) {
+      const uid = String(userId || "").trim().toLowerCase();
+      if (!uid) return null;
+      for (const [socketId, u] of peerSocketToUserId.entries()) {
+        if (u && String(u).trim().toLowerCase() === uid) return socketId;
+      }
+      return null;
+    }
+
+    function pickBestSharerVideoTrack(tracks) {
+      if (!tracks?.length) return null;
+      const sharing = !!String(remoteScreenShareUserId || "").trim();
+      const displayTracks = tracks.filter((t) => isDisplayCaptureVideoTrack(t));
+      const candidates = sharing && displayTracks.length ? displayTracks : tracks;
+      if (candidates.length === 1) return candidates[0];
+      let best = candidates[0];
+      let bestScore = -1;
+      for (const t of candidates) {
+        let score = 0;
+        try {
+          const s = t.getSettings?.() || {};
+          score = (s.width || 0) * (s.height || 0);
+        } catch (_) {}
+        if (isDisplayCaptureVideoTrack(t)) score += 1e9;
+        if (score > bestScore) {
+          bestScore = score;
+          best = t;
+        }
+      }
+      return best;
+    }
+
+    function bindSharerTrackLayoutBump(track, remoteSocketId) {
+      if (!track || track.__mojSharerTrackWatch) return;
+      track.__mojSharerTrackWatch = true;
+      const bump = () => bumpRemoteScreenLayoutForSocket(remoteSocketId);
+      track.addEventListener("ended", bump);
+      track.addEventListener("mute", bump);
+      track.addEventListener("unmute", bump);
+    }
+
+    function bindSharerVideoElementBump(vid, remoteSocketId) {
+      if (!vid || vid.__mojSharerVidWatch) return;
+      vid.__mojSharerVidWatch = true;
+      const bump = () => bumpRemoteScreenLayoutForSocket(remoteSocketId);
+      vid.addEventListener("loadedmetadata", bump);
+      vid.addEventListener("loadeddata", bump);
+      vid.addEventListener("resize", bump);
+    }
+
+    /** Reconstruye srcObject del vídeo remoto desde receivers (tras replaceTrack de pantalla). */
+    function refreshSharerVideoFromReceivers(remoteSocketId) {
+      const pc = pcs.get(remoteSocketId);
+      const vid = remoteVideos.get(remoteSocketId);
+      if (!pc || !vid) return false;
+      const videoTracks = pc
+        .getReceivers()
+        .map((r) => r.track)
+        .filter((t) => t && t.kind === "video" && t.readyState === "live");
+      if (!videoTracks.length) return false;
+      const nextTrack = pickBestSharerVideoTrack(videoTracks);
+      if (!nextTrack) return false;
+      bindSharerTrackLayoutBump(nextTrack, remoteSocketId);
+      bindSharerVideoElementBump(vid, remoteSocketId);
+      const curTrack = vid.srcObject?.getVideoTracks?.()?.[0];
+      if (curTrack?.id !== nextTrack.id) {
+        vid.srcObject = new MediaStream([nextTrack]);
+        try {
+          vid.load();
+        } catch (_) {}
+        vid.play().catch(() => {});
+      } else if (vid.paused) {
+        vid.play().catch(() => {});
+      }
+      return vid.videoWidth > 0;
+    }
+
+    function clearShareVideoPoll() {
+      if (shareVideoPollTimer) {
+        clearInterval(shareVideoPollTimer);
+        shareVideoPollTimer = 0;
+      }
+      shareVideoPollStartedAt = 0;
+    }
+
+    function startShareVideoPoll() {
+      if (isLocallySharingScreen()) return;
+      clearShareVideoPoll();
+      shareVideoPollRenegotiated = false;
+      shareVideoPollStartedAt = Date.now();
+      const tick = () => {
+        if (!remoteScreenShareUserId || isLocallySharingScreen()) {
+          clearShareVideoPoll();
+          return;
+        }
+        const socketId = findPeerSocketForUserId(remoteScreenShareUserId);
+        if (socketId) {
+          refreshSharerVideoFromReceivers(socketId);
+          updateRemoteScreenShareLayout();
+          const vid = remoteVideos.get(socketId);
+          if (vid?.videoWidth > 0) {
+            if (isScreenShareDebugEnabled()) {
+              console.info("[screen-share] guest poll: videoWidth ready", vid.videoWidth);
+            }
+            clearShareVideoPoll();
+            return;
+          }
+        }
+        if (Date.now() - shareVideoPollStartedAt > 15000) {
+          clearShareVideoPoll();
+          if (socketId && !shareVideoPollRenegotiated) {
+            const pc = pcs.get(socketId);
+            if (pc?.iceConnectionState === "connected") {
+              shareVideoPollRenegotiated = true;
+              retryPeerRenegotiate(socketId).catch((e) =>
+                console.warn("[screen-share] poll renegotiate", e)
+              );
+            }
+          }
+        }
+      };
+      tick();
+      shareVideoPollTimer = setInterval(tick, 250);
+    }
+
+    function inspectGuestShareProbe() {
+      const sharerUid = String(remoteScreenShareUserId || "").trim().toLowerCase();
+      const sharerSocket = sharerUid ? findPeerSocketForUserId(sharerUid) : null;
+      return {
+        attach: typeof RoomScreenShareLayout !== "undefined"
+          ? RoomScreenShareLayout.inspectAttachState?.()
+          : null,
+        overlay: typeof ScreenOverlay !== "undefined"
+          ? ScreenOverlay.inspectLayout?.()
+          : null,
+        interaction: typeof ScreenOverlay !== "undefined"
+          ? ScreenOverlay.inspectInteractionState?.()
+          : null,
+        sharerUid,
+        sharerSocket,
+        pcs:
+          typeof pcs !== "undefined"
+            ? [...pcs.entries()].map(([sid, pc]) => ({
+                sid,
+                ice: pc.iceConnectionState,
+                receivers: pc.getReceivers().map((r) => ({
+                  kind: r.track?.kind,
+                  id: r.track?.id,
+                  state: r.track?.readyState,
+                  muted: r.track?.muted,
+                  label: r.track?.label,
+                  displayCapture: r.track?.kind === "video"
+                    ? isDisplayCaptureVideoTrack(r.track)
+                    : false,
+                })),
+              }))
+            : null,
+      };
+    }
+
+    function bumpRemoteScreenLayoutForSocket(remoteSocketId) {
+      const sharerUid = String(remoteScreenShareUserId || "").trim().toLowerCase();
+      const peerUid = peerSocketToUserId.get(remoteSocketId);
+      if (
+        sharerUid &&
+        peerUid &&
+        String(peerUid).trim().toLowerCase() === sharerUid
+      ) {
+        refreshSharerVideoFromReceivers(remoteSocketId);
+      }
+      scheduleRemoteScreenLayoutUpdate();
+    }
+
+    function bindPeerReceiverTrackWatch(pc, remoteSocketId) {
+      if (!pc || pc.__mojReceiverWatchBound) return;
+      pc.__mojReceiverWatchBound = true;
+      const refresh = () => bumpRemoteScreenLayoutForSocket(remoteSocketId);
+      pc.addEventListener("track", (e) => {
+        if (e.track?.kind === "video") {
+          refresh();
+          e.track.addEventListener("ended", refresh);
+          e.track.addEventListener("mute", refresh);
+          e.track.addEventListener("unmute", refresh);
+        }
+      });
+    }
+
     function updateRemoteScreenShareLayout() {
       if (typeof RoomScreenShareLayout !== "undefined") {
         RoomScreenShareLayout.updateRemoteScreenShareLayout();
       }
       window.WebLayoutOverrides?.syncShareLayout?.();
     }
+
+    window.inspectGuestShareProbe = inspectGuestShareProbe;
 
     if (typeof RoomScreenShareLayout !== "undefined") {
       RoomScreenShareLayout.init({
@@ -4518,7 +4725,9 @@
         getScreenShareStream: () => screenShareStream,
         getScreenShareTrack: () => screenShareTrack,
         enablePresenterFloatUi: false,
-        enablePresenterMediaDock: isElectronClient(),
+        enablePresenterMediaDock: () =>
+          isElectronClient() && !!isLocallySharingScreen(),
+        refreshSharerVideoFromReceivers,
       });
     }
 
@@ -4723,6 +4932,13 @@
           void stopScreenShare({ restoreStatus: true });
         };
         await replaceVideoTrackForAllPeers(track, stream);
+        if (socket?.connected && activeRoomId) {
+          try {
+            socket.emit("meet:screenShare:trackRefresh", {
+              roomId: normRoomKey(activeRoomId),
+            });
+          } catch (_) {}
+        }
         const micOn = localStream?.getAudioTracks()[0]?.enabled !== false;
         if (screenShareAudioTrack) {
           screenShareAudioTrack.enabled = micOn && shareWithAudio;
@@ -7749,6 +7965,7 @@ body.print-calendar-export {
     }
     function showRoom() {
       hideMeetWaiting();
+      MiniPlayerControls?.hideMiniPlayer?.();
       $("authSection")?.classList.add("hidden");
       $("lobbySection")?.classList.add("hidden");
       $("roomSection")?.classList.remove("hidden");
@@ -7761,6 +7978,7 @@ body.print-calendar-export {
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
       });
       window.WebLayoutOverrides?.syncShareLayout?.();
+      window.WebLayoutOverrides?.onEnterRoom?.();
     }
 
     function parseRoute() {
@@ -7771,8 +7989,8 @@ body.print-calendar-export {
       if (segs[0] === "login") return { name: "login" };
       if (segs[0] === "lobby") return { name: "lobby" };
       if (segs[0] === "meet" && segs[1]) {
-        let view = "board";
-        if (segs[2] === "gallery") view = "gallery";
+        let view = "gallery";
+        if (segs[2] === "board") view = "board";
         else if (segs[2] === "wait") view = "wait";
         return { name: "meet", roomId: segs[1], view };
       }
@@ -9113,15 +9331,27 @@ body.print-calendar-export {
           });
         }
       };
+      bindPeerReceiverTrackWatch(pc, remoteSocketId);
       pc.ontrack = (e) => {
         const vid = remoteVideos.get(remoteSocketId);
         const stream = e.streams[0];
-        if (vid) vid.srcObject = stream;
+        if (vid && stream) {
+          vid.srcObject = stream;
+          vid.play().catch(() => {});
+        }
+        refreshSharerVideoFromReceivers(remoteSocketId);
         if (stream) {
-          const bump = () => scheduleRemoteScreenLayoutUpdate();
+          const bump = () => bumpRemoteScreenLayoutForSocket(remoteSocketId);
           stream.addEventListener("addtrack", bump);
           stream.addEventListener("removetrack", bump);
           bump();
+        } else {
+          bumpRemoteScreenLayoutForSocket(remoteSocketId);
+        }
+        if (e.track?.kind === "video") {
+          e.track.addEventListener("ended", () => bumpRemoteScreenLayoutForSocket(remoteSocketId));
+          e.track.addEventListener("mute", () => bumpRemoteScreenLayoutForSocket(remoteSocketId));
+          e.track.addEventListener("unmute", () => bumpRemoteScreenLayoutForSocket(remoteSocketId));
         }
         if (isMeetingRecordingMixActive() && shouldConnectRemoteToRecordingMix()) {
           connectRemotePeerToMix(remoteSocketId);
@@ -10180,6 +10410,15 @@ body.print-calendar-export {
             ScreenOverlay.clear();
           }
         });
+        socket.on("meet:screenShare:trackRefresh", ({ roomId }) => {
+          if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
+          if (isLocallySharingScreen()) return;
+          const socketId = findPeerSocketForUserId(remoteScreenShareUserId);
+          if (socketId) {
+            refreshSharerVideoFromReceivers(socketId);
+            scheduleRemoteScreenLayoutUpdate();
+          }
+        });
         socket.on("screenshare-annotate:update", ({ roomId, contenido, from }) => {
           if (!activeRoomId || !sameActiveRoom(roomId, activeRoomId)) return;
           ScreenOverlay?.applyRemoteState?.(contenido, { from });
@@ -10472,14 +10711,14 @@ body.print-calendar-export {
                 if (arl) arl.textContent = activeRoomId;
               }
               showRoom();
-              const initialMeetView = isElectronClient() ? "board" : "gallery";
+              const initialMeetView = "gallery";
               setMeetView(initialMeetView);
               setRoomBoardLayout("top");
               _suppressHashRoute = true;
               location.hash =
                 "#/meet/" +
                 encodeURIComponent(activeRoomId) +
-                (initialMeetView === "board" ? "/board" : "/gallery");
+                "/gallery";
               _suppressHashRoute = false;
               ChatModule?.markAllRead?.();
               connectedUserIds.clear();
@@ -10549,6 +10788,7 @@ body.print-calendar-export {
       pendingBoardPresentation = null;
       pendingMeetScreenShare = null;
       remoteScreenShareUserId = "";
+      clearShareVideoPoll();
       teardownLocalScreenShareStageWrap();
       if (typeof RoomScreenShareLayout !== "undefined") {
         RoomScreenShareLayout.onLeaveRoom();
