@@ -80,6 +80,10 @@
 
   /** @type {object | null} */
   let selectionPointerAction = null;
+  /** @type {{ time: number, x: number, y: number, index: number } | null} */
+  let lastTextPointerTap = null;
+  const TEXT_DOUBLE_TAP_MS = 450;
+  const TEXT_DOUBLE_TAP_NORM = 0.035;
 
   const pointerHandlers = {
     down: onPointerDown,
@@ -871,21 +875,39 @@
     });
   }
 
-  function updatePointerHoverCursor(clientX, clientY) {
-    if (!stackEl || !toolbarOpen || overlayTool !== "pointer" || selectionPointerAction) return;
-    const ctx = canvasEl?.getContext("2d");
-    const p = normFromEvent({ clientX, clientY });
-    const hit = OverlaySel?.hitTestEditable?.(
-      p,
-      overlayState.elementos,
-      ctx,
-      getContentRect(),
-      POINTER_HIT_NORM
-    );
-    stackEl.classList.toggle(
-      "screen-overlay-stack--selection-hit",
-      !!(hit || OverlaySel?.size?.() > 0)
-    );
+  function recordTextPointerTap(p, hit) {
+    if (!hit || hit.element?.type !== "text") {
+      lastTextPointerTap = null;
+      return;
+    }
+    lastTextPointerTap = {
+      time: Date.now(),
+      x: p.x,
+      y: p.y,
+      index: hit.index,
+    };
+  }
+
+  function isTextDoublePointerTap(p, hit) {
+    if (!hit || hit.element?.type !== "text" || !lastTextPointerTap) return false;
+    const dt = Date.now() - lastTextPointerTap.time;
+    if (dt > TEXT_DOUBLE_TAP_MS) return false;
+    if (hit.index !== lastTextPointerTap.index) return false;
+    const dist = Math.hypot(p.x - lastTextPointerTap.x, p.y - lastTextPointerTap.y);
+    return dist <= TEXT_DOUBLE_TAP_NORM;
+  }
+
+  function openTextEditorForHit(hit, p) {
+    if (!hit || hit.element?.type !== "text") return false;
+    lastTextPointerTap = null;
+    OverlaySel.selectOne(hit.index);
+    openInlineTextInput(p, { index: hit.index });
+    scheduleDraw();
+    return true;
+  }
+
+  function updatePointerHoverCursor(_clientX, _clientY) {
+    /* Cursor siempre flecha amarilla en modo puntero; no alternar selection-hit. */
   }
 
   function setToolbarOpen(open) {
@@ -1164,11 +1186,22 @@
       POINTER_HIT_NORM
     );
     if (!hit) {
+      lastTextPointerTap = null;
       OverlaySel.startMarquee(p, !!e.shiftKey);
       selectionPointerAction = { mode: "marquee", startPoint: p };
       scheduleDraw();
       return;
     }
+
+    if (isTextDoublePointerTap(p, hit)) {
+      try {
+        canvasEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      openTextEditorForHit(hit, p);
+      return;
+    }
+
+    recordTextPointerTap(p, hit);
 
     if (e.shiftKey) {
       OverlaySel.toggleInSelection(hit.index);
@@ -1478,9 +1511,7 @@
     const hit = OverlaySel.hitTestEditable(p, overlayState.elementos, ctx, cr, POINTER_HIT_NORM);
     if (hit?.element?.type === "text") {
       e.preventDefault();
-      OverlaySel.selectOne(hit.index);
-      scheduleDraw();
-      openInlineTextInput(p, { index: hit.index });
+      openTextEditorForHit(hit, p);
     }
   }
 

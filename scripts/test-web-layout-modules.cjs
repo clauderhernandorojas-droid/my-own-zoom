@@ -287,7 +287,7 @@ if (/isModularShareLayoutEligible\?\(\)\)\s*\{[\s\S]{0,80}UiFloatingDock\?\.acti
 }
 
 const indexHtml = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
-if (!indexHtml.includes("screenOverlay.js?v=20250617a")) {
+if (!indexHtml.includes("screenOverlay.js?v=20250617b")) {
   console.error("index.html: screenOverlay.js cache-bust missing");
   failed++;
 }

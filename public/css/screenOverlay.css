@@ -41,10 +41,6 @@
   cursor: var(--screen-overlay-pointer-cursor);
 }
 
-.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-pointer.screen-overlay-wrap-ink--selection-hit {
-  cursor: move;
-}
-
 .screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-text {
   cursor: text;
 }
@@ -95,13 +91,13 @@
   cursor: crosshair;
 }
 
-.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open .screen-overlay-canvas {
-  pointer-events: auto !important;
+.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open {
   cursor: var(--screen-overlay-pointer-cursor);
 }
 
-.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open.screen-overlay-stack--selection-hit .screen-overlay-canvas {
-  cursor: move;
+.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open .screen-overlay-canvas {
+  pointer-events: auto !important;
+  cursor: var(--screen-overlay-pointer-cursor);
 }
 
 .screen-overlay-stack--tool-text.screen-overlay-stack--annotate-active .screen-overlay-canvas {
