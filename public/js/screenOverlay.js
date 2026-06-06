@@ -4,6 +4,9 @@
  */
 (function (global) {
   const Ink = global.AnnotationInk;
+  const Core = global.AnnotationCore;
+  const UI = global.AnnotationUI;
+  const Sync = global.AnnotationSync;
   const Toolbar = global.UiAnnotationToolbar;
   const OverlaySel = global.OverlaySeleccion;
   const Transform = global.OverlayTransform;
@@ -23,8 +26,8 @@
   let deps = null;
 
   let overlayState = { elementos: [] };
-  const overlayHistory = [];
-  const overlayFuture = [];
+  /** @type {ReturnType<typeof Sync.createSyncManager> | null} */
+  let syncMgr = null;
 
   let overlayTool = "pointer";
   let overlayColor = "#111111";
@@ -56,6 +59,8 @@
   let drawing = false;
   let currentStroke = null;
   let activeTextInput = null;
+  /** @type {{ close: function } | null} */
+  let activeTextEditor = null;
   let drawRaf = 0;
   let resizeTimer = 0;
   let resizeCanvasRaf = 0;
@@ -160,6 +165,18 @@
 
   function cloneState(state) {
     return Ink?.cloneInkState ? Ink.cloneInkState(state) : { elementos: [] };
+  }
+
+  function ensureSyncManager() {
+    if (!syncMgr && Sync?.createSyncManager) {
+      syncMgr = Sync.createSyncManager({
+        getSocket,
+        getRoomId,
+        cloneState,
+        historyLimit: HISTORY_LIMIT,
+      });
+    }
+    return syncMgr;
   }
 
   function getFabSize() {
@@ -896,7 +913,8 @@
   }
 
   function updateHistoryButtons() {
-    toolbarApi?.setHistoryButtons?.(overlayHistory.length > 0, overlayFuture.length > 0);
+    const mgr = ensureSyncManager();
+    toolbarApi?.setHistoryButtons?.(mgr?.canUndo?.() ?? false, mgr?.canRedo?.() ?? false);
   }
 
   function syncStackClasses() {
@@ -998,26 +1016,15 @@
   }
 
   function emitOverlayUpdate() {
-    const socket = getSocket();
-    const roomId = getRoomId();
-    if (!socket?.connected || !roomId) return;
-    socket.emit("screenshare-annotate:update", {
-      roomId,
-      contenido: cloneState(overlayState),
-    });
+    ensureSyncManager()?.emitOverlayUpdate(overlayState);
   }
 
   function applyOverlayState(nextState, opts = {}) {
     const { recordHistory = false, clearFuture = false, emit = false, resetHistory = false } = opts;
-    if (resetHistory) {
-      overlayHistory.length = 0;
-      overlayFuture.length = 0;
-    }
-    if (recordHistory) {
-      overlayHistory.push(cloneState(overlayState));
-      if (overlayHistory.length > HISTORY_LIMIT) overlayHistory.shift();
-    }
-    if (clearFuture) overlayFuture.length = 0;
+    const mgr = ensureSyncManager();
+    if (resetHistory) mgr?.resetHistory?.();
+    if (recordHistory) mgr?.pushHistory?.(overlayState);
+    if (clearFuture) mgr?.clearFuture?.();
     overlayState = cloneState(nextState || { elementos: [] });
     closeInlineTextInput(false);
     scheduleDraw();
@@ -1028,29 +1035,31 @@
   function applyRemoteState(contenido, opts = {}) {
     if (!contenido || !Array.isArray(contenido.elementos)) return;
     const socket = getSocket();
-    const fromSelf = opts?.from && socket?.id && String(opts.from) === String(socket.id);
+    const mgr = ensureSyncManager();
+    const fromSelf = mgr?.isRemoteFromSelf?.(socket, opts?.from);
     applyOverlayState(contenido, { resetHistory: !fromSelf });
     OverlaySel?.reconcileAfterStateChange?.(overlayState.elementos.length);
   }
 
   function performUndo() {
-    if (!overlayHistory.length) return;
-    overlayFuture.push(cloneState(overlayState));
-    const prev = overlayHistory.pop();
+    const mgr = ensureSyncManager();
+    const prev = mgr?.prepareUndo?.(overlayState);
+    if (!prev) return;
     applyOverlayState(prev, { emit: true });
   }
 
   function performRedo() {
-    if (!overlayFuture.length) return;
-    overlayHistory.push(cloneState(overlayState));
-    const next = overlayFuture.pop();
+    const mgr = ensureSyncManager();
+    const next = mgr?.prepareRedo?.(overlayState);
+    if (!next) return;
     applyOverlayState(next, { emit: true });
   }
 
   function insertEmojiOnOverlay(emoji) {
     if (!emoji || !toolbarOpen) return;
-    const next = cloneState(overlayState);
-    next.elementos.push({
+    const cr = getContentRect();
+    const ctx = canvasEl?.getContext("2d");
+    const el = {
       type: "text",
       text: emoji,
       x: 0.4,
@@ -1059,7 +1068,16 @@
       h: 0.08,
       color: overlayColor,
       fontSize: 42,
-    });
+    };
+    if (Core?.measureTextContentNorm && ctx) {
+      const b = Core.measureTextContentNorm(el, cr, ctx);
+      if (b) {
+        el.w = b.w;
+        el.h = b.h;
+      }
+    }
+    const next = cloneState(overlayState);
+    next.elementos.push(el);
     applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
     toolbarApi?.setTool?.("pointer");
     overlayTool = "pointer";
@@ -1069,9 +1087,9 @@
   function finishSelectionGesture(snapshotBefore) {
     const next = cloneState(overlayState);
     if (snapshotBefore) {
-      overlayHistory.push(snapshotBefore);
-      if (overlayHistory.length > HISTORY_LIMIT) overlayHistory.shift();
-      overlayFuture.length = 0;
+      const mgr = ensureSyncManager();
+      mgr?.pushHistory?.(snapshotBefore);
+      mgr?.clearFuture?.();
       overlayState = next;
       closeInlineTextInput(false);
       scheduleDraw();
@@ -1094,8 +1112,8 @@
     if (selIds.length === 1) {
       const i = selIds[0];
       const el = overlayState.elementos[i];
-      const b = OverlaySel.getElementBounds(el, ctx, cr);
-      if (b) {
+      const b = OverlaySel.getElementBounds(el, cr, ctx);
+        if (b) {
         const h = Transform.hitTestResizeHandle(p, b, el, cr);
         if (h) {
           selectionPointerAction = {
@@ -1217,19 +1235,16 @@
 
     if (act.mode === "resize") {
       const orig = act.originalElement;
-      let next = { ...orig };
-      if (orig.type === "text") {
-        next = Transform.applyTextBoxResize(act.resizeHandle, orig, act.originalBounds, dx, dy);
-      } else {
-        const tr = Transform.getResizeTransform(
-          act.resizeHandle,
-          act.originalBounds,
-          dx,
-          dy,
-          !!e.shiftKey
-        );
-        if (tr) next = Transform.applyResizeTransform(orig, tr.anchor, tr.sx, tr.sy);
-      }
+      const tr = Transform.getResizeTransform(
+        act.resizeHandle,
+        act.originalBounds,
+        dx,
+        dy,
+        !!e.shiftKey
+      );
+      const next = tr
+        ? Transform.applyResizeTransform(orig, tr.anchor, tr.sx, tr.sy)
+        : { ...orig };
       overlayState.elementos[act.index] = next;
       scheduleDraw();
       return;
@@ -1239,18 +1254,7 @@
       for (const i of act.indices) {
         const orig = act.originalElements.get(i);
         if (!orig) continue;
-        if (orig.type === "stroke" && orig.points) {
-          overlayState.elementos[i] = {
-            ...orig,
-            points: orig.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
-          };
-        } else if (orig.type === "text") {
-          overlayState.elementos[i] = {
-            ...orig,
-            x: (orig.x || 0) + dx,
-            y: (orig.y || 0) + dy,
-          };
-        }
+        overlayState.elementos[i] = Transform.applyDragTransform(orig, dx, dy);
       }
       scheduleDraw();
     }
@@ -1293,10 +1297,18 @@
 
   function eraseAtPoints(points) {
     if (!points?.length) return false;
+    const cr = getContentRect();
+    const ctx = canvasEl?.getContext("2d");
     const toRemove = new Set();
     for (const p of points) {
       if (!p.inBounds && !Number.isFinite(p.x)) continue;
-      const idx = Ink.hitTestAnyElementAtNorm({ x: p.x, y: p.y }, overlayState.elementos, ERASER_THRESHOLD_NORM);
+      const idx = Ink.hitTestAnyElementAtNorm(
+        { x: p.x, y: p.y },
+        overlayState.elementos,
+        cr,
+        ctx,
+        ERASER_THRESHOLD_NORM
+      );
       if (idx >= 0) toRemove.add(idx);
     }
     if (!toRemove.size) return false;
@@ -1404,72 +1416,72 @@
   }
 
   function closeInlineTextInput(commit) {
-    if (!activeTextInput || !stackEl) return;
-    const input = activeTextInput;
-    const nx = Number(input.dataset.normX);
-    const ny = Number(input.dataset.normY);
-    const nw = Number(input.dataset.normW);
-    const nh = Number(input.dataset.normH);
-    activeTextInput = null;
-    if (commit) {
-      const text = String(input.value || "").trim();
-      if (text) {
-        const next = cloneState(overlayState);
-        next.elementos.push({
-          type: "text",
-          text,
-          x: nx,
-          y: ny,
-          w: nw,
-          h: nh,
-          color: overlayColor,
-          fontSize: overlayTextSize,
-        });
-        applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
-      } else {
-        scheduleDraw();
-      }
-    } else {
-      scheduleDraw();
+    if (activeTextEditor) {
+      activeTextEditor.close(commit);
+      activeTextEditor = null;
+      activeTextInput = null;
+      return;
     }
+    if (!activeTextInput) return;
+    const input = activeTextInput;
+    activeTextInput = null;
     input.remove();
+    if (!commit) scheduleDraw();
   }
 
-  function openInlineTextInput(normPoint) {
+  function openInlineTextInput(normPoint, editOpts) {
     closeInlineTextInput(false);
-    if (!stackEl) return;
+    if (!stackEl || !UI?.createInlineTextEditor) return;
     const cr = getContentRect();
-    const tl = Ink.normToCanvas(normPoint.x, normPoint.y, cr);
-    const w = cr.w * 0.25;
-    const h = cr.h * 0.1;
-
-    const input = document.createElement("textarea");
-    input.className = "screen-overlay-text-input";
-    input.dataset.normX = String(normPoint.x);
-    input.dataset.normY = String(normPoint.y);
-    input.dataset.normW = String(0.25);
-    input.dataset.normH = String(0.1);
-    input.style.left = `${tl.x}px`;
-    input.style.top = `${tl.y}px`;
-    input.style.width = `${Math.max(120, w)}px`;
-    input.style.minHeight = `${Math.max(28, h)}px`;
-    input.style.fontSize = `${overlayTextSize}px`;
-    input.style.color = overlayColor;
-
-    stackEl.appendChild(input);
-    activeTextInput = input;
-    input.focus();
-
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") {
-        ev.preventDefault();
-        closeInlineTextInput(false);
-      } else if (ev.key === "Enter" && !ev.shiftKey) {
-        ev.preventDefault();
-        closeInlineTextInput(true);
-      }
+    const editIndex = Number.isInteger(editOpts?.index) ? editOpts.index : -1;
+    const existing = editIndex >= 0 ? overlayState.elementos[editIndex] : null;
+    const norm = existing?.type === "text" ? { x: existing.x, y: existing.y } : normPoint;
+    activeTextEditor = UI.createInlineTextEditor({
+      hostEl: stackEl,
+      stackEl,
+      contentRect: cr,
+      normPoint: norm,
+      color: existing?.color || overlayColor,
+      fontSize: existing?.fontSize || overlayTextSize,
+      initialText: existing?.text || "",
+      onCommit: ({ text, x, y, w, h, fontSize, color }) => {
+        activeTextEditor = null;
+        activeTextInput = null;
+        const next = cloneState(overlayState);
+        const textEl = { type: "text", text, x, y, w, h, color, fontSize };
+        if (editIndex >= 0 && editIndex < next.elementos.length) {
+          next.elementos[editIndex] = textEl;
+        } else {
+          next.elementos.push(textEl);
+        }
+        applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
+      },
+      onCancel: () => {
+        activeTextEditor = null;
+        activeTextInput = null;
+        scheduleDraw();
+      },
     });
-    input.addEventListener("blur", () => closeInlineTextInput(true));
+    activeTextInput = activeTextEditor.input;
+    activeTextEditor.input.focus();
+    if (existing?.text) {
+      activeTextEditor.input.select();
+    }
+  }
+
+  function onCanvasDblClick(e) {
+    if (!toolbarOpen || overlayTool !== "pointer" || activeTextInput || !canvasEl || !OverlaySel) return;
+    const p = normFromEvent(e);
+    if (!p.inBounds) return;
+    const ctx = canvasEl.getContext("2d");
+    const cr = getContentRect();
+    const hit = OverlaySel.hitTestEditable(p, overlayState.elementos, ctx, cr, POINTER_HIT_NORM);
+    if (hit?.element?.type === "text") {
+      e.preventDefault();
+      OverlaySel.selectOne(hit.index);
+      scheduleDraw();
+      openInlineTextInput(p, { index: hit.index });
+    }
   }
 
   function bindCanvasEvents() {
@@ -1479,6 +1491,7 @@
     canvasEl.addEventListener("pointerup", pointerHandlers.up);
     canvasEl.addEventListener("pointercancel", pointerHandlers.cancel);
     canvasEl.addEventListener("click", onCanvasClick);
+    canvasEl.addEventListener("dblclick", onCanvasDblClick);
   }
 
   function unbindCanvasEvents() {
@@ -1488,6 +1501,7 @@
     canvasEl.removeEventListener("pointerup", pointerHandlers.up);
     canvasEl.removeEventListener("pointercancel", pointerHandlers.cancel);
     canvasEl.removeEventListener("click", onCanvasClick);
+    canvasEl.removeEventListener("dblclick", onCanvasDblClick);
   }
 
   function ensureFab() {
@@ -1984,6 +1998,7 @@
 
   function init(options = {}) {
     deps = options;
+    ensureSyncManager();
   }
 
   const ScreenOverlay = {

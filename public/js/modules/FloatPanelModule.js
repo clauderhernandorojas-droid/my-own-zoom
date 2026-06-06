@@ -24,6 +24,7 @@
   /** @type {object | null} */
   let drag = null;
   let resizeDrag = null;
+  let pillSuppressClickUntil = 0;
   let domReady = false;
   let resizeBound = false;
 
@@ -175,6 +176,7 @@
     global.removeEventListener("pointerup", onPanelPointerUp);
     global.removeEventListener("pointercancel", onPanelPointerUp);
     if (wasDrag && state) {
+      if (state.minimized) pillSuppressClickUntil = Date.now() + 400;
       const snapped = snapToNearestEdge(state.left, state.top, state.width, state.height);
       state.left = snapped.left;
       state.top = snapped.top;
@@ -272,6 +274,7 @@
     pillEl.id = "webFloatPeersPill";
     pillEl.className = "web-float-peers-pill hidden";
     pillEl.textContent = "Participantes";
+    pillEl.title = "Doble clic para expandir";
     document.body.appendChild(pillEl);
 
     headerEl?.addEventListener("pointerdown", (e) => {
@@ -283,12 +286,17 @@
       startPanelDrag(e, pillEl, state.left, state.top);
     });
     pillEl.addEventListener("click", (e) => {
-      if (drag?.dragging) return;
-      if (state) {
-        state.minimized = false;
-        applyLayout();
-        saveState();
+      if (Date.now() < pillSuppressClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
       }
+    });
+    pillEl.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      if (!state || !state.minimized) return;
+      state.minimized = false;
+      applyLayout();
+      saveState();
     });
     resizeEl.addEventListener("pointerdown", (e) => {
       if (!state || state.minimized) return;
@@ -370,30 +378,24 @@
   }
 
   function avoidStageOverlap() {
-    if (!rootEl || !state || state.minimized) return false;
+    if (!rootEl || !state || state.minimized || drag || resizeDrag) return false;
     const shell = getShellEl();
-    if (!shell?.classList.contains("room-shell--remote-screen-dominant")) return false;
-    const stage =
-      deps?.getStageElement?.() ||
-      document.getElementById("roomRemoteScreenStage") ||
-      document.querySelector(".room-screen-share-wrap:not([hidden])");
-    if (!stage) return false;
-    const sr = stage.getBoundingClientRect();
+    const shareLayoutActive =
+      shell?.classList.contains("room-shell--remote-screen-dominant") ||
+      shell?.classList.contains("room-shell--presenter-focus");
+    if (!shareLayoutActive) return false;
     const pr = rootEl.getBoundingClientRect();
     const fabHost = document.querySelector("#screenOverlayUiLayer .screen-overlay-fab-host");
-    let overlapsStage = sr.width >= 8 && sr.height >= 8 && rectsIntersect(sr, pr);
-    if (fabHost) {
-      const fr = fabHost.getBoundingClientRect();
-      const fabPad = 12;
-      const fabZone = {
-        left: fr.left - fabPad,
-        top: fr.top - fabPad,
-        right: fr.right + fabPad,
-        bottom: fr.bottom + fabPad,
-      };
-      if (rectsIntersect(pr, fabZone)) overlapsStage = true;
-    }
-    if (!overlapsStage) return false;
+    if (!fabHost) return false;
+    const fr = fabHost.getBoundingClientRect();
+    const fabPad = 12;
+    const fabZone = {
+      left: fr.left - fabPad,
+      top: fr.top - fabPad,
+      right: fr.right + fabPad,
+      bottom: fr.bottom + fabPad,
+    };
+    if (!rectsIntersect(pr, fabZone)) return false;
     const vw = global.innerWidth || document.documentElement.clientWidth || 800;
     const vh = global.innerHeight || document.documentElement.clientHeight || 600;
     state.left = Math.max(MARGIN, vw - MARGIN - state.width);
@@ -415,14 +417,12 @@
 
   function suppressDesktopPresenterUi() {
     global.UiPresenterFloat?.deactivate?.();
-    if (!global.ClientEnv?.isElectron?.()) {
-      global.UiFloatingDock?.deactivate?.();
-    }
   }
 
   function activate() {
     ensureDom();
     suppressDesktopPresenterUi();
+    const wasActive = active;
     if (!active) {
       state = loadState() || defaultState();
       const c = clampBox(state.left, state.top, state.width, state.height);
@@ -436,7 +436,9 @@
     mountVideos();
     rootEl?.classList.remove("hidden");
     applyLayout();
-    global.requestAnimationFrame(() => avoidStageOverlap());
+    if (!wasActive) {
+      global.requestAnimationFrame(() => avoidStageOverlap());
+    }
   }
 
   function deactivate() {
@@ -464,14 +466,14 @@
   function onShareLayoutChange() {
     if (!active) return;
     suppressDesktopPresenterUi();
-    if (state) {
+    global.RoomScreenShareLayout?.ensurePresenterMediaDock?.();
+    if (state && !drag && !resizeDrag) {
       const c = clampBox(state.left, state.top, state.width, state.height);
       state.left = c.left;
       state.top = c.top;
       state.width = c.width;
       state.height = c.height;
       applyLayout();
-      avoidStageOverlap();
     }
   }
 

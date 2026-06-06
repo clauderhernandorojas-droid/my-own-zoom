@@ -65,7 +65,9 @@
   }
 
   function usePresenterMediaDock() {
-    return deps?.enablePresenterMediaDock !== false;
+    const v = deps?.enablePresenterMediaDock;
+    if (typeof v === "function") return !!v();
+    return v !== false;
   }
 
   function exitPresenterFocusUi() {
@@ -82,12 +84,24 @@
     deps?.teardownLocalScreenShareStageWrap?.();
   }
 
+  function ensurePresenterMediaDock() {
+    if (usePresenterMediaDock()) {
+      global.UiFloatingDock?.activate?.();
+    }
+  }
+
   function enterPresenterFocusUi() {
     const shell = $("roomShell");
     if (!shell) return;
+    if (presenterFocusActive) {
+      deps?.ScreenOverlay?.syncWithStage?.($("roomRemoteScreenStage"));
+      ensurePresenterMediaDock();
+      return;
+    }
     shell.classList.remove("room-shell--remote-screen-dominant");
     shell.classList.add("room-shell--presenter-focus");
     presenterFocusActive = true;
+    global.MiniPlayerControls?.hideMiniPlayer?.();
     const wrap = $("roomScreenShareWrap");
     const stage = $("roomRemoteScreenStage");
     if (wrap) {
@@ -108,9 +122,7 @@
     if (usePresenterFloatUi()) {
       global.UiPresenterFloat?.activate?.();
     }
-    if (usePresenterMediaDock()) {
-      global.UiFloatingDock?.activate?.();
-    }
+    ensurePresenterMediaDock();
     const onResize = () => {
       if (usePresenterFloatUi()) global.UiPresenterFloat?.reclamp?.();
       if (usePresenterMediaDock()) global.UiFloatingDock?.reclamp?.();
@@ -284,6 +296,7 @@
   global.RoomScreenShareLayout = {
     init,
     isPresenterFocusActive,
+    ensurePresenterMediaDock,
     updateRemoteScreenShareLayout,
     onStopScreenShare,
     onLeaveRoom,

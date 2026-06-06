@@ -82,3 +82,17 @@
   .web-float-peers-pill {
   z-index: 40;
 }
+
+/* Web presentador: barra inferior fija (Electron usa UiFloatingDock arrastrable) */
+html.moj-web-client .room-shell--share-layout-modular.room-shell--presenter-focus .room-bottom-toolbar,
+html.moj-web-client .room-shell.room-shell--presenter-focus .room-bottom-toolbar {
+  display: flex !important;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 100;
+  background: rgba(19, 19, 19, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.55);
+}

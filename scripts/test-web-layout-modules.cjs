@@ -165,6 +165,18 @@ if (
   console.error("screenOverlay.css: pointer tool + toolbar-open canvas must allow pointer-events auto");
   failed++;
 }
+if (!overlayCss.includes("--screen-overlay-pointer-cursor")) {
+  console.error("screenOverlay.css: yellow arrow pointer cursor required");
+  failed++;
+}
+if (
+  /\.screen-overlay-stack--annotate-active\s+\.screen-overlay-canvas\s*\{[^}]*cursor:\s*crosshair/.test(
+    overlayCss
+  )
+) {
+  console.error("screenOverlay.css: crosshair must not apply to all annotate-active tools");
+  failed++;
+}
 
 const layoutShellCss = fs.readFileSync(
   path.join(__dirname, "..", "public", "css", "modules", "layoutShell.css"),
@@ -172,6 +184,10 @@ const layoutShellCss = fs.readFileSync(
 );
 if (/object-fit:\s*cover\s*!important/.test(layoutShellCss)) {
   console.error("layoutShell.css: share video should use object-fit contain for ink alignment");
+  failed++;
+}
+if (!layoutShellCss.includes("html.moj-web-client") || !layoutShellCss.includes("presenter-focus .room-bottom-toolbar")) {
+  console.error("layoutShell.css: web-only presenter bottom toolbar override required");
   failed++;
 }
 
@@ -182,6 +198,18 @@ if (!/if\s*\(\s*!initialized\s*\)[\s\S]*init\s*\(\s*deps\s*\)/.test(lmSrc)) {
 }
 if (!lmSrc.includes("onEnterRoom") || !/isShareActive\(\)[\s\S]*resyncScreenOverlay/.test(lmSrc)) {
   console.error("LayoutModule.js: onEnterRoom must resync overlay when share active");
+  failed++;
+}
+if (!lmSrc.includes("SHARE_MODULAR_CLASS") || !lmSrc.includes("applyShareModularClass")) {
+  console.error("LayoutModule.js: must apply SHARE_MODULAR_CLASS during share");
+  failed++;
+}
+if (!/FloatPanelModule\?\.\activate/.test(lmSrc)) {
+  console.error("LayoutModule.js: must activate FloatPanelModule during share");
+  failed++;
+}
+if (!/FloatPanelModule\?\.\onShareLayoutChange/.test(lmSrc)) {
+  console.error("LayoutModule.js: must call FloatPanelModule.onShareLayoutChange after activate");
   failed++;
 }
 if (!lmSrc.includes("resyncScreenOverlay") || !/ScreenOverlay\.syncWithStage/.test(lmSrc)) {
@@ -221,14 +249,50 @@ if (!/\.screen-overlay-fab-host[\s\S]*position:\s*absolute/.test(overlayCss)) {
 }
 
 const fpSrc = fs.readFileSync(path.join(root, "modules", "FloatPanelModule.js"), "utf8");
+if (!fpSrc.includes("room-shell--presenter-focus") || !fpSrc.includes("room-shell--remote-screen-dominant")) {
+  console.error("FloatPanelModule.js: avoidStageOverlap must handle presenter-focus and remote-dominant");
+  failed++;
+}
 if (!fpSrc.includes("screen-overlay-fab-host") || !fpSrc.includes("fabZone")) {
   console.error("FloatPanelModule.js: avoidStageOverlap must respect FAB zone");
   failed++;
 }
+if (!fpSrc.includes('addEventListener("dblclick"') || !fpSrc.includes("pillSuppressClickUntil")) {
+  console.error("FloatPanelModule.js: minimized pill must expand on dblclick, not after drag click");
+  failed++;
+}
+
+const presenterCss = fs.readFileSync(
+  path.join(__dirname, "..", "public", "css", "presenterFocus.css"),
+  "utf8"
+);
+if (!/presenter-focus[\s\S]*room-bottom-toolbar[\s\S]*display:\s*none/.test(presenterCss)) {
+  console.error("presenterFocus.css: must hide room-bottom-toolbar for Electron floating dock");
+  failed++;
+}
+
+if (/suppressDesktopPresenterUi[\s\S]*UiFloatingDock\?\.deactivate/.test(fpSrc)) {
+  console.error("FloatPanelModule.js: must not deactivate UiFloatingDock in suppressDesktopPresenterUi");
+  failed++;
+}
+
+const rssSrcDock = fs.readFileSync(path.join(root, "roomScreenShareLayout.js"), "utf8");
+if (!rssSrcDock.includes("ensurePresenterMediaDock")) {
+  console.error("roomScreenShareLayout.js: ensurePresenterMediaDock required");
+  failed++;
+}
+if (/isModularShareLayoutEligible\?\(\)\)\s*\{[\s\S]{0,80}UiFloatingDock\?\.activate/.test(rssSrcDock)) {
+  console.error("roomScreenShareLayout.js: UiFloatingDock must not be gated by isModularShareLayoutEligible");
+  failed++;
+}
 
 const indexHtml = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
-if (!indexHtml.includes("screenOverlay.js?v=20250610a")) {
+if (!indexHtml.includes("screenOverlay.js?v=20250617a")) {
   console.error("index.html: screenOverlay.js cache-bust missing");
+  failed++;
+}
+if (!indexHtml.includes("annotationCore.js?v=20250617a")) {
+  console.error("index.html: annotationCore.js cache-bust missing");
   failed++;
 }
 if (!indexHtml.includes("onEnterRoom")) {

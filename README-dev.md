@@ -254,7 +254,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Presentador** (`room-shell--presenter-focus`): oculta tablero/chat/franja fija; muestra `#roomScreenShareWrap` + vista previa local (`ensureLocalScreenShareStageWrap` → `.remote-peer--local-screen-share`). CSS en [`public/css/presenterFocus.css`](public/css/presenterFocus.css) — el stage requiere `display: flex` (no solo `flex: 1`).
     - **Dock de anotación (presentador)**: [`public/js/PencilFabToolbar.js`](public/js/PencilFabToolbar.js) monta `.screen-overlay-annotate-dock` en `#screenOverlayUiLayer` (FAB + toolbar horizontal/vertical). Primer clic abre/cierra toolbar aunque el dock esté pegado a un borde (`edge`); doble clic rápido desancla del borde.
     - **Panel flotante participantes**: [`public/js/uiPresenterFloat.js`](public/js/uiPresenterFloat.js) + [`public/css/uiPresenterFloat.css`](public/css/uiPresenterFloat.css) — mueve `#videos` al panel, malla 2×2, minimizar (píldora «Participantes» sin clase `hidden` en modo minimizado), arrastre/redimensionado; estado en `localStorage` `moj_presenter_float_peers_v1_<roomId>`.
-    - **Barra de medios flotante**: [`public/js/uiFloatingDock.js`](public/js/uiFloatingDock.js) — `#roomMediaControls` a `document.body`, asa `.presenter-dock-drag-handle`; `moj_presenter_float_dock_v1_<roomId>`.
+    - **Barra de medios flotante**: [`public/js/uiFloatingDock.js`](public/js/uiFloatingDock.js) — `#roomMediaControls` a `document.body`, asa `.presenter-dock-drag-handle`; `moj_presenter_float_dock_v1_<roomId>`. Con **layout modular** (`room-shell--share-layout-modular`) la barra inferior `.room-bottom-toolbar` ya cubre mic/vídeo: `FloatPanelModule.suppressDesktopPresenterUi` desactiva el dock en **web y Electron**; `roomScreenShareLayout.enterPresenterFocusUi` no llama `UiFloatingDock.activate()` si `ClientEnv.isModularShareLayoutEligible()`. El panel participantes `#webFloatPeersRoot` sigue activo.
     - **Clamp viewport**: [`public/js/uiFloatClamp.js`](public/js/uiFloatClamp.js) — límites para dock y panel participantes.
     - **Invitado** (`room-shell--remote-screen-dominant`): `attachRemoteScreenToStage` mueve el `.remote-peer` del sharer al stage (primero vacía peers del stage hacia `#remotesContainer`, luego `appendChild` del peer objetivo — **no** usar `stage.textContent = ""` ni devolver el peer al contenedor tras montarlo). Desocultar `#roomRemoteScreenStage` (`hidden` / `aria-hidden`). FAB lápiz flotante en capa UI (no dock).
   - **Layout modular — solo pantalla compartida (web + Electron, todos los roles)**:
@@ -266,14 +266,16 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Módulos** (`public/js/modules/`):
       | Módulo | Responsabilidad | API principal |
       |--------|-----------------|---------------|
-      | `LayoutModule` | Orquestación share | `init`, `syncShareLayout`, `onLeaveRoom` |
+      | `LayoutModule` | Orquestación share | `init`, `syncShareLayout`, `onLeaveRoom`, `applyShareModularClass` |
       | `FloatPanelModule` | Panel flotante participantes | `activate` / `deactivate` según share |
       | `ChatRoomUiModule` | Chat + barra | `bindBottomBar`, `onShareLayoutEnter` |
       | `NotificationsModule` | Badge no-leídos | `init`, `getTotalUnread` |
       | `ToolbarModule` | Solo política CSS de capas | `initWebLayerPolicy` |
-    - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationInk.js`](public/js/annotationInk.js). **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
-    - **Caché de assets**: al desplegar, misma query `?v=20250604c` en `clientEnv`, módulos layout, `roomScreenShareLayout`, `screenOverlay`, `webOverrides.css` e `index.html` (recarga forzada en todas las ventanas de prueba).
-    - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`, `enablePresenterMediaDock: isElectronClient()` (dock nativo; sin panel superior `UiPresenterFloat` en share).
+    - **Regresión v4 anotaciones (layout)**: la modularización overlay v4 eliminó por error `FloatPanelModule.activate()` durante share. Síntomas: invitados volvían a la franja legacy (~17vh), presentador sin panel de participantes (`presenterFocus.css` oculta `.room-video-strip` sin reemplazo). **Fix**: [`LayoutModule`](public/js/modules/LayoutModule.js) aplica `room-shell--share-layout-modular` y activa `FloatPanelModule` **después** de `ScreenOverlay.syncWithStage` (doble `rAF`). No confundir con [`UiPresenterFloat`](public/js/uiPresenterFloat.js) (legacy, `enablePresenterFloatUi: false` en `index.html`).
+    - **Cadena de activación share** (orden): `ChatRoomUiModule.onShareLayoutEnter` → `applyShareModularClass(true)` → `rAF` → `resyncScreenOverlay` → `rAF` → `FloatPanelModule.activate` → `FloatPanelModule.onShareLayoutChange` (reclamp + `avoidStageOverlap` con zona FAB).
+    - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationCore.js`](public/js/annotationCore.js) / shims. **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
+    - **Caché de assets**: al desplegar, misma query `?v=20250617a` en `annotationCore`, `annotationUI`, `screenOverlay`, `uiMiniPlayer`, `FloatPanelModule`, `roomScreenShareLayout`, `screenOverlay.css` e `index.html` (recarga forzada en todas las ventanas de prueba).
+    - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`, `enablePresenterMediaDock: isElectronClient()` (dock nativo solo fuera de layout modular; sin panel superior `UiPresenterFloat` en share).
     - **Probe DevTools** (comparar presentador vs invitado con share activo):
       ```js
       ({
@@ -283,25 +285,30 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
         presenterFocus: document.getElementById("roomShell")?.classList.contains("room-shell--presenter-focus"),
         shareModular: document.getElementById("roomShell")?.classList.contains("room-shell--share-layout-modular"),
         floatPanel: !!document.getElementById("webFloatPeersRoot") && !document.getElementById("webFloatPeersRoot")?.classList.contains("hidden"),
+        videosParent: document.getElementById("videos")?.parentElement?.id,
+        fabVisible: ScreenOverlay?.inspectLayout?.()?.fabVisible,
         overlay: ScreenOverlay?.inspectLayout?.(),
         inkCapture: document.querySelector(".screen-overlay-stack--annotate-active .screen-overlay-canvas") &&
           getComputedStyle(document.querySelector(".screen-overlay-stack--annotate-active .screen-overlay-canvas")).pointerEvents,
       })
       ```
-      Invitado esperado: `remoteDominant` + `shareModular` + `overlay.stream.videoWidth > 0` + `inkCapture === "auto"` (con toolbar abierta y herramienta lápiz).
+      Invitado esperado: `remoteDominant` + `shareModular: true` + `floatPanel: true` + `videosParent: "webFloatPeersRoot"` + `overlay.stream.videoWidth > 0` + `fabVisible: true` + `inkCapture === "auto"` (con toolbar abierta y herramienta lápiz).
+      Presentador esperado: `presenterFocus` + `shareModular: true` + `floatPanel: true` + grid 2×2 en panel participantes.
     - **Smoke**: `node scripts/test-web-layout-modules.cjs`
     - **QA — sin share**: galería habitual; chat no forzado oculto al entrar; sin panel flotante ni `share-layout-modular`.
     - **QA — con share (prof/invitado, web/Electron)**: misma UI; vídeo visible (`inspectLayout`: `video.videoWidth > 0`); lápiz dibuja; `__MOJ_ELECTRON` en cada ventana Electron; dock + captura nativos OK en presentador Electron.
     - **Overlay peer**: `syncWithStage` enlaza canvas al peer visible (`.remote-peer--local-screen-share` o `:not(.remote-peer--presenter-ink-source)`), no al peer oculto de tinta (`.remote-peer--presenter-ink-source`, 1×1 px para geometría).
     - **Auth / entrar a sala**: `bindAuthUi()` debe ejecutarse **después** de declarar `let authUiBound` en `index.html` (evita TDZ). `ScreenOverlay.init` en `try/catch` tras el bind.
-  - **Módulos overlay (v3)**:
-    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — canvas, socket, FAB y toolbar (`ensureFab` / `ensureToolbar` + `UiAnnotationToolbar`); historial local undo/redo.
-    - [`public/js/PencilFabToolbar.js`](public/js/PencilFabToolbar.js) — alternativa de FAB/dock (cargado en `index.html`; **no** usado por `screenOverlay.js` en el flujo actual).
+  - **Módulos overlay (v4 — arquitectura modular)**:
+    - [`public/js/annotationCore.js`](public/js/annotationCore.js) — trazos, texto, emojis, selección, bounds medidos (`measureTextContentNorm` con `actualBoundingBoxAscent/Descent` + padding alineado al editor) y transformaciones (`applyDragTransform`, `applyResizeTransform` uniforme para **todo** `type:"text"`, 8 handles).
+    - [`public/js/annotationUI.js`](public/js/annotationUI.js) — render de handlers cuadrados en px de dispositivo (`drawSquareHandle`; `HANDLE_VISUAL_PX` 4 / `HANDLE_HIT_PX` 14), `drawSelectionOverlay`, editor de texto inline montado en **`.screen-overlay-stack`** (coords vía `normToStackLocalPx`). **Edición de texto existente**: doble clic con herramienta puntero + toolbar abierta (`screenOverlay.js` → `onCanvasDblClick`).
+    - [`public/js/annotationSync.js`](public/js/annotationSync.js) — clonado de estado, historial undo/redo local y emisión socket (`fromSelf` sin resetear historial).
+    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — orquestador: canvas, FAB, toolbar, pointer routing; delega en core/UI/sync. **Hit-test resize**: `OverlaySel.getElementBounds(el, contentRect, ctx)` — orden `(el, cr, ctx)`; intercambiar `ctx`/`cr` desalinea handles medidos vs almacenados y el segundo resize cae en arrastre.
+    - Shims legacy (re-export): [`annotationInk.js`](public/js/annotationInk.js), [`overlayTransform.js`](public/js/overlayTransform.js), [`overlaySeleccion.js`](public/js/overlaySeleccion.js).
     - [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) — barra reutilizable (IDs propios).
-    - [`public/js/annotationInk.js`](public/js/annotationInk.js) — geometría 0–1 y dibujo.
-    - [`public/js/overlaySeleccion.js`](public/js/overlaySeleccion.js) — selección/marquee en coords norm.
-    - [`public/js/overlayTransform.js`](public/js/overlayTransform.js) — bounds, handles, resize en norm.
     - [`public/js/boardToolCatalog.js`](public/js/boardToolCatalog.js) — catálogo de emojis compartido con el tablero.
+    - **Probes bbox**: con share activo, `AnnotationCore.getElementNormBounds(el, ScreenOverlay.getStageMetrics(), canvas.getContext('2d'))` (o content rect del stack) para verificar caja ceñida vs `el.w`/`el.h` almacenados.
+    - **Smoke unitario**: `npm run test:annotation-overlay-core` — bounds, hit-test, drag, handles.
     - `historialAcciones.js` es solo para **citas**; no usarlo para tinta de pantalla compartida.
   - **Regresiones overlay / layout (troubleshooting)**:
     - **Undo/Redo “no funcionan”**: el servidor reemite `screenshare-annotate:update` al emisor; si `applyRemoteState` hace `resetHistory: true` en el eco propio, se borra la pila local. Solución: pasar `from` del socket y en eco propio (`from === socket.id`) aplicar estado **sin** resetear historial.
@@ -309,7 +316,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Pantalla partida (franja `#252525` arriba)**: peer/stack con `flex: 1 1 0; min-height: 0; height: 100%`; vídeo en stack solo `position: absolute; inset: 0` (sin `flex !important` en `.screen-overlay-stack > video`). En consola: comparar alturas `stage` / `peer` / `stack` / `video` con `getBoundingClientRect()` — deben coincidir ±1px.
     - **Toolbar lejos o cortada**: `computeToolbarPlacement()` prioriza **arriba** del FAB en zona inferior; clases `--v` / `--h`; Undo/Redo dentro de `.screen-overlay-vtoolbar`.
     - **FAB/toolbar tras fin de share**: `moveStageRemotePeersToContainer` solo mueve `.remote-peer`.
-    - **Selección (cursor)**: puntero + toolbar abierto; hit-test con `POINTER_HIT_NORM` y AABB de trazos (`overlaySeleccion.js`); marco/handlers en coords canvas vía `drawSelectionOverlay(ctx, scaledCr, cssCr, …)`. Si no selecciona, comprobar que la barra superior no tapa el canvas (`pointer-events` del host).
+    - **Selección (cursor)**: puntero + toolbar abierto; cursor flecha amarilla (`--screen-overlay-pointer-cursor` en `screenOverlay.css`; `crosshair` solo lápiz/borrador). Hit-test con `POINTER_HIT_NORM` y AABB de trazos; marco/handlers en coords canvas vía `drawSelectionOverlay(ctx, scaledCr, cssCr, …)`. Si no selecciona, comprobar que la barra superior no tapa el canvas (`pointer-events` del host).
     - **Pantalla compartida completamente negra (PDF invisible)**:
       - El canvas de anotaciones es transparente (`clearRect`); no debería tapar el vídeo. Causas habituales: **stream** (`videoWidth === 0`, sin `srcObject`), **layout** (`stack.clientHeight === 0`), **DOM** (`video` fuera de `.screen-overlay-stack`).
       - Si `inspectLayout()` muestra **`videoWidth > 0` pero `stage`/`stack`/`video` con `clientHeight === 0`**: el stream llega bien; el fallo es **layout del stage** (no el canvas). Revisar `stageDisplay`: si es `none` con `stageHidden: false`, el selector `#roomRemoteScreenStage { display: none }` en el `<style>` de `index.html` ganaba por especificidad a la regla solo por clase — la corrección usa `#roomRemoteScreenStage:not([hidden])` con `display: flex`. También `shellClasses` (`room-shell--remote-screen-dominant`) y `stripInline` vacío.
@@ -332,7 +339,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - Clic FAB muestra barra junto al FAB; en esquina inferior izquierda la barra se despliega **hacia arriba**, pegada; en las cuatro esquinas tras arrastre, orientación `--v` / `--h` según cuadrante.
     - **Botones toolbar** (puntero, lápiz, paleta, emoji 😀, undo ↶) responden; puntero activo al abrir panel; en **invitado** la barra no tapa el FAB y lápiz/texto dibujan en todo el frame.
     - Arrastre FAB no abre/cierra panel; clic sí.
-    - Puntero: seleccionar, mover y redimensionar texto/trazos/emojis (marco punteado + handles).
+    - Puntero: seleccionar, mover y redimensionar texto/trazos/emojis (marco punteado + handles cuadrados); redimensionar varias veces seguidas; doble clic en texto para editar.
     - Undo/Redo tras commitear trazo; invitado recibe sync sin romper historial local del presentador.
     - Lápiz dibuja en todo el frame del vídeo (sin franja gris del 50% en el stage).
     - Emoji insertado visible y sincronizado entre participantes.
@@ -523,6 +530,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Fallback auto-PiP**: si falla o no hay soporte PiP → div flotante (limitado en pestaña oculta).
   - **Controles**: mic/cám local (`setMicEnabled` / `setCamEnabled`), **Restaurar** (vuelve a la pestaña).
   - **Estilos**: [`public/css/uiMiniPlayer.css`](public/css/uiMiniPlayer.css) (cargado por el módulo vía `<link>`).
+  - **Supresión en sala visible**: `shouldSuppressMiniPlayer()` oculta el div flotante cuando hay sala activa y `document.hidden === false`, durante share (`ClientEnv.isShareLayoutActive`) o foco presentador (`RoomScreenShareLayout.isPresenterFocusActive`). Listener `window.focus` refuerza el ocultado en Electron si no dispara `visibilitychange`. El mini-player **solo** debe mostrarse con pestaña oculta (PiP o fallback).
   - **Ciclo de vida**: al volver a la pestaña, `hideMiniPlayer()` cierra PiP y oculta el div. Si se cierra PiP con la pestaña aún oculta, reaparece `#miniPlayer` como fallback.
   - **Nota**: la pestaña incógnito del otro participante no impide PiP local; solo afecta si hay pista de vídeo remota WebRTC.
   - **Integración**: `MiniPlayerControls.initMiniPlayer(...)` en `init()`; `hideMiniPlayer()` en `leaveRoom()`.
