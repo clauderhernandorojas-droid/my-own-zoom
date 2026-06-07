@@ -668,14 +668,14 @@
   position: absolute;
   z-index: 3;
   min-width: 48px;
-  padding: 2px 4px;
-  border: 1px solid #0b57d0;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.3);
+  padding: 0;
+  border: none;
+  outline: none;
+  border-radius: 0;
+  background: transparent;
   resize: none;
   overflow: hidden;
   font-family: "Segoe UI", system-ui, sans-serif;
-  line-height: 1.25;
   box-sizing: border-box;
   margin: 0;
 }

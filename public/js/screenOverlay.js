@@ -61,6 +61,8 @@
   let activeTextInput = null;
   /** @type {{ close: function } | null} */
   let activeTextEditor = null;
+  /** Índice en overlayState.elementos del texto en edición (-1 = crear). */
+  let editingTextElementIndex = -1;
   let drawRaf = 0;
   let resizeTimer = 0;
   let resizeCanvasRaf = 0;
@@ -900,7 +902,6 @@
   function openTextEditorForHit(hit, p) {
     if (!hit || hit.element?.type !== "text") return false;
     lastTextPointerTap = null;
-    OverlaySel.selectOne(hit.index);
     openInlineTextInput(p, { index: hit.index });
     scheduleDraw();
     return true;
@@ -1025,8 +1026,15 @@
     };
     Ink.drawInkElementos(ctx, overlayState.elementos, scaled, {
       previewStroke: currentStroke,
+      skipTextIndices: editingTextElementIndex >= 0 ? [editingTextElementIndex] : [],
     });
-    if (toolbarOpen && overlayTool === "pointer" && Transform?.drawSelectionOverlay && OverlaySel) {
+    if (
+      toolbarOpen &&
+      overlayTool === "pointer" &&
+      !activeTextEditor &&
+      Transform?.drawSelectionOverlay &&
+      OverlaySel
+    ) {
       Transform.drawSelectionOverlay(
         ctx,
         scaled,
@@ -1034,6 +1042,16 @@
         overlayState.elementos,
         OverlaySel
       );
+    }
+    if (activeTextEditor?.input && UI?.drawTextEditorChrome) {
+      const input = activeTextEditor.input;
+      const nx = Number(input.dataset.normChromeX);
+      const ny = Number(input.dataset.normChromeY);
+      const nw = Number(input.dataset.normChromeW);
+      const nh = Number(input.dataset.normChromeH);
+      if (Number.isFinite(nx) && Number.isFinite(ny) && nw > 0 && nh > 0) {
+        UI.drawTextEditorChrome(ctx, scaled, contentRect, { x: nx, y: ny, w: nw, h: nh });
+      }
     }
   }
 
@@ -1449,6 +1467,7 @@
   }
 
   function closeInlineTextInput(commit) {
+    editingTextElementIndex = -1;
     if (activeTextEditor) {
       activeTextEditor.close(commit);
       activeTextEditor = null;
@@ -1467,6 +1486,8 @@
     if (!stackEl || !UI?.createInlineTextEditor) return;
     const cr = getContentRect();
     const editIndex = Number.isInteger(editOpts?.index) ? editOpts.index : -1;
+    editingTextElementIndex = editIndex;
+    OverlaySel?.clearSelection?.();
     const existing = editIndex >= 0 ? overlayState.elementos[editIndex] : null;
     const norm = existing?.type === "text" ? { x: existing.x, y: existing.y } : normPoint;
     activeTextEditor = UI.createInlineTextEditor({
@@ -1477,7 +1498,11 @@
       color: existing?.color || overlayColor,
       fontSize: existing?.fontSize || overlayTextSize,
       initialText: existing?.text || "",
+      existingW: existing?.w,
+      existingH: existing?.h,
+      onLayoutChange: scheduleDraw,
       onCommit: ({ text, x, y, w, h, fontSize, color }) => {
+        editingTextElementIndex = -1;
         activeTextEditor = null;
         activeTextInput = null;
         const next = cloneState(overlayState);
@@ -1490,6 +1515,7 @@
         applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
       },
       onCancel: () => {
+        editingTextElementIndex = -1;
         activeTextEditor = null;
         activeTextInput = null;
         scheduleDraw();
@@ -1500,6 +1526,7 @@
     if (existing?.text) {
       activeTextEditor.input.select();
     }
+    scheduleDraw();
   }
 
   function onCanvasDblClick(e) {

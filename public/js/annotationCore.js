@@ -7,6 +7,8 @@
 
   const MIN_NORM = 0.02;
   const TEXT_HIT_PAD_NORM = 0.003;
+  const TEXT_LINE_HEIGHT_FACTOR = 1.25;
+  const TEXT_CHROME_PAD_PX = 2;
   /** Borde+padding del textarea inline (box-sizing: border-box), alineado con screenOverlay.css */
   const TEXT_EDITOR_CHROME_X = 8;
   const TEXT_EDITOR_CHROME_Y = 8;
@@ -169,29 +171,62 @@
     }
   }
 
-  function measureTextContentNorm(el, contentRect, ctx) {
+  function chromeBoundsFromTextPx(textOrigin, textWPx, textHPx, contentRect, padPx) {
+    const padNormX = padPx / contentRect.w;
+    const padNormY = padPx / contentRect.h;
+    return {
+      x: textOrigin.x - padNormX,
+      y: textOrigin.y - padNormY,
+      w: Math.max(MIN_NORM, (textWPx + padPx * 2) / contentRect.w),
+      h: Math.max(MIN_NORM, (textHPx + padPx * 2) / contentRect.h),
+    };
+  }
+
+  function measureTextLayoutNorm(el, contentRect, ctx) {
     if (!el || el.type !== "text") return null;
-    const x = el.x || 0;
-    const y = el.y || 0;
+    const textOrigin = { x: el.x || 0, y: el.y || 0 };
     const text = String(el.text || "").trim();
-    if (!text || !ctx || !contentRect?.w || !contentRect?.h) {
-      return { x, y, w: el.w || MIN_NORM, h: el.h || MIN_NORM };
+    const padPx = TEXT_CHROME_PAD_PX;
+
+    if (!ctx || !contentRect?.w || !contentRect?.h) {
+      const textSize = { w: el.w || MIN_NORM, h: el.h || MIN_NORM };
+      return {
+        textOrigin,
+        textSize,
+        chromeBounds: { x: textOrigin.x, y: textOrigin.y, w: textSize.w, h: textSize.h },
+      };
     }
 
     const px = textFontSizePx(el, contentRect);
-    const padPx = 2;
+    const lineHeightPx = px * TEXT_LINE_HEIGHT_FACTOR;
     ctx.font = `${px}px "Segoe UI", system-ui, sans-serif`;
-    const lineHeight = measureLineHeightPx(ctx, text.split("\n")[0] || text, px);
+
+    if (!text) {
+      const textWPx = measureTextLineWidth(ctx, " ");
+      const textHPx = lineHeightPx;
+      const textSize = {
+        w: Math.max(MIN_NORM, textWPx / contentRect.w),
+        h: Math.max(MIN_NORM, textHPx / contentRect.h),
+      };
+      return {
+        textOrigin,
+        textSize,
+        chromeBounds: chromeBoundsFromTextPx(textOrigin, textWPx, textHPx, contentRect, padPx),
+      };
+    }
 
     if (isEmojiElement(el)) {
-      const wPx = measureTextLineWidth(ctx, text) + padPx * 2;
-      const hPx = measureLineHeightPx(ctx, text, px) + padPx * 2;
+      const wPx = measureTextLineWidth(ctx, text);
+      const hPx = measureLineHeightPx(ctx, text, px);
       const side = Math.max(wPx, hPx);
-      return {
-        x,
-        y,
+      const textSize = {
         w: Math.max(MIN_NORM, side / contentRect.w),
         h: Math.max(MIN_NORM, side / contentRect.h),
+      };
+      return {
+        textOrigin,
+        textSize,
+        chromeBounds: chromeBoundsFromTextPx(textOrigin, side, side, contentRect, padPx),
       };
     }
 
@@ -208,20 +243,30 @@
     for (const ln of lines) {
       maxW = Math.max(maxW, measureTextLineWidth(ctx, ln || " "));
     }
-
-    let totalH = 0;
-    for (const ln of lines) {
-      totalH += measureLineHeightPx(ctx, ln || " ", px);
-    }
-    const wPx = maxW + padPx * 2;
-    const hPx = totalH + padPx * 2;
+    const textWPx = maxW;
+    const textHPx = lines.length * lineHeightPx;
+    const textSize = {
+      w: Math.max(MIN_NORM, textWPx / contentRect.w),
+      h: Math.max(MIN_NORM, textHPx / contentRect.h),
+    };
 
     return {
-      x,
-      y,
-      w: Math.max(MIN_NORM, wPx / contentRect.w),
-      h: Math.max(MIN_NORM, hPx / contentRect.h),
+      textOrigin,
+      textSize,
+      chromeBounds: chromeBoundsFromTextPx(textOrigin, textWPx, textHPx, contentRect, padPx),
     };
+  }
+
+  function measureEmptyTextLineNorm(el, contentRect, ctx) {
+    const layout = measureTextLayoutNorm({ ...el, text: "" }, contentRect, ctx);
+    if (!layout) return { x: el.x || 0, y: el.y || 0, w: MIN_NORM, h: MIN_NORM };
+    return layout.chromeBounds;
+  }
+
+  function measureTextContentNorm(el, contentRect, ctx) {
+    const layout = measureTextLayoutNorm(el, contentRect, ctx);
+    if (!layout) return null;
+    return layout.chromeBounds;
   }
 
   // ── Dibujo ───────────────────────────────────────────────────────────────
@@ -262,7 +307,7 @@
     ctx.fillStyle = el.color || "#111111";
     ctx.font = `${fs}px "Segoe UI", system-ui, sans-serif`;
     ctx.textBaseline = "top";
-    wrapText(ctx, text, tl.x, tl.y, w, fs * 1.25);
+    wrapText(ctx, text, tl.x, tl.y, w, fs * TEXT_LINE_HEIGHT_FACTOR);
   }
 
   function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
@@ -290,9 +335,14 @@
 
   function drawInkElementos(ctx, elementos, contentRect, opts = {}) {
     const els = elementos || [];
-    for (const el of els) {
+    const skipSet = new Set(Array.isArray(opts.skipTextIndices) ? opts.skipTextIndices : []);
+    for (let idx = 0; idx < els.length; idx++) {
+      const el = els[idx];
       if (el.type === "stroke") drawStroke(ctx, el, contentRect);
-      else if (el.type === "text") drawText(ctx, el, contentRect);
+      else if (el.type === "text") {
+        if (skipSet.has(idx)) continue;
+        drawText(ctx, el, contentRect);
+      }
     }
     if (opts.previewStroke?.points?.length >= 1) {
       const preview = opts.previewStroke;
@@ -706,6 +756,8 @@
   global.AnnotationCore = {
     MIN_NORM,
     TEXT_HIT_PAD_NORM,
+    TEXT_LINE_HEIGHT_FACTOR,
+    TEXT_CHROME_PAD_PX,
     TEXT_EDITOR_CHROME_X,
     TEXT_EDITOR_CHROME_Y,
     getVideoContentRect,
@@ -718,6 +770,8 @@
     lineWidthToNorm,
     textFontSizePx,
     measureTextLineWidth,
+    measureEmptyTextLineNorm,
+    measureTextLayoutNorm,
     measureTextContentNorm,
     isEmojiElement,
     drawInkElementos,

@@ -52,6 +52,50 @@
 
 
 
+  function drawDashedBoundsWithHandles(ctx, scaledCr, cssCr, boundsNorm, element) {
+
+    if (!boundsNorm || !ctx || !Core) return;
+
+    const cssContentRect = cssCr || scaledCr;
+
+    const px = boundsToPx(boundsNorm, scaledCr);
+
+    ctx.strokeStyle = "#2563eb";
+
+    ctx.strokeRect(px.x, px.y, px.w, px.h);
+
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "#2563eb";
+
+    for (const h of Core.getResizeHandleRects(boundsNorm, element, cssContentRect, HANDLE_VISUAL_PX)) {
+
+      drawSquareHandle(ctx, h, scaledCr, cssContentRect, HANDLE_VISUAL_PX);
+
+    }
+
+  }
+
+
+
+  function drawTextEditorChrome(ctx, scaledCr, cssContentRect, boundsNorm) {
+
+    if (!ctx || !boundsNorm) return;
+
+    ctx.save();
+
+    ctx.lineWidth = 1.5;
+
+    ctx.setLineDash([5, 4]);
+
+    drawDashedBoundsWithHandles(ctx, scaledCr, cssContentRect, boundsNorm, { type: "text" });
+
+    ctx.restore();
+
+  }
+
+
+
   function drawSelectionOverlay(ctx, scaledCr, cssContentRect, elementos, selection) {
 
     if (!ctx || !selection || !Core) return;
@@ -98,17 +142,7 @@
 
         if (b && el) {
 
-          const px = boundsToPx(b, cr);
-
-          ctx.setLineDash([]);
-
-          ctx.fillStyle = "#2563eb";
-
-          for (const h of Core.getResizeHandleRects(b, el, cssCr, HANDLE_VISUAL_PX)) {
-
-            drawSquareHandle(ctx, h, cr, cssCr, HANDLE_VISUAL_PX);
-
-          }
+          drawDashedBoundsWithHandles(ctx, cr, cssCr, b, el);
 
         }
 
@@ -212,9 +246,15 @@
 
       initialText,
 
+      existingW,
+
+      existingH,
+
       onCommit,
 
       onCancel,
+
+      onLayoutChange,
 
     } = opts;
 
@@ -234,12 +274,6 @@
 
     const ctx = measureCanvas.getContext("2d");
 
-    const chromeX = Core.TEXT_EDITOR_CHROME_X ?? 8;
-
-    const chromeY = Core.TEXT_EDITOR_CHROME_Y ?? 8;
-
-
-
     const elStub = {
 
       type: "text",
@@ -250,9 +284,9 @@
 
       y: normPoint.y,
 
-      w: 0.25,
+      w: existingW ?? 0.25,
 
-      h: 0.1,
+      h: existingH ?? 0.1,
 
       fontSize: fontSize || 24,
 
@@ -260,27 +294,33 @@
 
 
 
-    function measureCommittedBounds(text) {
+    function measureLayout(text) {
 
       elStub.text = text || " ";
 
       elStub.fontSize = fontSize || 24;
 
-      return Core.measureTextContentNorm(elStub, contentRect, ctx);
+      return Core.measureTextLayoutNorm(elStub, contentRect, ctx);
 
     }
 
 
 
-    function syncDataset(bounds) {
+    function syncDataset(layout) {
 
-      input.dataset.normX = String(normPoint.x);
+      if (!layout) return;
 
-      input.dataset.normY = String(normPoint.y);
+      input.dataset.normTextX = String(layout.textOrigin.x);
 
-      input.dataset.normW = String(bounds?.w ?? 0.25);
+      input.dataset.normTextY = String(layout.textOrigin.y);
 
-      input.dataset.normH = String(bounds?.h ?? 0.1);
+      input.dataset.normChromeX = String(layout.chromeBounds.x);
+
+      input.dataset.normChromeY = String(layout.chromeBounds.y);
+
+      input.dataset.normChromeW = String(layout.chromeBounds.w);
+
+      input.dataset.normChromeH = String(layout.chromeBounds.h);
 
     }
 
@@ -294,29 +334,55 @@
 
       const fs = Core.textFontSizePx(elStub, contentRect);
 
+      const lineHeightPx = fs * (Core.TEXT_LINE_HEIGHT_FACTOR ?? 1.25);
+
       input.style.fontSize = `${fs}px`;
 
-      input.style.lineHeight = "1.25";
+      input.style.lineHeight = `${lineHeightPx}px`;
+
+      ctx.font = `${fs}px "Segoe UI", system-ui, sans-serif`;
 
 
 
-      const bounds = measureCommittedBounds(input.value || " ");
+      const layout = measureLayout(input.value || " ");
 
-      const local = Core.boundsNormToStackLocalPx(bounds, contentRect);
-
-      const tl = Core.normToStackLocalPx(normPoint.x, normPoint.y, contentRect);
+      if (!layout) return;
 
 
 
-      input.style.left = `${tl.x}px`;
+      const origin = Core.normToStackLocalPx(layout.textOrigin.x, layout.textOrigin.y, contentRect);
 
-      input.style.top = `${tl.y}px`;
+      const textLocal = Core.boundsNormToStackLocalPx(
 
-      input.style.width = `${Math.max(48, local.width + chromeX)}px`;
+        {
 
-      input.style.height = `${Math.max(20, local.height + chromeY)}px`;
+          x: layout.textOrigin.x,
 
-      syncDataset(bounds);
+          y: layout.textOrigin.y,
+
+          w: layout.textSize.w,
+
+          h: layout.textSize.h,
+
+        },
+
+        contentRect
+
+      );
+
+
+
+      input.style.left = `${origin.x}px`;
+
+      input.style.top = `${origin.y}px`;
+
+      input.style.width = `${Math.max(1, textLocal.width)}px`;
+
+      input.style.height = `${Math.max(1, textLocal.height)}px`;
+
+      syncDataset(layout);
+
+      onLayoutChange?.();
 
     }
 
@@ -352,15 +418,15 @@
 
       const text = String(input.value || "").trim();
 
-      const bounds = text ? measureCommittedBounds(text) : null;
+      const layout = text ? measureLayout(text) : null;
 
-      const nx = Number(input.dataset.normX);
+      const nx = Number(input.dataset.normTextX);
 
-      const ny = Number(input.dataset.normY);
+      const ny = Number(input.dataset.normTextY);
 
       input.remove();
 
-      if (commit && text && bounds) {
+      if (commit && text && layout) {
 
         onCommit?.({
 
@@ -370,9 +436,9 @@
 
           y: ny,
 
-          w: bounds.w,
+          w: layout.textSize.w,
 
-          h: bounds.h,
+          h: layout.textSize.h,
 
           fontSize: fontSize || 24,
 
@@ -433,6 +499,8 @@
     HANDLE_HIT_PX,
 
     drawSelectionOverlay,
+
+    drawTextEditorChrome,
 
     hitTestResizeHandle,
 
