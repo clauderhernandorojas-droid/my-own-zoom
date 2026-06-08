@@ -54,6 +54,8 @@
   .room-chat-panel,
 .room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--chat-hidden)
   .room-chat-panel {
+  display: flex !important;
+  flex-direction: column;
   position: fixed;
   right: 0;
   top: 0;

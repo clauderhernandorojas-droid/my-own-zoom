@@ -1,5 +1,5 @@
 /**
- * ChatRoomUiModule — visibilidad del panel de chat en sala y botón de barra (no reemplaza ChatModule).
+ * ChatRoomUiModule — barra chat (dispatch AppState; compat legacy).
  */
 (function (global) {
   /** @type {object | null} */
@@ -10,32 +10,28 @@
     deps = options;
   }
 
-  function isWebEnv() {
-    if (typeof deps?.isWeb === "function") return !!deps.isWeb();
-    return global.ClientEnv?.isWeb?.() ?? !global.__MOJ_ELECTRON;
-  }
-
-  /** Ocultar chat al entrar en modo pantalla compartida (todos los entornos). */
   function onShareLayoutEnter() {
+    const T = global.MojActionTypes;
+    if (deps?.dispatch && T) {
+      deps.dispatch({ type: T.UI_SET_CHAT_OPEN, open: false });
+      return;
+    }
     deps?.setChatPanelHidden?.(true);
   }
 
-  function onEnterRoomWeb() {
-    onShareLayoutEnter();
-  }
-
   function toggleFromBar() {
+    if (global.ChatPanelModule?.toggleFromBar) {
+      global.ChatPanelModule.toggleFromBar();
+      return;
+    }
     const chatHidden = deps?.getChatPanelHidden?.() ?? true;
-    if (isWebEnv() && !chatHidden) {
+    if (!chatHidden) {
       deps?.setChatPanelHidden?.(true);
       return;
     }
     global.ChatModule?.openChatFromBar?.();
   }
 
-  /**
-   * @param {{ ChatModule: object, UiBarra: object, NotificationsModule?: object, Notificaciones?: object }} mods
-   */
   function bindBottomBar(mods) {
     if (barBound) return;
     const ChatModule = mods?.ChatModule;
@@ -45,20 +41,15 @@
     barBound = true;
     Notify.init({
       getChatThreads: () => ChatModule.getChatThreads(),
-      onUpdate: (state) => {
-        UiBarra.updateBadge(state?.totalUnread);
-      },
+      onUpdate: (state) => UiBarra.updateBadge(state?.totalUnread),
     });
-    UiBarra.mountRoomBottomBar({
-      onOpenChat: () => toggleFromBar(),
-    });
+    UiBarra.mountRoomBottomBar({ onOpenChat: () => toggleFromBar() });
   }
 
   global.ChatRoomUiModule = {
     init,
     bindBottomBar,
     onShareLayoutEnter,
-    onEnterRoomWeb,
     toggleFromBar,
   };
 })(typeof window !== "undefined" ? window : global);

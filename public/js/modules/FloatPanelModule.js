@@ -181,7 +181,7 @@
       state.left = snapped.left;
       state.top = snapped.top;
       state.edge = snapped.edge;
-      applyLayout();
+      applyPanelVisibility();
       saveState();
     }
   }
@@ -293,10 +293,7 @@
     });
     pillEl.addEventListener("dblclick", (e) => {
       e.preventDefault();
-      if (!state || !state.minimized) return;
-      state.minimized = false;
-      applyLayout();
-      saveState();
+      restorePanel();
     });
     resizeEl.addEventListener("pointerdown", (e) => {
       if (!state || state.minimized) return;
@@ -319,11 +316,7 @@
     });
     rootEl.querySelector(".web-float-peers-btn-min")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (state) {
-        state.minimized = true;
-        applyLayout();
-        saveState();
-      }
+      minimizePanel();
     });
 
     if (!resizeBound) {
@@ -419,12 +412,106 @@
     global.UiPresenterFloat?.deactivate?.();
   }
 
+  function countVisiblePeerTiles() {
+    const src = videosEl || document.getElementById("videos");
+    if (!src) return 0;
+    let n = 0;
+    src.querySelectorAll(".remote-peer").forEach((peer) => {
+      if (peer.closest("#roomRemoteScreenStage")) return;
+      const video = peer.querySelector("video");
+      if (!video) return;
+      const track = video.srcObject?.getVideoTracks?.()[0];
+      if (track && track.readyState === "live" && track.enabled !== false) {
+        n += 1;
+        return;
+      }
+      if (video.videoWidth > 0) n += 1;
+    });
+    return n;
+  }
+
+  function getStorePanelState() {
+    return global.AppState?.getState?.()?.ui?.participantsPanelState;
+  }
+
+  function dispatchPanelState(panelState) {
+    const T = global.MojActionTypes;
+    if (T && global.AppState?.dispatch) {
+      global.AppState.dispatch({ type: T.PARTICIPANTS_PANEL_SET, state: panelState });
+    }
+    deps?.onPanelStateChange?.(panelState);
+  }
+
+  function applyPanelVisibility() {
+    if (!rootEl || !state) return;
+    applyLayout();
+    const storeState = getStorePanelState();
+    if (storeState === "hidden" || !active) {
+      rootEl.classList.add("hidden");
+      pillEl?.classList.add("hidden");
+      return;
+    }
+    const minimized = state.minimized || storeState === "minimized";
+    if (minimized) {
+      rootEl.classList.add("hidden");
+      pillEl?.classList.remove("hidden");
+    } else {
+      rootEl.classList.remove("hidden");
+      pillEl?.classList.add("hidden");
+    }
+  }
+
+  function syncPanelVisibilityForTiles() {
+    applyPanelVisibility();
+  }
+
+  function minimizePanel() {
+    if (!state) return;
+    state.minimized = true;
+    applyPanelVisibility();
+    saveState();
+    dispatchPanelState("minimized");
+  }
+
+  function restorePanel() {
+    if (!state || !state.minimized) return;
+    state.minimized = false;
+    applyPanelVisibility();
+    saveState();
+    dispatchPanelState("open");
+  }
+
+  function applyPanelStateFromStore(ui) {
+    if (!state || !active) return;
+    const ps = ui?.participantsPanelState;
+    if (ps === "minimized") state.minimized = true;
+    else if (ps === "open") state.minimized = false;
+    applyPanelVisibility();
+  }
+
+  function shouldAllowActivate() {
+    const state = global.AppState?.getState?.();
+    if (state?.ui?.currentLayout === "share") return true;
+    const shell = getShellEl();
+    return (
+      shell?.classList.contains("room-shell--presenter-focus") ||
+      shell?.classList.contains("room-shell--remote-screen-dominant")
+    );
+  }
+
   function activate() {
+    if (!shouldAllowActivate()) return;
     ensureDom();
     suppressDesktopPresenterUi();
     const wasActive = active;
     if (!active) {
       state = loadState() || defaultState();
+      const storeUi = global.AppState?.getState?.()?.ui;
+      if (storeUi?.participantsPanelState === "minimized") {
+        state.minimized = true;
+      } else if (storeUi?.participantsPanelState === "open") {
+        state.minimized = false;
+      }
       const c = clampBox(state.left, state.top, state.width, state.height);
       state = { ...state, ...c };
       active = true;
@@ -434,15 +521,17 @@
     shell?.classList.toggle(modClass, true);
     shell?.classList.remove("room-shell--web-layout");
     mountVideos();
-    rootEl?.classList.remove("hidden");
-    applyLayout();
+    applyPanelVisibility();
     if (!wasActive) {
-      global.requestAnimationFrame(() => avoidStageOverlap());
+      global.requestAnimationFrame(() => {
+        avoidStageOverlap();
+        syncPanelVisibilityForTiles();
+      });
     }
   }
 
-  function deactivate() {
-    if (!active) return;
+  function deactivate(options = {}) {
+    if (!active && !options.force) return;
     saveState();
     unmountVideos();
     rootEl?.classList.add("hidden");
@@ -453,6 +542,18 @@
     active = false;
     drag = null;
     resizeDrag = null;
+    if (options.destroyDom) {
+      try {
+        rootEl?.remove();
+        pillEl?.remove();
+      } catch (_) {}
+      rootEl = null;
+      pillEl = null;
+      headerEl = null;
+      bodyEl = null;
+      resizeEl = null;
+      domReady = false;
+    }
   }
 
   function init(options = {}) {
@@ -475,6 +576,7 @@
       state.height = c.height;
       applyLayout();
     }
+    syncPanelVisibilityForTiles();
   }
 
   global.FloatPanelModule = {
@@ -483,5 +585,11 @@
     deactivate,
     onShareLayoutChange,
     isActive,
+    countVisiblePeerTiles,
+    syncPanelVisibilityForTiles,
+    applyPanelVisibility,
+    applyPanelStateFromStore,
+    minimizePanel,
+    restorePanel,
   };
 })(typeof window !== "undefined" ? window : global);

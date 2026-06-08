@@ -90,11 +90,18 @@
     }
   }
 
+  function syncLocalSharePreview() {
+    if (!deps?.isLocallySharingScreen?.()) return;
+    const stage = $("roomRemoteScreenStage");
+    deps.mountLocalScreenSharePreviewToStage?.();
+    deps.ScreenOverlay?.syncWithStage?.(stage);
+  }
+
   function enterPresenterFocusUi() {
     const shell = $("roomShell");
     if (!shell) return;
     if (presenterFocusActive) {
-      deps?.ScreenOverlay?.syncWithStage?.($("roomRemoteScreenStage"));
+      syncLocalSharePreview();
       ensurePresenterMediaDock();
       return;
     }
@@ -132,7 +139,7 @@
       global.addEventListener("resize", onResize);
     }
     deps?.setMeetView?.("gallery");
-    deps?.ScreenOverlay?.syncWithStage?.(stage);
+    syncLocalSharePreview();
   }
 
   function unbindSharerVideoMetadata() {

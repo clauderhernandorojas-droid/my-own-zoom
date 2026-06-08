@@ -40,7 +40,10 @@ function makeSandbox(extra = {}) {
         this._data[k] = v;
       },
     },
-    console: { log: () => {} },
+    console: { log: () => {}, warn: () => {} },
+    requestAnimationFrame(fn) {
+      fn();
+    },
     ScreenOverlay: { syncWithStage() {} },
     ...extra,
   };
@@ -123,19 +126,44 @@ const lmBox = makeSandbox({
     onShareLayoutChange() {},
     isActive: () => false,
   },
-  ChatRoomUiModule: { init() {}, onShareLayoutEnter() {} },
+  ParticipantsModule: { init() {}, destroy() {}, update() {} },
+  ChatRoomUiModule: { init() {} },
   ToolbarModule: { initWebLayerPolicy() {} },
   $: (id) => (id === "roomShell" ? lmBox._shell : null),
 });
 lmBox._shell = {
   classList: {
-    contains: (c) => c === "room-shell--presenter-focus",
+    _set: new Set(),
+    contains(c) {
+      return this._set.has(c);
+    },
+    toggle(c, on) {
+      if (on) this._set.add(c);
+      else this._set.delete(c);
+    },
   },
 };
+run("store/actions.js", lmBox);
+run("store/reducer.js", lmBox);
+run("store/AppState.js", lmBox);
 run("clientEnv.js", lmBox);
 run("modules/LayoutModule.js", lmBox);
 if (!lmBox.LayoutModule?.syncShareLayout) {
   console.error("LayoutModule.syncShareLayout missing");
+  failed++;
+}
+lmBox.LayoutModule.init({
+  $: lmBox.$,
+  getActiveRoomId: () => "room1",
+});
+lmBox.AppState.dispatch({
+  type: lmBox.MojActionTypes.SHARE_REMOTE_SET,
+  active: true,
+  userId: "u1",
+});
+lmBox.LayoutModule.syncShareLayout();
+if (!lmBox._shell.classList.contains("room-shell--share-layout-modular")) {
+  console.error("LayoutModule: share-layout-modular must apply when store layout is share");
   failed++;
 }
 
@@ -192,28 +220,81 @@ if (!layoutShellCss.includes("html.moj-web-client") || !layoutShellCss.includes(
 }
 
 const lmSrc = fs.readFileSync(path.join(root, "modules", "LayoutModule.js"), "utf8");
-if (!/if\s*\(\s*!initialized\s*\)[\s\S]*init\s*\(\s*deps\s*\)/.test(lmSrc)) {
+if (!/if\s*\(\s*!initialized\s*&&\s*deps\s*\)\s*init\s*\(\s*deps\s*\)/.test(lmSrc)) {
   console.error("LayoutModule.js: syncShareLayout must call init(deps) when !initialized");
   failed++;
 }
-if (!lmSrc.includes("onEnterRoom") || !/isShareActive\(\)[\s\S]*resyncScreenOverlay/.test(lmSrc)) {
-  console.error("LayoutModule.js: onEnterRoom must resync overlay when share active");
+if (!lmSrc.includes("onEnterRoom") || !/resyncScreenOverlay/.test(lmSrc)) {
+  console.error("LayoutModule.js: onEnterRoom must resync overlay");
   failed++;
 }
 if (!lmSrc.includes("SHARE_MODULAR_CLASS") || !lmSrc.includes("applyShareModularClass")) {
   console.error("LayoutModule.js: must apply SHARE_MODULAR_CLASS during share");
   failed++;
 }
-if (!/FloatPanelModule\?\.\activate/.test(lmSrc)) {
-  console.error("LayoutModule.js: must activate FloatPanelModule during share");
+if (!lmSrc.includes("updateFromStore") || !/AppState/.test(lmSrc)) {
+  console.error("LayoutModule.js: must observe AppState via updateFromStore");
   failed++;
 }
-if (!/FloatPanelModule\?\.\onShareLayoutChange/.test(lmSrc)) {
-  console.error("LayoutModule.js: must call FloatPanelModule.onShareLayoutChange after activate");
+if (!lmSrc.includes("ParticipantsModule")) {
+  console.error("LayoutModule.js: must delegate participants panel to ParticipantsModule");
+  failed++;
+}
+if (/syncParticipantsPanel[\s\S]{0,400}activate[\s\S]{0,120}deactivate/.test(lmSrc)) {
+  console.error("LayoutModule.js: must not activate+deactivate participants in same frame");
+  failed++;
+}
+if (/ChatRoomUiModule\?\.\onShareLayoutEnter/.test(lmSrc)) {
+  console.error("LayoutModule.js: must not call onShareLayoutEnter directly (use AppState effects)");
   failed++;
 }
 if (!lmSrc.includes("resyncScreenOverlay") || !/ScreenOverlay\.syncWithStage/.test(lmSrc)) {
   console.error("LayoutModule.js: resyncScreenOverlay must call ScreenOverlay.syncWithStage");
+  failed++;
+}
+if (!lmSrc.includes("initParticipantsPanel") && !lmSrc.includes("ParticipantsModule")) {
+  console.error("LayoutModule.js: participants init missing");
+  failed++;
+}
+if (!lmSrc.includes("deactivateShareLayoutUi")) {
+  console.error("LayoutModule.js: must use deactivateShareLayoutUi on leave/stop share");
+  failed++;
+}
+if (/syncParticipantsPanel[\s\S]{0,400}activate[\s\S]{0,120}deactivate/.test(lmSrc)) {
+  console.error("LayoutModule.js: syncParticipantsPanel must not deactivate immediately after activate");
+  failed++;
+}
+
+const cruSrc = fs.readFileSync(path.join(root, "modules", "ChatRoomUiModule.js"), "utf8");
+if (/isWebEnv\(\)\s*&&\s*!chatHidden/.test(cruSrc)) {
+  console.error("ChatRoomUiModule.js: toggleFromBar must close chat in all environments, not only web");
+  failed++;
+}
+if (!layoutShellCss.includes("display: flex !important") || !layoutShellCss.includes("flex-direction: column")) {
+  console.error("layoutShell.css: chat overlay must override presenterFocus display:none during share");
+  failed++;
+}
+
+const cruBox = makeSandbox({ ChatModule: { openChatFromBar() {} } });
+run("modules/ChatRoomUiModule.js", cruBox);
+let chatHiddenProbe = true;
+cruBox.ChatRoomUiModule.init({
+  getChatPanelHidden: () => chatHiddenProbe,
+  setChatPanelHidden: (h) => {
+    chatHiddenProbe = !!h;
+  },
+});
+cruBox.ChatModule.openChatFromBar = () => {
+  chatHiddenProbe = false;
+};
+cruBox.ChatRoomUiModule.toggleFromBar();
+if (chatHiddenProbe !== false) {
+  console.error("ChatRoomUiModule: toggleFromBar should open chat when hidden");
+  failed++;
+}
+cruBox.ChatRoomUiModule.toggleFromBar();
+if (chatHiddenProbe !== true) {
+  console.error("ChatRoomUiModule: toggleFromBar should close chat when visible");
   failed++;
 }
 
@@ -259,6 +340,10 @@ if (!fpSrc.includes("screen-overlay-fab-host") || !fpSrc.includes("fabZone")) {
 }
 if (!fpSrc.includes('addEventListener("dblclick"') || !fpSrc.includes("pillSuppressClickUntil")) {
   console.error("FloatPanelModule.js: minimized pill must expand on dblclick, not after drag click");
+  failed++;
+}
+if (!fpSrc.includes("countVisiblePeerTiles") || !fpSrc.includes("syncPanelVisibilityForTiles")) {
+  console.error("FloatPanelModule.js: must expose tile visibility guards");
   failed++;
 }
 

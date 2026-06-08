@@ -111,12 +111,20 @@ async function main() {
   let docSawScreenStop = false;
   let estSawScreenStop = false;
   let estSawScreenStart = false;
+  let docSawEstScreenStart = false;
+  let estScreenStartUid = null;
   let docSawBoardStart = false;
   let estSawBoardStart = false;
   let estSawBoardStop = false;
 
   sockDoc.on('meet:screenShare', (p) => {
     if (normRoomId(p?.roomId) !== canonical) return;
+    if (p?.active) {
+      estScreenStartUid = p.userId;
+      if (String(p.userId).toLowerCase() === String(estPart.usuarioId).toLowerCase()) {
+        docSawEstScreenStart = true;
+      }
+    }
     if (!p?.active) docSawScreenStop = true;
   });
   sockEst.on('meet:screenShare', (p) => {
@@ -155,13 +163,16 @@ async function main() {
   }
   console.log('[share-stop] Invitado no puede detener pantalla del docente (OK)');
 
-  const grantShare = await new Promise((resolve) => {
-    sockDoc.emit(
-      'meet:screenShare:response',
-      { roomId, targetUserId: String(estPart.usuarioId), approved: true },
-      resolve
-    );
-  });
+  const grantShare = await Promise.race([
+    new Promise((resolve) => {
+      sockDoc.emit(
+        'meet:screenShare:response',
+        { roomId, targetUserId: String(estPart.usuarioId), approved: true },
+        resolve
+      );
+    }),
+    sleep(10000).then(() => ({ ok: false, error: 'TIMEOUT' })),
+  ]);
   if (!grantShare?.ok) {
     console.error('[share-stop] Grant compartir falló:', grantShare);
     process.exit(1);
@@ -170,8 +181,27 @@ async function main() {
 
   docSawScreenStop = false;
   estSawScreenStop = false;
-  sockEst.emit('meet:screenShare', { roomId, active: true });
+  docSawEstScreenStart = false;
+  estScreenStartUid = null;
+  const estShareAck = await Promise.race([
+    new Promise((resolve) => {
+      sockEst.emit('meet:screenShare', { roomId, active: true }, resolve);
+    }),
+    sleep(10000).then(() => ({ ok: false, error: 'TIMEOUT' })),
+  ]);
   await sleep(300);
+  if (!estShareAck?.ok) {
+    console.error('[share-stop] Ack invitado share start falló:', estShareAck);
+    process.exit(1);
+  }
+  if (!docSawEstScreenStart) {
+    console.error('[share-stop] Docente no recibió inicio de pantalla del invitado autorizado', estScreenStartUid);
+    process.exit(1);
+  }
+  console.log('[share-stop] Invitado autorizado: presentador recibe meet:screenShare (OK)');
+
+  docSawScreenStop = false;
+  estSawScreenStop = false;
   sockEst.emit('meet:screenShare', { roomId, active: false });
   await sleep(300);
   if (!docSawScreenStop) {
