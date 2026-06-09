@@ -462,6 +462,15 @@
   }
 
   function syncPanelVisibilityForTiles() {
+    if (!rootEl || !state || !active) {
+      applyPanelVisibility();
+      return;
+    }
+    if (countVisiblePeerTiles() === 0) {
+      rootEl.classList.add("hidden");
+      pillEl?.classList.add("hidden");
+      return;
+    }
     applyPanelVisibility();
   }
 
@@ -500,6 +509,7 @@
   }
 
   function activate() {
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) return;
     if (!shouldAllowActivate()) return;
     ensureDom();
     suppressDesktopPresenterUi();

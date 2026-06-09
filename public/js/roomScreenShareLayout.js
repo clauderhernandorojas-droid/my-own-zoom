@@ -12,11 +12,40 @@
   const ATTACH_REMOTE_MAX_RETRIES = 4;
   /** @type {HTMLVideoElement | null} */
   let attachRemoteVideoListener = null;
+  let unsubOwnerId = null;
+  let lastOwnerId = null;
 
   function init(options = {}) {
     deps = options;
     if (global.UiPresenterFloat?.init) global.UiPresenterFloat.init(options);
     if (global.UiFloatingDock?.init) global.UiFloatingDock.init(options);
+
+    const store = deps?.AppState;
+    if (store?.subscribe && !unsubOwnerId) {
+      lastOwnerId = deps?.getShareOwnerId?.() ?? store.getState?.()?.share?.ownerId ?? null;
+      unsubOwnerId = store.subscribe((s) => s.share?.ownerId, (ownerId) => {
+        const prev = lastOwnerId;
+        if (prev !== ownerId) {
+          if (prev && prev !== ownerId) {
+            onOwnerIdChanged(prev, ownerId);
+          }
+          lastOwnerId = ownerId;
+        }
+        updateRemoteScreenShareLayout();
+      });
+    }
+  }
+
+  function onOwnerIdChanged(prev, next) {
+    const myId = deps?.getMyUserId?.();
+    const prevNorm = prev != null ? String(prev).trim().toLowerCase() : "";
+    const myNorm = myId != null ? String(myId).trim().toLowerCase() : "";
+    if (prevNorm && prevNorm !== myNorm && !deps?.isLocallySharingScreen?.()) {
+      deps?.onForcedRemoteStop?.(prev);
+    }
+    if (next && myNorm && String(next).trim().toLowerCase() === myNorm && deps?.isLocallySharingScreen?.()) {
+      syncLocalSharePreview();
+    }
   }
 
   function isPresenterFocusActive() {
@@ -201,13 +230,25 @@
     attachRemoteRetryRaf = requestAnimationFrame(tick);
   }
 
+  function resolveRemoteUid() {
+    const fromDep = deps?.getShareOwnerId?.();
+    if (fromDep != null && String(fromDep).trim()) {
+      return String(fromDep).trim().toLowerCase();
+    }
+    const legacy = deps?.getRemoteScreenShareUserId?.();
+    return legacy != null ? String(legacy).trim().toLowerCase() : "";
+  }
+
   /** @returns {boolean} true si el peer del sharer quedó en el stage */
   function attachRemoteScreenToStage() {
     const stage = $("roomRemoteScreenStage");
     const rc = $("remotesContainer");
     if (!stage || !rc || !deps?.remoteVideos || !deps?.peerSocketToUserId) return false;
-    const uid = String(deps.getRemoteScreenShareUserId?.() || "").trim().toLowerCase();
+    const uid = resolveRemoteUid();
     if (!uid) return false;
+    if (uid === String(deps?.getMyUserId?.() || "").trim().toLowerCase() && deps?.isLocallySharingScreen?.()) {
+      return false;
+    }
     let targetVideo = null;
     for (const [socketId, vid] of deps.remoteVideos.entries()) {
       const u = deps.peerSocketToUserId.get(socketId);
@@ -242,10 +283,14 @@
     }
 
     const localSharing = !!deps.isLocallySharingScreen?.();
-    const remoteUid = String(deps.getRemoteScreenShareUserId?.() || "").trim();
-    const viewingRemote = !!remoteUid && !localSharing;
+    const remoteUid = resolveRemoteUid();
+    const myId = String(deps?.getMyUserId?.() || "").trim().toLowerCase();
+    const viewingRemote = !!remoteUid && !localSharing && remoteUid !== myId;
+
+    global.MiniPlayerControls?.suppressForActiveSession?.();
 
     if (localSharing) {
+      deps?.onForcedRemoteStop?.();
       enterPresenterFocusUi();
       deps.applyRoomVideoStripSizing?.();
       deps.syncRemotePlaybackVolumeForShare?.();
@@ -293,6 +338,11 @@
   }
 
   function onLeaveRoom() {
+    if (unsubOwnerId) {
+      unsubOwnerId();
+      unsubOwnerId = null;
+    }
+    lastOwnerId = null;
     clearAttachRemoteRetry();
     exitPresenterFocusUi();
     const shell = $("roomShell");
@@ -305,6 +355,7 @@
     isPresenterFocusActive,
     ensurePresenterMediaDock,
     updateRemoteScreenShareLayout,
+    syncLocalSharePreview,
     onStopScreenShare,
     onLeaveRoom,
   };

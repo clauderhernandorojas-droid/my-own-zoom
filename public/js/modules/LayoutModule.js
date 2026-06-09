@@ -47,9 +47,12 @@
     const shareActive = state.ui.currentLayout === "share";
     applyShareModularClass(shareActive);
     if (shareActive) {
+      global.MiniPlayerControls?.suppressForActiveSession?.();
       global.requestAnimationFrame(() => {
         resyncScreenOverlay();
       });
+    } else {
+      global.MiniPlayerControls?.suppressForActiveSession?.();
     }
     deps?.onShareLayoutChange?.();
   }

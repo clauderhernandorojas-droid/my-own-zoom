@@ -346,6 +346,14 @@ if (!fpSrc.includes("countVisiblePeerTiles") || !fpSrc.includes("syncPanelVisibi
   console.error("FloatPanelModule.js: must expose tile visibility guards");
   failed++;
 }
+if (!fpSrc.includes("countVisiblePeerTiles() === 0")) {
+  console.error("FloatPanelModule.js: syncPanelVisibilityForTiles must hide empty panel");
+  failed++;
+}
+if (!fpSrc.includes("enableParticipantsPanel === false")) {
+  console.error("FloatPanelModule.js: activate must respect enableParticipantsPanel flag");
+  failed++;
+}
 
 const presenterCss = fs.readFileSync(
   path.join(__dirname, "..", "public", "css", "presenterFocus.css"),
