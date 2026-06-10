@@ -461,14 +461,23 @@
     }
   }
 
+  function isShareOkInStore() {
+    const store = global.AppState?.getState?.();
+    return (
+      store?.ui?.currentLayout === "share" &&
+      global.AppState?.isShareActive?.(store)
+    );
+  }
+
   function syncPanelVisibilityForTiles() {
-    if (!rootEl || !state || !active) {
-      applyPanelVisibility();
+    if (!active) return;
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
+      deactivate({ force: true, destroyDom: true });
       return;
     }
-    if (countVisiblePeerTiles() === 0) {
-      rootEl.classList.add("hidden");
-      pillEl?.classList.add("hidden");
+    const tiles = countVisiblePeerTiles();
+    if (!isShareOkInStore() || tiles === 0) {
+      deactivate({ force: true, destroyDom: true });
       return;
     }
     applyPanelVisibility();
@@ -499,13 +508,10 @@
   }
 
   function shouldAllowActivate() {
-    const state = global.AppState?.getState?.();
-    if (state?.ui?.currentLayout === "share") return true;
-    const shell = getShellEl();
-    return (
-      shell?.classList.contains("room-shell--presenter-focus") ||
-      shell?.classList.contains("room-shell--remote-screen-dominant")
-    );
+    const store = global.AppState?.getState?.();
+    if (!global.AppState?.isShareActive?.(store)) return false;
+    if (store?.ui?.currentLayout !== "share") return false;
+    return true;
   }
 
   function activate() {
@@ -576,6 +582,10 @@
 
   function onShareLayoutChange() {
     if (!active) return;
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
+      deactivate({ force: true, destroyDom: true });
+      return;
+    }
     suppressDesktopPresenterUi();
     global.RoomScreenShareLayout?.ensurePresenterMediaDock?.();
     if (state && !drag && !resizeDrag) {

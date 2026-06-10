@@ -433,10 +433,34 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       - `shouldSuppressMiniPlayer()` consulta `AppState.ui.currentLayout === 'share'`, `AppState.isShareActive()` y sala visible.
       - `suppressForActiveSession()` (cierra PiP + oculta `#miniPlayer`) en: `updateRemoteScreenShareLayout` (presentador e invitado), `LayoutModule.updateFromStore`, `stopScreenShare`, `showRoom`, `leaveRoom`.
       - `pickBestRemoteStream()` excluye peers ya montados en `#roomRemoteScreenStage` (evita PiP duplicando la captura).
-      - `FloatPanelModule.syncPanelVisibilityForTiles()` oculta panel expandido cuando no hay tiles live; `activate()` respeta `flags.enableParticipantsPanel`.
+      - `FloatPanelModule.syncPanelVisibilityForTiles()` destruye el panel (`deactivate({ destroyDom: true })`) cuando no hay tiles live o el store ya no indica share; `activate()` respeta `flags.enableParticipantsPanel`.
     - **Nota**: PiP con título `127.0.0.1:3000` es ventana del **navegador/Electron**, no un bug de CSS del overlay.
     - **Tests**: `node scripts/test-mini-player-suppression.cjs`; regresión `npm run test:room-modules`.
     - **QA manual**: presentador/invitado con share → sin ventana residual; stop share / Dejar → PiP cerrado y DOM limpio; overlay lápiz intacto.
+
+  - **Corrección panel flotante DOM residual** (galería / navegador):
+    - **Síntoma**: cuadro negro superpuesto a participantes en layout galería (`/#/meet/.../gallery`), típicamente esquina inferior derecha — es `#webFloatPeersRoot` (no PiP ni `#miniPlayer`).
+    - **Probe** (con el cuadro visible o en galería tras share):
+      ```javascript
+      const root = document.getElementById("webFloatPeersRoot");
+      ({
+        rootExists: !!root,
+        rootHidden: root?.classList.contains("hidden"),
+        floatActive: FloatPanelModule?.isActive?.(),
+        visibleTiles: FloatPanelModule?.countVisiblePeerTiles?.(),
+        videosParent: document.getElementById("videos")?.parentElement?.id,
+        shareLayout: AppState?.getState?.()?.ui?.currentLayout,
+        shareActive: AppState?.isShareActive?.(),
+      })
+      ```
+      Fuera de share: `rootExists` idealmente `false`; si existe, `rootHidden` debe ser `true`.
+    - **Fix aplicado**:
+      - `syncPanelVisibilityForTiles()` → `deactivate({ force: true, destroyDom: true })` si `!isShareOkInStore()` o `countVisiblePeerTiles() === 0`.
+      - `shouldAllowActivate()` exige `AppState.isShareActive()` y `currentLayout === 'share'`.
+      - `updateRemoteScreenShareLayout()` sincroniza tiles o fuerza `deactivate` si no hay share.
+      - `LayoutModule.updateFromStore` destruye panel al salir de layout share.
+      - CSS defensivo en [`layoutShell.css`](public/css/modules/layoutShell.css): oculta `#webFloatPeersRoot` sin clase `room-shell--share-layout-modular`.
+    - **Probe post-fix**: `document.getElementById("webFloatPeersRoot")?.classList.contains("hidden")` → `true` o elemento ausente (`null`).
 
   - **Modo presentador / invitado (layout pantalla compartida)**:
     - [`public/js/roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — alterna `room-shell--presenter-focus` (quien comparte) y `room-shell--remote-screen-dominant` (quien ve el share remoto). Llama a `ScreenOverlay.syncWithStage(stage)` pasando `#roomRemoteScreenStage` (o resolviendo el stage por defecto en `screenOverlay.js`).

@@ -346,12 +346,25 @@ if (!fpSrc.includes("countVisiblePeerTiles") || !fpSrc.includes("syncPanelVisibi
   console.error("FloatPanelModule.js: must expose tile visibility guards");
   failed++;
 }
-if (!fpSrc.includes("countVisiblePeerTiles() === 0")) {
-  console.error("FloatPanelModule.js: syncPanelVisibilityForTiles must hide empty panel");
+if (!fpSrc.includes("deactivate({ force: true, destroyDom: true })")) {
+  console.error("FloatPanelModule.js: syncPanelVisibilityForTiles must destroyDom on empty/invalid share");
+  failed++;
+}
+if (!fpSrc.includes("isShareActive")) {
+  console.error("FloatPanelModule.js: shouldAllowActivate must consult isShareActive");
   failed++;
 }
 if (!fpSrc.includes("enableParticipantsPanel === false")) {
   console.error("FloatPanelModule.js: activate must respect enableParticipantsPanel flag");
+  failed++;
+}
+if (!layoutShellCss.includes(":not(.room-shell--share-layout-modular) #webFloatPeersRoot")) {
+  console.error("layoutShell.css: defensive hide for float panel outside share modular");
+  failed++;
+}
+const indexHtmlFloat = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+if (!indexHtmlFloat.includes("FloatPanelModule.syncPanelVisibilityForTiles")) {
+  console.error("index.html: updateRemoteScreenShareLayout must sync float panel tiles");
   failed++;
 }
 

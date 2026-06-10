@@ -98,3 +98,10 @@ html.moj-web-client .room-shell.room-shell--presenter-focus .room-bottom-toolbar
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.55);
 }
+
+/* Ocultar panel participantes flotante fuera de layout share modular */
+.room-shell:not(.room-shell--share-layout-modular) #webFloatPeersRoot,
+.room-shell:not(.room-shell--share-layout-modular) #webFloatPeersPill {
+  display: none !important;
+  pointer-events: none !important;
+}

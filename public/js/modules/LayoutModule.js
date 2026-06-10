@@ -53,6 +53,7 @@
       });
     } else {
       global.MiniPlayerControls?.suppressForActiveSession?.();
+      global.FloatPanelModule?.deactivate?.({ force: true, destroyDom: true });
     }
     deps?.onShareLayoutChange?.();
   }
