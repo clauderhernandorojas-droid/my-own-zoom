@@ -27,6 +27,7 @@
   let pillSuppressClickUntil = 0;
   let domReady = false;
   let resizeBound = false;
+  let tilesSyncTimer = 0;
 
   function getClamp() {
     return deps?.clamp || global.UiFloatClamp || null;
@@ -347,14 +348,27 @@
     bodyEl.appendChild(src);
   }
 
+  function resolveGalleryVideosParent() {
+    const stage = document.querySelector(".room-video-strip__stage");
+    if (stage) return stage;
+    const strip = document.getElementById("roomVideoStrip");
+    return strip?.querySelector?.(".room-video-strip__stage") || null;
+  }
+
   function unmountVideos() {
-    if (!videosEl || !videosParent) return;
+    const vid = videosEl || document.getElementById("videos");
+    if (!vid) return;
+    let parent = videosParent;
+    if (!parent || !parent.isConnected) {
+      parent = resolveGalleryVideosParent();
+    }
+    if (!parent) return;
     try {
-      videosEl.classList.remove("web-float-peers-videos");
-      if (videosNext && videosNext.parentNode === videosParent) {
-        videosParent.insertBefore(videosEl, videosNext);
+      vid.classList.remove("web-float-peers-videos");
+      if (videosNext && videosNext.parentNode === parent) {
+        parent.insertBefore(vid, videosNext);
       } else {
-        videosParent.appendChild(videosEl);
+        parent.appendChild(vid);
       }
     } catch (_) {}
     videosEl = null;
@@ -421,7 +435,11 @@
       const video = peer.querySelector("video");
       if (!video) return;
       const track = video.srcObject?.getVideoTracks?.()[0];
-      if (track && track.readyState === "live" && track.enabled !== false) {
+      if (track && track.readyState === "live") {
+        n += 1;
+        return;
+      }
+      if (video.srcObject?.getTracks?.().length) {
         n += 1;
         return;
       }
@@ -472,13 +490,38 @@
   function syncPanelVisibilityForTiles() {
     if (!active) return;
     if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
+      if (tilesSyncTimer) {
+        clearTimeout(tilesSyncTimer);
+        tilesSyncTimer = 0;
+      }
+      deactivate({ force: true, destroyDom: true });
+      return;
+    }
+    if (!isShareOkInStore()) {
+      if (tilesSyncTimer) {
+        clearTimeout(tilesSyncTimer);
+        tilesSyncTimer = 0;
+      }
       deactivate({ force: true, destroyDom: true });
       return;
     }
     const tiles = countVisiblePeerTiles();
-    if (!isShareOkInStore() || tiles === 0) {
-      deactivate({ force: true, destroyDom: true });
+    if (tiles === 0) {
+      if (tilesSyncTimer) return;
+      tilesSyncTimer = setTimeout(() => {
+        tilesSyncTimer = 0;
+        if (!active || !isShareOkInStore()) return;
+        if (countVisiblePeerTiles() === 0) {
+          deactivate({ force: true, destroyDom: true });
+        } else {
+          applyPanelVisibility();
+        }
+      }, 400);
       return;
+    }
+    if (tilesSyncTimer) {
+      clearTimeout(tilesSyncTimer);
+      tilesSyncTimer = 0;
     }
     applyPanelVisibility();
   }

@@ -4957,17 +4957,54 @@
       });
     }
 
+    function refreshGalleryVideoMosaic() {
+      if (typeof AppState !== "undefined" && AppState.isShareActive?.()) return;
+      if (typeof FloatPanelModule !== "undefined") {
+        FloatPanelModule.deactivate?.({ force: true, destroyDom: true });
+      }
+      const stage = $("roomRemoteScreenStage");
+      const rc = $("remotesContainer");
+      if (stage && rc) {
+        moveStageRemotePeersToContainer(stage, rc);
+      }
+      let videos = $("videos");
+      const galleryStage = document.querySelector(".room-video-strip__stage");
+      if (videos && galleryStage) {
+        if (!videos.isConnected || videos.closest("#webFloatPeersRoot")) {
+          galleryStage.appendChild(videos);
+        } else if (videos.parentElement !== galleryStage) {
+          galleryStage.appendChild(videos);
+        }
+      }
+      for (const [socketId, vid] of remoteVideos.entries()) {
+        if (!vid?.isConnected) {
+          remoteVideos.delete(socketId);
+          peerStatusEls.delete(socketId);
+          ensureRemotePeerUi(socketId);
+          continue;
+        }
+        const wrap = vid.closest(".remote-peer");
+        if (wrap && rc && !rc.contains(wrap)) {
+          rc.appendChild(wrap);
+        }
+      }
+    }
+    window.refreshGalleryVideoMosaic = refreshGalleryVideoMosaic;
+
     function updateRemoteScreenShareLayout() {
+      const shareActive =
+        typeof AppState !== "undefined" && AppState.isShareActive?.();
+      if (!shareActive) {
+        refreshGalleryVideoMosaic();
+        window.WebLayoutOverrides?.syncShareLayout?.();
+        return;
+      }
       if (typeof RoomScreenShareLayout !== "undefined") {
         RoomScreenShareLayout.updateRemoteScreenShareLayout();
       }
       window.WebLayoutOverrides?.syncShareLayout?.();
-      if (typeof FloatPanelModule !== "undefined") {
-        if (FloatPanelModule.isActive?.()) {
-          FloatPanelModule.syncPanelVisibilityForTiles?.();
-        } else if (!AppState?.isShareActive?.()) {
-          FloatPanelModule.deactivate?.({ force: true, destroyDom: true });
-        }
+      if (typeof FloatPanelModule !== "undefined" && FloatPanelModule.isActive?.()) {
+        FloatPanelModule.syncPanelVisibilityForTiles?.();
       }
     }
 
@@ -9455,6 +9492,32 @@ body.print-calendar-export {
         });
       }
       syncMediaButtons();
+      if (on && activeRoomId && pcs.size > 0) {
+        void propagateLocalMediaToAllPeers().catch((e) => console.warn(e));
+      }
+    }
+
+    async function propagateLocalMediaToAllPeers() {
+      if (!localStream || pcs.size === 0) return;
+      await syncLocalTracksToAllSenders();
+      const video = getOutgoingVideoTrack();
+      if (!video) return;
+      for (const [remoteSocketId, pc] of pcs) {
+        let hasLiveVideoSender = false;
+        for (const sender of pc.getSenders()) {
+          if (sender.track?.kind === "video" && sender.track?.readyState === "live") {
+            hasLiveVideoSender = true;
+            break;
+          }
+        }
+        if (!hasLiveVideoSender) {
+          try {
+            await negotiateOffer(remoteSocketId);
+          } catch (e) {
+            console.warn("propagateLocalMedia renegotiate", remoteSocketId, e);
+          }
+        }
+      }
     }
 
     async function syncLocalTracksToAllSenders() {
@@ -9611,7 +9674,7 @@ body.print-calendar-export {
       refreshMediaDeviceSelectors().catch(() => {});
       if (acquiredNew && pcs.size > 0) {
         try {
-          await syncLocalTracksToAllSenders();
+          await propagateLocalMediaToAllPeers();
         } catch (e) {
           console.warn(e);
         }
@@ -9665,7 +9728,16 @@ body.print-calendar-export {
     }
 
     function ensureRemotePeerUi(remoteSocketId) {
-      if (remoteVideos.has(remoteSocketId)) return;
+      const existing = remoteVideos.get(remoteSocketId);
+      if (existing) {
+        if (existing.isConnected) return;
+        const staleWrap = existing.closest?.(".remote-peer");
+        remoteVideos.delete(remoteSocketId);
+        peerStatusEls.delete(remoteSocketId);
+        try {
+          staleWrap?.remove();
+        } catch (_) {}
+      }
       const vid = document.createElement("video");
       vid.autoplay = true;
       vid.playsInline = true;
@@ -9747,6 +9819,7 @@ body.print-calendar-export {
           vid.srcObject = stream;
           vid.play().catch(() => {});
         }
+        ParticipantsModule?.onRemoteTrackMounted?.(remoteSocketId);
         refreshSharerVideoFromReceivers(remoteSocketId);
         if (stream) {
           const bump = () => bumpRemoteScreenLayoutForSocket(remoteSocketId);
@@ -10764,10 +10837,19 @@ body.print-calendar-export {
             connectedUserIds.clear();
             peerSocketToUserId.clear();
             if (currentUser?.usuarioId) connectedUserIds.add(currentUser.usuarioId);
-            (resp.peers || []).forEach((p) => {
+            const rejoinPeers = resp.peers || [];
+            rejoinPeers.forEach((p) => {
               if (p.userId) connectedUserIds.add(p.userId);
               if (p.socketId && p.userId) peerSocketToUserId.set(p.socketId, p.userId);
             });
+            for (const p of rejoinPeers) {
+              if (p.socketId) {
+                negotiateOffer(p.socketId).catch((e) =>
+                  console.warn("rejoin negotiate", e)
+                );
+              }
+            }
+            void propagateLocalMediaToAllPeers().catch((e) => console.warn(e));
             void loadParticipantsForRoom(activeRoomId).catch((e) => console.warn(e));
             updateShareControlsForRole();
             renderShareMenu();
@@ -10957,6 +11039,9 @@ body.print-calendar-export {
             }
             ExpulsionControls?.refreshExpulsionMenu?.();
           }
+          if (activeRoomId && socketId && socketId !== socket.id) {
+            negotiateOffer(socketId).catch((e) => console.warn("presence:join negotiate", e));
+          }
         });
         socket.on("presence:leave", ({ userId, socketId }) => {
           if (socketId) peerSocketToUserId.delete(socketId);
@@ -11110,6 +11195,10 @@ body.print-calendar-export {
                       log("Error al negociar con un peer: " + (e?.message || e));
                     });
                   }
+                  void propagateLocalMediaToAllPeers().catch((e) => {
+                    console.warn(e);
+                    log("Error al propagar medios locales: " + (e?.message || e));
+                  });
                   syncMediaButtons();
                   updateMeetingVideoRecordButton();
                   updateLocalAggregateStatus();

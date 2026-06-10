@@ -462,6 +462,59 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       - CSS defensivo en [`layoutShell.css`](public/css/modules/layoutShell.css): oculta `#webFloatPeersRoot` sin clase `room-shell--share-layout-modular`.
     - **Probe post-fix**: `document.getElementById("webFloatPeersRoot")?.classList.contains("hidden")` → `true` o elemento ausente (`null`).
 
+  - **Corrección de stream remoto no visible en Electron** (fallo intermitente):
+    - **Síntoma**: invitado **navegador** se ve a sí mismo pero no aparece en el mosaico Electron; a veces galería central negra con panel «Participantes» visible fuera de share. Comportamiento **inestable** (a veces sí, a veces no).
+    - **Causas superpuestas**:
+      - **DOM**: `#videos` reparentado al panel flotante y no repatriado a `.room-video-strip__stage`; `ensureRemotePeerUi` con mapa stale si el nodo quedó detached.
+      - **WebRTC**: tras `room:join`, `syncLocalTracksToAllSenders` no corría con `pcs.size === 0`; reconexión socket sin `negotiateOffer`; cámara activada después sin renegociación.
+    - **Nota**: `meet:stream` **no existe**; la media va por `webrtc:offer/answer/ice-candidate`.
+    - **Probe A — layout vs store**:
+      ```javascript
+      const shell = document.getElementById("roomShell");
+      const videos = document.getElementById("videos");
+      ({
+        url: location.hash,
+        modular: shell?.classList.contains("room-shell--share-layout-modular"),
+        gallery: shell?.classList.contains("room-shell--gallery"),
+        shareActive: AppState?.isShareActive?.(),
+        floatActive: FloatPanelModule?.isActive?.(),
+        videosConnected: videos?.isConnected,
+        videosParent: videos?.parentElement?.className?.slice(0, 40),
+        remotesCount: document.querySelectorAll("#remotesContainer .remote-peer").length,
+      })
+      ```
+      Fuera de share: `videosConnected: true`, `videosParent` debe incluir `room-video-strip__stage`; sin `floatActive`.
+    - **Probe B — publicación (navegador)**:
+      ```javascript
+      ({
+        localTracks: localStream?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })),
+        pcs: [...pcs.entries()].map(([sid, pc]) => ({
+          sid: sid.slice(0, 8),
+          senders: pc.getSenders().map(s => ({ kind: s.track?.kind, ready: s.track?.readyState })),
+          cs: pc.connectionState,
+        })),
+      })
+      ```
+    - **Probe C — recepción (Electron)**:
+      ```javascript
+      ({
+        remoteSockets: [...remoteVideos.keys()].map(s => s.slice(0, 8)),
+        tracksPerVideo: [...document.querySelectorAll(".remote-peer video")].map(v => ({
+          peer: v.dataset.peer?.slice(0, 8),
+          connected: v.isConnected,
+          tracks: v.srcObject?.getTracks()?.length ?? 0,
+        })),
+      })
+      ```
+      QA: `[...document.querySelectorAll(".remote-peer video")].map(v => v.srcObject?.getTracks()?.length)` → ≥1 por peer con cámara activa.
+    - **Fix aplicado**:
+      - `propagateLocalMediaToAllPeers()` tras join, rejoin y al activar cámara (`syncLocalTracksToAllSenders` + re-`negotiateOffer` si falta sender de vídeo).
+      - Backup `negotiateOffer` en `presence:join` para peers ya en sala.
+      - `refreshGalleryVideoMosaic()` + bifurcación de `updateRemoteScreenShareLayout` cuando `!isShareActive()`.
+      - `ensureRemotePeerUi` recrea tiles detached; `FloatPanelModule.unmountVideos` repatriación defensiva.
+      - `ParticipantsModule.onRemoteTrackMounted` tras `pc.ontrack`.
+    - **Tests**: `node scripts/test-gallery-video-mosaic.cjs`; regresión `npm run test:room-modules`.
+
   - **Modo presentador / invitado (layout pantalla compartida)**:
     - [`public/js/roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — alterna `room-shell--presenter-focus` (quien comparte) y `room-shell--remote-screen-dominant` (quien ve el share remoto). Llama a `ScreenOverlay.syncWithStage(stage)` pasando `#roomRemoteScreenStage` (o resolviendo el stage por defecto en `screenOverlay.js`).
     - **Presentador** (`room-shell--presenter-focus`): oculta tablero/chat/franja fija; muestra `#roomScreenShareWrap` + vista previa local (`ensureLocalScreenShareStageWrap` → `.remote-peer--local-screen-share`). CSS en [`public/css/presenterFocus.css`](public/css/presenterFocus.css) — el stage requiere `display: flex` (no solo `flex: 1`).
