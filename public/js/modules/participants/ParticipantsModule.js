@@ -74,15 +74,17 @@
   }
 
   function onRemoteTrackMounted(_socketId) {
-    const state = global.AppState?.getState?.();
-    if (!state) return;
+    if (!global.AppState?.getState?.()) return;
     if (onTrackRaf) global.cancelAnimationFrame(onTrackRaf);
     onTrackRaf = global.requestAnimationFrame(() => {
       onTrackRaf = 0;
-      if (shouldActivate(state)) {
+      const stateNow = global.AppState.getState();
+      if (shouldActivate(stateNow)) {
         global.FloatPanelModule?.onShareLayoutChange?.();
-      } else {
+      } else if (!global.isInShareContext?.()) {
         global.refreshGalleryVideoMosaic?.();
+      } else {
+        global.scheduleRemoteScreenLayoutUpdate?.();
       }
     });
   }

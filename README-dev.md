@@ -507,12 +507,24 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       })
       ```
       QA: `[...document.querySelectorAll(".remote-peer video")].map(v => v.srcObject?.getTracks()?.length)` → ≥1 por peer con cámara activa.
+    - **Regresión 647b958** (share en tile del panel, stage vacío): `onRemoteTrackMounted` usaba estado obsoleto y llamaba `refreshGalleryVideoMosaic`, que ejecutaba `moveStageRemotePeersToContainer` y anulaba `attachRemoteScreenToStage`. `negotiateOffer` en `presence:join` causaba offer glare (peer navegador ausente).
     - **Fix aplicado**:
-      - `propagateLocalMediaToAllPeers()` tras join, rejoin y al activar cámara (`syncLocalTracksToAllSenders` + re-`negotiateOffer` si falta sender de vídeo).
-      - Backup `negotiateOffer` en `presence:join` para peers ya en sala.
-      - `refreshGalleryVideoMosaic()` + bifurcación de `updateRemoteScreenShareLayout` cuando `!isShareActive()`.
-      - `ensureRemotePeerUi` recrea tiles detached; `FloatPanelModule.unmountVideos` repatriación defensiva.
-      - `ParticipantsModule.onRemoteTrackMounted` tras `pc.ontrack`.
+      - `isInShareContext()` — `AppState.isShareActive()` \|\| `getShareOwnerId()` \|\| `isLocallySharingScreen()`.
+      - `refreshGalleryVideoMosaic()` solo si `!isInShareContext()`; no reparenta peers en `#roomRemoteScreenStage`.
+      - `onRemoteTrackMounted` usa `stateNow`; en share llama `scheduleRemoteScreenLayoutUpdate`, no `refreshGallery`.
+      - Sin `negotiateOffer` en `presence:join` (solo el joiner negocia en `enterRoom`).
+      - `refreshSharerVideoFromReceivers` en `pc.ontrack` solo si `peerUserId === getShareOwnerId()`.
+      - `propagateLocalMediaToAllPeers` no renegocia PCs `stable`+`connected` con vídeo.
+    - **Probe durante share (Electron viewer)**:
+      ```javascript
+      ({
+        shareActive: AppState.isShareActive(),
+        ownerId: getShareOwnerId()?.slice(0,8),
+        stagePeers: document.querySelectorAll("#roomRemoteScreenStage .remote-peer").length,
+        remoteDominant: roomShell.classList.contains("room-shell--remote-screen-dominant"),
+      })
+      ```
+      Esperado: `stagePeers: 1`, `remoteDominant: true`.
     - **Tests**: `node scripts/test-gallery-video-mosaic.cjs`; regresión `npm run test:room-modules`.
 
   - **Modo presentador / invitado (layout pantalla compartida)**:

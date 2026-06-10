@@ -4714,6 +4714,14 @@
       }
     }
 
+    function isInShareContext() {
+      return (
+        (typeof AppState !== "undefined" && AppState.isShareActive?.()) ||
+        !!getShareOwnerId?.() ||
+        !!isLocallySharingScreen?.()
+      );
+    }
+
     function scheduleRemoteScreenLayoutUpdate() {
       if (remoteScreenLayoutRaf) return;
       remoteScreenLayoutRaf = requestAnimationFrame(() => {
@@ -4721,6 +4729,8 @@
         updateRemoteScreenShareLayout();
       });
     }
+    window.scheduleRemoteScreenLayoutUpdate = scheduleRemoteScreenLayoutUpdate;
+    window.isInShareContext = isInShareContext;
 
     function isDisplayCaptureVideoTrack(track) {
       if (!track || track.kind !== "video") return false;
@@ -4958,7 +4968,7 @@
     }
 
     function refreshGalleryVideoMosaic() {
-      if (typeof AppState !== "undefined" && AppState.isShareActive?.()) return;
+      if (isInShareContext()) return;
       if (typeof FloatPanelModule !== "undefined") {
         FloatPanelModule.deactivate?.({ force: true, destroyDom: true });
       }
@@ -4984,6 +4994,7 @@
           continue;
         }
         const wrap = vid.closest(".remote-peer");
+        if (wrap?.closest("#roomRemoteScreenStage")) continue;
         if (wrap && rc && !rc.contains(wrap)) {
           rc.appendChild(wrap);
         }
@@ -4992,9 +5003,7 @@
     window.refreshGalleryVideoMosaic = refreshGalleryVideoMosaic;
 
     function updateRemoteScreenShareLayout() {
-      const shareActive =
-        typeof AppState !== "undefined" && AppState.isShareActive?.();
-      if (!shareActive) {
+      if (!isInShareContext()) {
         refreshGalleryVideoMosaic();
         window.WebLayoutOverrides?.syncShareLayout?.();
         return;
@@ -9510,9 +9519,16 @@ body.print-calendar-export {
             break;
           }
         }
+        if (
+          pc.signalingState === "stable" &&
+          pc.connectionState === "connected" &&
+          hasLiveVideoSender
+        ) {
+          continue;
+        }
         if (!hasLiveVideoSender) {
           try {
-            await negotiateOffer(remoteSocketId);
+            await negotiateOffer(remoteSocketId, "propagateLocalMedia");
           } catch (e) {
             console.warn("propagateLocalMedia renegotiate", remoteSocketId, e);
           }
@@ -9820,7 +9836,11 @@ body.print-calendar-export {
           vid.play().catch(() => {});
         }
         ParticipantsModule?.onRemoteTrackMounted?.(remoteSocketId);
-        refreshSharerVideoFromReceivers(remoteSocketId);
+        const sharerUid = String(getShareOwnerId() || "").trim().toLowerCase();
+        const peerUid = String(peerSocketToUserId.get(remoteSocketId) || "").trim().toLowerCase();
+        if (sharerUid && peerUid === sharerUid) {
+          refreshSharerVideoFromReceivers(remoteSocketId);
+        }
         if (stream) {
           const bump = () => bumpRemoteScreenLayoutForSocket(remoteSocketId);
           stream.addEventListener("addtrack", bump);
@@ -9903,7 +9923,7 @@ body.print-calendar-export {
       scheduleRemoteScreenLayoutUpdate();
     }
 
-    async function negotiateOffer(remoteSocketId) {
+    async function negotiateOffer(remoteSocketId, _reason) {
       const pc = getOrCreatePc(remoteSocketId);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -9923,7 +9943,7 @@ body.print-calendar-export {
       teardownPeerPcOnly(remoteSocketId);
       ensureRemotePeerUi(remoteSocketId);
       try {
-        await negotiateOffer(remoteSocketId);
+        await negotiateOffer(remoteSocketId, "retryPeerRenegotiate");
         setMediaStatus("Oferta enviada. Esperando respuesta del otro extremo.");
       } catch (e) {
         console.error(e);
@@ -10844,7 +10864,7 @@ body.print-calendar-export {
             });
             for (const p of rejoinPeers) {
               if (p.socketId) {
-                negotiateOffer(p.socketId).catch((e) =>
+                negotiateOffer(p.socketId, "rejoin").catch((e) =>
                   console.warn("rejoin negotiate", e)
                 );
               }
@@ -11039,9 +11059,6 @@ body.print-calendar-export {
             }
             ExpulsionControls?.refreshExpulsionMenu?.();
           }
-          if (activeRoomId && socketId && socketId !== socket.id) {
-            negotiateOffer(socketId).catch((e) => console.warn("presence:join negotiate", e));
-          }
         });
         socket.on("presence:leave", ({ userId, socketId }) => {
           if (socketId) peerSocketToUserId.delete(socketId);
@@ -11190,7 +11207,7 @@ body.print-calendar-export {
                   log("En sala. Peers: " + JSON.stringify(resp.peers));
                   const peers = resp.peers || [];
                   for (const p of peers) {
-                    negotiateOffer(p.socketId).catch((e) => {
+                    negotiateOffer(p.socketId, "enterRoom").catch((e) => {
                       console.error(e);
                       log("Error al negociar con un peer: " + (e?.message || e));
                     });

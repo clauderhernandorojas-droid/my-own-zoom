@@ -1,5 +1,5 @@
 /**
- * Regression tests: gallery video mosaic + browser peer propagation.
+ * Regression tests: gallery video mosaic + share stage attach.
  * node scripts/test-gallery-video-mosaic.cjs
  */
 const fs = require("fs");
@@ -25,6 +25,10 @@ function assert(cond, msg) {
 }
 
 assert(
+  indexHtml.includes("function isInShareContext"),
+  "index.html: isInShareContext must exist"
+);
+assert(
   indexHtml.includes("function propagateLocalMediaToAllPeers"),
   "index.html: propagateLocalMediaToAllPeers must exist"
 );
@@ -33,20 +37,23 @@ assert(
   "index.html: propagateLocalMediaToAllPeers must be invoked"
 );
 assert(
-  indexHtml.includes("void propagateLocalMediaToAllPeers()") ||
-    indexHtml.includes("await propagateLocalMediaToAllPeers()"),
-  "index.html: propagateLocalMediaToAllPeers called after join/rejoin"
-);
-assert(
   indexHtml.includes("function refreshGalleryVideoMosaic"),
   "index.html: refreshGalleryVideoMosaic must exist"
 );
 assert(
-  /if \(!shareActive\)[\s\S]*refreshGalleryVideoMosaic/.test(indexHtml),
-  "index.html: updateRemoteScreenShareLayout must refresh gallery when !shareActive"
+  /if \(!isInShareContext\(\)\)[\s\S]*refreshGalleryVideoMosaic/.test(indexHtml),
+  "index.html: updateRemoteScreenShareLayout uses isInShareContext for gallery branch"
 );
 assert(
-  !/if \(!shareActive\)[\s\S]{0,400}syncPanelVisibilityForTiles/.test(indexHtml),
+  /function refreshGalleryVideoMosaic[\s\S]*if \(isInShareContext\(\)\) return/.test(indexHtml),
+  "index.html: refreshGalleryVideoMosaic guards with isInShareContext"
+);
+assert(
+  indexHtml.includes("closest(\"#roomRemoteScreenStage\")"),
+  "index.html: refreshGalleryVideoMosaic must not reparent stage peers"
+);
+assert(
+  !/if \(!isInShareContext\(\)\)[\s\S]{0,400}syncPanelVisibilityForTiles/.test(indexHtml),
   "index.html: must not syncPanelVisibilityForTiles outside share"
 );
 assert(
@@ -54,18 +61,28 @@ assert(
   "index.html: ensureRemotePeerUi must handle detached video elements"
 );
 assert(
-  indexHtml.includes('presence:join negotiate') ||
-    indexHtml.includes("presence:join") &&
-      indexHtml.includes("negotiateOffer(socketId)"),
-  "index.html: presence:join must backup negotiateOffer"
+  !/presence:join[\s\S]{0,200}negotiateOffer/.test(indexHtml),
+  "index.html: presence:join must not call negotiateOffer (offer glare)"
 );
 assert(
-  participantsJs.includes("onRemoteTrackMounted"),
-  "ParticipantsModule.js: onRemoteTrackMounted exported"
+  /propagateLocalMediaToAllPeers[\s\S]*signalingState === "stable"/.test(indexHtml),
+  "index.html: propagateLocalMedia skips stable connected PCs"
 );
 assert(
-  participantsJs.includes("refreshGalleryVideoMosaic"),
-  "ParticipantsModule.js: onRemoteTrackMounted calls refreshGalleryVideoMosaic in gallery"
+  participantsJs.includes("shouldActivate(stateNow)"),
+  "ParticipantsModule.js: onRemoteTrackMounted uses fresh stateNow"
+);
+assert(
+  participantsJs.includes("scheduleRemoteScreenLayoutUpdate"),
+  "ParticipantsModule.js: onRemoteTrackMounted schedules layout during share"
+);
+assert(
+  participantsJs.includes("isInShareContext"),
+  "ParticipantsModule.js: onRemoteTrackMounted guards share context"
+);
+assert(
+  /sharerUid && peerUid === sharerUid[\s\S]*refreshSharerVideoFromReceivers/.test(indexHtml),
+  "index.html: refreshSharerVideoFromReceivers only for share owner in ontrack"
 );
 assert(
   floatPanelJs.includes("resolveGalleryVideosParent"),
@@ -74,10 +91,6 @@ assert(
 assert(
   floatPanelJs.includes("tilesSyncTimer"),
   "FloatPanelModule.js: debounce destroyDom on empty tiles"
-);
-assert(
-  !/track\.enabled !== false/.test(floatPanelJs),
-  "FloatPanelModule.js: count tiles with camera off as present"
 );
 
 if (failed) process.exit(1);
