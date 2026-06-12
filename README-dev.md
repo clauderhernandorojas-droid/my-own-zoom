@@ -509,7 +509,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       QA: `[...document.querySelectorAll(".remote-peer video")].map(v => v.srcObject?.getTracks()?.length)` → ≥1 por peer con cámara activa.
     - **Regresión 647b958** (share en tile del panel, stage vacío): `onRemoteTrackMounted` usaba estado obsoleto y llamaba `refreshGalleryVideoMosaic`, que ejecutaba `moveStageRemotePeersToContainer` y anulaba `attachRemoteScreenToStage`. `negotiateOffer` en `presence:join` causaba offer glare (peer navegador ausente).
     - **Fix aplicado**:
-      - `isInShareContext()` — `AppState.isShareActive()` \|\| `getShareOwnerId()` \|\| `isLocallySharingScreen()`.
+      - `isInShareContext()` — `isLocallySharingScreen()` o `AppState.isShareActive()` (sin `getShareOwnerId()` legacy post-stop).
       - `refreshGalleryVideoMosaic()` solo si `!isInShareContext()`; no reparenta peers en `#roomRemoteScreenStage`.
       - `onRemoteTrackMounted` usa `stateNow`; en share llama `scheduleRemoteScreenLayoutUpdate`, no `refreshGallery`.
       - Sin `negotiateOffer` en `presence:join` (solo el joiner negocia en `enterRoom`).
@@ -526,6 +526,38 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       ```
       Esperado: `stagePeers: 1`, `remoteDominant: true`.
     - **Tests**: `node scripts/test-gallery-video-mosaic.cjs`; regresión `npm run test:room-modules`.
+
+  - **Detener share remoto (invitado / viewer)**:
+    - **Cadena cliente** (no usar `stopScreenShare()` en viewers): `ScreenShareSocketBridge.bind()` → `applyMeetScreenShareFromServer` → [`ScreenShareOrchestrator.applyFromServer`](public/js/modules/screenShare/ScreenShareOrchestrator.js) → `teardownRemoteShareView` → `ScreenShareModule.applyRemoteFromServer(false)` → store (`SHARE_REMOTE_SET`, `recomputeLayout` → `gallery`) → `ParticipantsModule.teardownPanel` + `refreshGalleryVideoMosaic`.
+    - **Servidor** ([`src/socket/index.js`](src/socket/index.js)): emite `meet:screenShare` con `{ active: false, userId }` (campo `userId`, no `oid`) vía `io.in(room)` a todos los sockets de la sala.
+    - **`stopScreenShare()`** solo en el path **local** (presentador que detiene su propia captura). Invocarlo en un viewer remoto es incorrecto semánticamente.
+    - **`socket.listeners("meet:screenShare")`** no es fiable en el cliente browser (socket.io-browser); el handler vive en el closure de `ScreenShareSocketBridge`. Usar `inspectShareSocketProbe()` o `npm run test:share-socket-bridge` (mock con `listenerCount`).
+    - **Probes post-stop** (consola en sala):
+      ```javascript
+      inspectShareStopProbe()
+      // o manualmente:
+      ({
+        shareActive: AppState.isShareActive(),
+        shareRaw: AppState.getState().share,
+        ownerId: getShareOwnerId(),
+        layout: AppState.getState()?.ui?.currentLayout,
+        floatActive: FloatPanelModule?.isActive?.(),
+        localSharing: isLocallySharingScreen?.(),
+        inShareContext: isInShareContext?.(),
+      })
+      ```
+      Esperado: `shareActive: false`, `ownerId: ""`, `layout: "gallery"`, `floatActive: false`, `inShareContext: false`.
+    - **Probe DOM**:
+      ```javascript
+      ({
+        remoteDominant: roomShell.classList.contains("room-shell--remote-screen-dominant"),
+        modular: roomShell.classList.contains("room-shell--share-layout-modular"),
+        stagePeers: document.querySelectorAll("#roomRemoteScreenStage .remote-peer").length,
+      })
+      ```
+      Esperado: sin clases share, `stagePeers: 0`.
+    - **`isInShareContext()`**: retorna `false` si `!AppState.isShareActive()` y `!isLocallySharingScreen()` (ignora `ownerId` legacy en store).
+    - **Tests**: `node scripts/test-share-stop-remote-viewer.cjs`; `node scripts/test-share-socket-bridge.cjs` (caso `active: false`).
 
   - **Modo presentador / invitado (layout pantalla compartida)**:
     - [`public/js/roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — alterna `room-shell--presenter-focus` (quien comparte) y `room-shell--remote-screen-dominant` (quien ve el share remoto). Llama a `ScreenOverlay.syncWithStage(stage)` pasando `#roomRemoteScreenStage` (o resolviendo el stage por defecto en `screenOverlay.js`).

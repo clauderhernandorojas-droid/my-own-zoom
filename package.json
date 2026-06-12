@@ -18,7 +18,7 @@
     "test:chat-badge": "node scripts/test-chat-badge.cjs",
     "test:participants": "node scripts/test-participants-panel.cjs",
     "test:screen-share": "node scripts/test-screen-share.cjs && node scripts/test-screen-share-stop-socket.cjs && node scripts/test-screen-share-auth-socket.cjs",
-    "test:room-modules": "npm run test:app-state && npm run test:chat && npm run test:chat-badge && npm run test:participants && node scripts/test-web-layout-modules.cjs && node scripts/test-gallery-video-mosaic.cjs && node scripts/test-screen-share.cjs && node scripts/test-chat-socket-bridge.cjs && node scripts/test-share-socket-bridge.cjs && node scripts/test-share-ownerid-layout.cjs && node scripts/test-mini-player-suppression.cjs",
+    "test:room-modules": "npm run test:app-state && npm run test:chat && npm run test:chat-badge && npm run test:participants && node scripts/test-web-layout-modules.cjs && node scripts/test-gallery-video-mosaic.cjs && node scripts/test-screen-share.cjs && node scripts/test-chat-socket-bridge.cjs && node scripts/test-share-socket-bridge.cjs && node scripts/test-share-stop-remote-viewer.cjs && node scripts/test-share-ownerid-layout.cjs && node scripts/test-mini-player-suppression.cjs",
     "test:asistencia-ms": "node scripts/test-reunion-asistencia-ms-unit.cjs",
     "validate:phase-c": "node scripts/validate-phase-c-debug.cjs",
     "electron:start": "cross-env MOJ_ELECTRON_NO_FORK=1 MOJ_ELECTRON_NO_RELOAD=1 electron .",

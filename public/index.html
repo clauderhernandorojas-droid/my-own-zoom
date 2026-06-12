@@ -4693,6 +4693,8 @@
         ScreenOverlay: typeof ScreenOverlay !== "undefined" ? ScreenOverlay : undefined,
         ParticipantsModule: typeof ParticipantsModule !== "undefined" ? ParticipantsModule : undefined,
         onForcedRemoteStop,
+        refreshGalleryVideoMosaic,
+        ensureGalleryLayoutAfterShareStop,
       });
     }
 
@@ -4714,12 +4716,36 @@
       }
     }
 
+    function ensureGalleryLayoutAfterShareStop() {
+      if (typeof AppState === "undefined" || typeof MojActionTypes === "undefined") return;
+      if (AppState.isShareActive?.()) return;
+      const state = AppState.getState();
+      if (state.ui.currentLayout !== "gallery") {
+        AppState.dispatch({ type: MojActionTypes.UI_SET_LAYOUT, layout: "gallery" });
+      }
+      if (state.ui.participantsPanelState !== "hidden") {
+        AppState.dispatch({ type: MojActionTypes.PARTICIPANTS_PANEL_SET, state: "hidden" });
+      }
+    }
+
     function isInShareContext() {
-      return (
-        (typeof AppState !== "undefined" && AppState.isShareActive?.()) ||
-        !!getShareOwnerId?.() ||
-        !!isLocallySharingScreen?.()
-      );
+      const localSharing = !!isLocallySharingScreen?.();
+      const shareActive =
+        typeof AppState !== "undefined" && AppState.isShareActive?.();
+      if (localSharing) return true;
+      if (!shareActive) return false;
+      return true;
+    }
+
+    function inspectShareSocketProbe() {
+      return {
+        bridgeLoaded: typeof ScreenShareSocketBridge !== "undefined",
+        orchestratorLoaded: typeof ScreenShareOrchestrator !== "undefined",
+        socketConnected: !!socket?.connected,
+        activeRoomId,
+        pendingMeetScreenShare: !!pendingMeetScreenShare,
+        share: AppState?.getState?.()?.share,
+      };
     }
 
     function scheduleRemoteScreenLayoutUpdate() {
@@ -5018,6 +5044,17 @@
     }
 
     window.inspectGuestShareProbe = inspectGuestShareProbe;
+    window.inspectShareSocketProbe = inspectShareSocketProbe;
+    window.inspectShareStopProbe = () => ({
+      shareActive: AppState?.isShareActive?.(),
+      shareRaw: AppState?.getState?.()?.share,
+      ownerId: getShareOwnerId?.(),
+      layout: AppState?.getState?.()?.ui?.currentLayout,
+      floatActive: typeof FloatPanelModule !== "undefined" && FloatPanelModule?.isActive?.(),
+      localSharing: isLocallySharingScreen?.(),
+      inShareContext: isInShareContext?.(),
+      ...inspectShareSocketProbe(),
+    });
 
     if (typeof RoomScreenShareLayout !== "undefined") {
       RoomScreenShareLayout.init({
