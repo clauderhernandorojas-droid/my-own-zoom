@@ -578,13 +578,14 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       |--------|-----------------|---------------|
       | `LayoutModule` | Orquestación share (AppState) | `init`, `syncShareLayout`, `updateFromStore`, `onLeaveRoom` |
       | `ParticipantsModule` | Panel participantes (store) | `init`, `update`, `destroy` |
-      | `FloatPanelModule` | DOM panel flotante | `activate` / `deactivate` (desde ParticipantsModule) |
+      | `FloatPanelModule` | DOM panel flotante + `share-layout-modular` | `activate` / `deactivate` (desde ParticipantsModule) |
       | `RoomChatModule` / `ChatPanelModule` | Chat panel + barra | `toggleFromBar`, subscribe `isChatOpen` |
       | `ScreenShareModule` | Sync share en store | `notifyLocalShareStarted/Stopped`, `applyRemoteFromServer` |
       | `NotificationsModule` | Badge no-leídos | `init`, `getTotalUnread` |
       | `ToolbarModule` | Solo política CSS de capas | `initWebLayerPolicy` |
     - **Regresión v4 anotaciones (layout)**: la modularización overlay v4 eliminó por error `FloatPanelModule.activate()` durante share. Síntomas: invitados volvían a la franja legacy (~17vh), presentador sin panel de participantes (`presenterFocus.css` oculta `.room-video-strip` sin reemplazo). **Fix**: [`LayoutModule`](public/js/modules/LayoutModule.js) aplica `room-shell--share-layout-modular` y activa `FloatPanelModule` **después** de `ScreenOverlay.syncWithStage` (doble `rAF`). No confundir con [`UiPresenterFloat`](public/js/uiPresenterFloat.js) (legacy, `enablePresenterFloatUi: false` en `index.html`).
-    - **Cadena de activación share** (orden): `ChatRoomUiModule.onShareLayoutEnter` → `applyShareModularClass(true)` → `rAF` → `resyncScreenOverlay` → `rAF` → `FloatPanelModule.activate` → `FloatPanelModule.onShareLayoutChange` (reclamp + `avoidStageOverlap` con zona FAB).
+    - **Cadena de activación share** (orden): `ChatRoomUiModule.onShareLayoutEnter` → `applyShareModularClass(true)` → `rAF` → `resyncScreenOverlay` → `rAF` → `FloatPanelModule.activate` → `FloatPanelModule.onShareLayoutChange` (reclamp + `avoidStageOverlap` solo con zona FAB lápiz).
+    - **Posición del panel**: estado en `localStorage` `moj_web_float_peers_v1_<roomId>_<presenter|guest>` (clave por rol). Posición por defecto arriba-izquierda. `avoidStageOverlap()` desplaza mínimamente a la derecha del FAB; **no** trata el stage como colisión (el panel debe superponerse al vídeo compartido en invitados).
     - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationCore.js`](public/js/annotationCore.js) / shims. **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
     - **Caché de assets**: al desplegar, misma query `?v=20250617b` en `screenOverlay`, `screenOverlay.css` e `index.html` (recarga forzada en todas las ventanas de prueba). Resto de módulos overlay en `?v=20250617a`.
     - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`, `enablePresenterMediaDock: isElectronClient()` (dock nativo solo fuera de layout modular; sin panel superior `UiPresenterFloat` en share).
@@ -853,7 +854,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     1. Dos participantes en galería → no aparece botón de reintento manual.
     2. Simular fallo de enlace (DevTools offline breve o ICE failed) → mensaje de reconexión automática y nueva oferta.
     3. Ningún usuario puede forzar renegociación manual desde la interfaz.
-- **Mini-player flotante (auto-PiP) (`uiMiniPlayer.js`)**:
+- **Mini-player flotante (auto-PiP) (`uiMiniPlayer.js`)** — **desactivado** en `index.html` (`initMiniPlayer` comentado; el script sigue cargado). Ventana «My Own Zoom» con Mic/Vídeo/Restaurar era DOM/PiP del renderer, no una `BrowserWindow` de Electron.
   - **`public/js/uiMiniPlayer.js`**: al ocultar la pestaña (`visibilitychange` + `document.hidden`) durante una reunión activa, intenta **auto-PiP** (best-effort) con `requestPictureInPicture()` sobre el vídeo remoto (prioridad: pantalla compartida > cámara). Puede fallar por políticas del navegador (p. ej. Chrome exige gesto previo del usuario).
   - **Sin vídeo remoto**: muestra `#miniPlayer` flotante y draggable con placeholder «Sin vídeo remoto» y controles **Mic**, **Vídeo**, **Restaurar**. El div dentro de una pestaña oculta no se pinta hasta volver a la pestaña.
   - **Fallback auto-PiP**: si falla o no hay soporte PiP → div flotante (limitado en pestaña oculta).
@@ -862,7 +863,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Supresión en sala visible**: `shouldSuppressMiniPlayer()` oculta PiP y `#miniPlayer` cuando hay sala activa con pestaña visible, cuando `ui.currentLayout === 'share'`, cuando `AppState.isShareActive()`, o durante share (`ClientEnv.isShareLayoutActive` / `RoomScreenShareLayout.isPresenterFocusActive`). `MiniPlayerControls.suppressForActiveSession()` cierra PiP explícitamente al entrar/salir de share (`roomScreenShareLayout`, `LayoutModule`, `stopScreenShare`). Listener `window.focus` refuerza el ocultado en Electron.
   - **Ciclo de vida**: al volver a la pestaña, `hideMiniPlayer()` cierra PiP y oculta el div. Si se cierra PiP con la pestaña aún oculta, reaparece `#miniPlayer` como fallback.
   - **Nota**: la pestaña incógnito del otro participante no impide PiP local; solo afecta si hay pista de vídeo remota WebRTC.
-  - **Integración**: `MiniPlayerControls.initMiniPlayer(...)` en `init()`; `hideMiniPlayer()` en `leaveRoom()`.
+  - **Integración**: `MiniPlayerControls.initMiniPlayer(...)` en `init()` está comentado; `hideMiniPlayer()` en `leaveRoom()`/`showRoom()` se mantiene como limpieza defensiva.
   - **QA manual**:
     1. Mini-player visible → Mic, Vídeo, Restaurar; **no** `#pipBtn` ni Preview.
     2. DevTools → no existe `#pipBtn` ni `[data-action="pip"]`.

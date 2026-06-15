@@ -33,9 +33,17 @@
     return deps?.clamp || global.UiFloatClamp || null;
   }
 
+  function shareRoleKey() {
+    const shell = getShellEl();
+    if (shell?.classList.contains("room-shell--presenter-focus")) return "presenter";
+    if (shell?.classList.contains("room-shell--remote-screen-dominant")) return "guest";
+    return "share";
+  }
+
   function storageKey() {
     const rid = deps?.getActiveRoomId?.();
-    return rid ? `${STORAGE_KEY}_${rid}` : STORAGE_KEY;
+    const role = shareRoleKey();
+    return rid ? `${STORAGE_KEY}_${rid}_${role}` : STORAGE_KEY;
   }
 
   function loadState() {
@@ -56,11 +64,11 @@
   function defaultState() {
     return {
       left: MARGIN,
-      top: Math.max(MARGIN, (global.innerHeight || 600) - DEFAULT_H - 88),
+      top: MARGIN,
       width: DEFAULT_W,
       height: DEFAULT_H,
       minimized: false,
-      edge: null,
+      edge: "top",
     };
   }
 
@@ -391,9 +399,9 @@
       shell?.classList.contains("room-shell--remote-screen-dominant") ||
       shell?.classList.contains("room-shell--presenter-focus");
     if (!shareLayoutActive) return false;
-    const pr = rootEl.getBoundingClientRect();
     const fabHost = document.querySelector("#screenOverlayUiLayer .screen-overlay-fab-host");
     if (!fabHost) return false;
+    const pr = rootEl.getBoundingClientRect();
     const fr = fabHost.getBoundingClientRect();
     const fabPad = 12;
     const fabZone = {
@@ -403,11 +411,9 @@
       bottom: fr.bottom + fabPad,
     };
     if (!rectsIntersect(pr, fabZone)) return false;
-    const vw = global.innerWidth || document.documentElement.clientWidth || 800;
-    const vh = global.innerHeight || document.documentElement.clientHeight || 600;
-    state.left = Math.max(MARGIN, vw - MARGIN - state.width);
-    state.top = Math.max(MARGIN, vh - MARGIN - state.height - 88);
-    state.edge = "right";
+    state.left = fabZone.right + MARGIN;
+    state.top = Math.max(MARGIN, state.top);
+    state.edge = null;
     const c = clampBox(state.left, state.top, state.width, state.height);
     state.left = c.left;
     state.top = c.top;

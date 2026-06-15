@@ -13889,16 +13889,17 @@ body.print-calendar-export {
         setMediaStatus,
         log,
       });
-      MiniPlayerControls?.initMiniPlayer?.({
-        getActiveRoomId: () => activeRoomId,
-        getRemoteVideos: () => remoteVideos,
-        getLocalStream: () => localStream,
-        setMicEnabled,
-        setCamEnabled,
-        syncMediaButtons,
-        setMediaStatus,
-        log,
-      });
+      // Mini-player flotante desactivado: #miniPlayer / PiP innecesario.
+      // MiniPlayerControls?.initMiniPlayer?.({
+      //   getActiveRoomId: () => activeRoomId,
+      //   getRemoteVideos: () => remoteVideos,
+      //   getLocalStream: () => localStream,
+      //   setMicEnabled,
+      //   setCamEnabled,
+      //   syncMediaButtons,
+      //   setMediaStatus,
+      //   log,
+      // });
       await loadIce();
       setRoomBoardLayout("top");
       updateBoardToolUi();
