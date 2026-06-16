@@ -18,6 +18,11 @@
   /** Ocultar chat al entrar en modo pantalla compartida (todos los entornos). */
   function onShareLayoutEnter() {
     deps?.setChatPanelHidden?.(true);
+    const shell = document.getElementById("roomShell");
+    if (shell) {
+      shell.classList.remove("room-shell--chat-open");
+      shell.classList.add("room-shell--chat-hidden");
+    }
   }
 
   function onEnterRoomWeb() {
@@ -26,8 +31,13 @@
 
   function toggleFromBar() {
     const chatHidden = deps?.getChatPanelHidden?.() ?? true;
-    if (isWebEnv() && !chatHidden) {
+    if (!chatHidden) {
       deps?.setChatPanelHidden?.(true);
+      const shell = document.getElementById("roomShell");
+      if (shell) {
+        shell.classList.remove("room-shell--chat-open");
+        shell.classList.add("room-shell--chat-hidden");
+      }
       return;
     }
     global.ChatModule?.openChatFromBar?.();

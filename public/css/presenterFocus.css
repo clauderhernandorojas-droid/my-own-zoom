@@ -5,11 +5,14 @@
 }
 
 .room-shell.room-shell--presenter-focus .room-video-strip,
-.room-shell.room-shell--presenter-focus #roomMainChatSplitter,
-.room-shell.room-shell--presenter-focus .room-chat-panel,
 .room-shell.room-shell--presenter-focus #roomCenterWrap,
 .room-shell.room-shell--presenter-focus #roomVideoBoardSplitter,
 .room-shell.room-shell--presenter-focus .room-bottom-toolbar {
+  display: none !important;
+}
+
+.room-shell.room-shell--presenter-focus.room-shell--chat-hidden #roomMainChatSplitter,
+.room-shell.room-shell--presenter-focus.room-shell--chat-hidden .room-chat-panel {
   display: none !important;
 }
 

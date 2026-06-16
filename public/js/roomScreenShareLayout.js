@@ -10,6 +10,7 @@
   let attachRemoteRetryRaf = 0;
   let attachRemoteRetryCount = 0;
   const ATTACH_REMOTE_MAX_RETRIES = 4;
+  let shareChatCollapsedOnce = false;
   /** @type {HTMLVideoElement | null} */
   let attachRemoteVideoListener = null;
 
@@ -202,6 +203,7 @@
     if (!peerWrap) return false;
     deps?.moveStageRemotePeersToContainer?.(stage, rc);
     if (peerWrap.parentElement !== stage) {
+      peerWrap.setAttribute("data-moj-screen-stage", "1");
       stage.appendChild(peerWrap);
     }
     const vid = peerWrap.querySelector("video");
@@ -210,6 +212,23 @@
       bindSharerVideoMetadata(vid);
     }
     return peerWrap.parentElement === stage;
+  }
+
+  function collapseChatForShareLayout() {
+    if (shareChatCollapsedOnce) return;
+    shareChatCollapsedOnce = true;
+    if (typeof deps?.forceChatPanelClosedForShare === "function") {
+      deps.forceChatPanelClosedForShare();
+      return;
+    }
+    deps?.setChatPanelHidden?.(true);
+  }
+
+  function clearScreenStagePeerTags() {
+    document.querySelectorAll(".remote-peer[data-moj-screen-stage='1']").forEach((peer) => {
+      peer.removeAttribute("data-moj-screen-stage");
+    });
+    document.getElementById("webFloatStageMirror")?.remove();
   }
 
   function updateRemoteScreenShareLayout() {
@@ -225,6 +244,10 @@
     const localSharing = !!deps.isLocallySharingScreen?.();
     const remoteUid = String(deps.getRemoteScreenShareUserId?.() || "").trim();
     const viewingRemote = !!remoteUid && !localSharing;
+
+    if (localSharing || viewingRemote) {
+      collapseChatForShareLayout();
+    }
 
     if (localSharing) {
       enterPresenterFocusUi();
@@ -256,6 +279,7 @@
       if (!attached) scheduleAttachRemoteRetry();
     } else {
       clearAttachRemoteRetry();
+      clearScreenStagePeerTags();
       shell.classList.remove("room-shell--remote-screen-dominant");
       $("videos")?.classList.remove("room-videos--screen-dominant");
       const wrap = $("roomScreenShareWrap");
@@ -275,6 +299,8 @@
 
   function onLeaveRoom() {
     clearAttachRemoteRetry();
+    shareChatCollapsedOnce = false;
+    clearScreenStagePeerTags();
     exitPresenterFocusUi();
     const shell = $("roomShell");
     shell?.classList.remove("room-shell--remote-screen-dominant");

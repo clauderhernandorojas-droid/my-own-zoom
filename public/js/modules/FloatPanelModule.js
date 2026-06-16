@@ -26,6 +26,9 @@
   let resizeDrag = null;
   let domReady = false;
   let resizeBound = false;
+  let blurGuardBound = false;
+  let windowLostFocusDev = false;
+  let userSizedPanel = false;
 
   function getClamp() {
     return deps?.clamp || global.UiFloatClamp || null;
@@ -137,6 +140,35 @@
     rootEl.style.width = `${state.width}px`;
     rootEl.style.height = `${state.height}px`;
     rootEl.dataset.snapEdge = state.edge || "";
+    rootEl.classList.toggle("web-float-peers-root--user-sized", userSizedPanel);
+    if (bodyEl) bodyEl.style.height = userSizedPanel ? "" : "auto";
+    if (!userSizedPanel) {
+      global.requestAnimationFrame(() => shrinkPanelToFitContent());
+    }
+  }
+
+  function shrinkPanelToFitContent() {
+    if (!rootEl || !state || state.minimized || !bodyEl || !active || drag || resizeDrag) return;
+    if (userSizedPanel) return;
+    const videos = videosEl || document.getElementById("videos");
+    const headerH = headerEl?.offsetHeight || 36;
+    bodyEl.style.flex = "0 0 auto";
+    bodyEl.style.height = "auto";
+    if (videos) videos.style.height = "auto";
+    const peers = videos?.querySelectorAll(".remote-peer:not([hidden])") || [];
+    const peerCount = Math.max(1, peers.length);
+    const cols = peerCount <= 1 ? 1 : 2;
+    const rows = Math.ceil(peerCount / cols);
+    const tileW = 120;
+    const tileH = Math.round((tileW * 9) / 16);
+    const gap = 8;
+    const pad = 16;
+    const naturalW = Math.min(520, Math.max(180, cols * tileW + (cols - 1) * gap + pad));
+    const naturalH = Math.max(100, headerH + rows * tileH + (rows - 1) * gap + pad);
+    state.width = naturalW;
+    state.height = naturalH;
+    rootEl.style.width = `${state.width}px`;
+    rootEl.style.height = `${state.height}px`;
   }
 
   function onPanelPointerMove(e) {
@@ -212,6 +244,8 @@
     const dy = e.clientY - resizeDrag.startY;
     if (!resizeDrag.dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     resizeDrag.dragging = true;
+    userSizedPanel = true;
+    rootEl?.classList.add("web-float-peers-root--user-sized");
     e.preventDefault();
     const c = clampBox(
       state.left,
@@ -238,6 +272,7 @@
     global.removeEventListener("pointerup", onResizePointerUp);
     global.removeEventListener("pointercancel", onResizePointerUp);
     if (was && state) {
+      userSizedPanel = true;
       const snapped = snapToNearestEdge(state.left, state.top, state.width, state.height);
       state.left = snapped.left;
       state.top = snapped.top;
@@ -330,6 +365,32 @@
         applyLayout();
       });
     }
+    bindBlurFloatPanelGuard();
+  }
+
+  function filterScreenShareTilesInPanel(videosRoot) {
+    document.getElementById("webFloatStageMirror")?.remove();
+    videosRoot?.querySelectorAll("#remotesContainer .remote-peer").forEach((peer) => {
+        if (peer.getAttribute("data-moj-screen-stage") === "1") {
+          peer.style.display = "none";
+          return;
+        }
+        const vid = peer.querySelector("video");
+        const track = vid?.srcObject?.getVideoTracks?.()?.[0];
+        const label = String(track?.label || "").toLowerCase();
+        const isScreen =
+          label.includes("screen") ||
+          label.includes("pantalla") ||
+          label.includes("display") ||
+          label.includes("window");
+        if (isScreen) peer.style.display = "none";
+      });
+  }
+
+  function resumeVideosPlayback(videosRoot) {
+    videosRoot?.querySelectorAll("video").forEach((vid) => {
+      vid.play?.().catch(() => {});
+    });
   }
 
   function mountVideos() {
@@ -337,6 +398,12 @@
     if (!bodyEl || !src) return;
     if (src.parentElement === bodyEl) {
       videosEl = src;
+      resumeVideosPlayback(src);
+      filterScreenShareTilesInPanel(src);
+      global.requestAnimationFrame(() => {
+        shrinkPanelToFitContent();
+        global.requestAnimationFrame(shrinkPanelToFitContent);
+      });
       return;
     }
     videosParent = src.parentElement;
@@ -344,6 +411,12 @@
     videosEl = src;
     src.classList.add("web-float-peers-videos");
     bodyEl.appendChild(src);
+    resumeVideosPlayback(src);
+    filterScreenShareTilesInPanel(src);
+    global.requestAnimationFrame(() => {
+      shrinkPanelToFitContent();
+      global.requestAnimationFrame(shrinkPanelToFitContent);
+    });
   }
 
   function unmountVideos() {
@@ -363,6 +436,73 @@
 
   function getShellEl() {
     return deps?.$?.("roomShell") || null;
+  }
+
+  function isLocalDevHost() {
+    const host = global.location?.hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  }
+
+  function isDevBlurFloatAutoDisabled() {
+    try {
+      return global.localStorage?.getItem("moj_dev_disable_float_blur_auto") === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isLocalPresenterOrSharing() {
+    if (typeof deps?.isBoardPresentationActive === "function" && deps.isBoardPresentationActive()) {
+      return true;
+    }
+    if (typeof deps?.isLocallySharingScreen === "function" && deps.isLocallySharingScreen()) {
+      return true;
+    }
+    const ctx =
+      typeof global.__mojGetShareContext === "function" ? global.__mojGetShareContext() : null;
+    if (ctx?.boardPresentationActive) return true;
+    if (ctx?.locallySharingScreen) return true;
+    const shell = getShellEl();
+    return !!shell?.classList.contains("room-shell--presenter-focus");
+  }
+
+  function shouldSuppressBlurAutoFloatPanel() {
+    if (!isLocalDevHost()) return false;
+    if (isDevBlurFloatAutoDisabled()) return true;
+    return isLocalPresenterOrSharing();
+  }
+
+  function isWindowUnfocusedForDev() {
+    return (
+      windowLostFocusDev ||
+      (typeof document.hasFocus === "function" ? !document.hasFocus() : !!document.hidden)
+    );
+  }
+
+  function shouldBlockFloatPanelActivateFromBlur() {
+    return shouldSuppressBlurAutoFloatPanel() && isWindowUnfocusedForDev();
+  }
+
+  function onWindowBlurFloatPanel() {
+    if (!isLocalDevHost()) return;
+    windowLostFocusDev = true;
+    if (shouldSuppressBlurAutoFloatPanel() && active) return;
+  }
+
+  function onVisibilityChangeFloatPanel() {
+    if (!isLocalDevHost()) return;
+    if (document.hidden) {
+      windowLostFocusDev = true;
+      return;
+    }
+    windowLostFocusDev = false;
+  }
+
+  function bindBlurFloatPanelGuard() {
+    if (blurGuardBound) return;
+    blurGuardBound = true;
+    global.addEventListener("blur", onWindowBlurFloatPanel);
+    document.addEventListener("visibilitychange", onVisibilityChangeFloatPanel);
   }
 
   function rectsIntersect(a, b) {
@@ -402,18 +542,22 @@
 
   function suppressDesktopPresenterUi() {
     global.UiPresenterFloat?.deactivate?.();
-    if (!global.ClientEnv?.isElectron?.()) {
-      global.UiFloatingDock?.deactivate?.();
-    }
   }
 
-  function activate() {
+  function activate(options = {}) {
+    if (options.fromBlur && shouldSuppressBlurAutoFloatPanel()) return;
+    if (!options.fromBlur && shouldBlockFloatPanelActivateFromBlur()) return;
     ensureDom();
     suppressDesktopPresenterUi();
     if (!active) {
-      state = loadState() || defaultState();
+      const def = defaultState();
+      const loaded = loadState();
+      state = loaded || def;
       const c = clampBox(state.left, state.top, state.width, state.height);
       state = { ...state, ...c };
+      // Al entrar en layout de share, expandir siempre (no restaurar minimizado de sesiones previas).
+      state.minimized = false;
+      userSizedPanel = false;
       active = true;
     }
     const shell = getShellEl();
@@ -459,6 +603,8 @@
       state.height = c.height;
       applyLayout();
       avoidStageOverlap();
+      if (videosEl) filterScreenShareTilesInPanel(videosEl);
+      global.requestAnimationFrame(shrinkPanelToFitContent);
     }
   }
 

@@ -4517,6 +4517,8 @@
         ScreenOverlay: typeof ScreenOverlay !== "undefined" ? ScreenOverlay : undefined,
         getScreenShareStream: () => screenShareStream,
         getScreenShareTrack: () => screenShareTrack,
+        setChatPanelHidden: (hidden) => setChatPanelHidden(hidden),
+        forceChatPanelClosedForShare: () => forceGalleryChatPanelClosed(),
         enablePresenterFloatUi: false,
         enablePresenterMediaDock: isElectronClient(),
       });
@@ -5157,6 +5159,28 @@
         el.textContent = "";
         el.classList.add("hidden");
       }
+    }
+
+    function tryDevAutoLogin() {
+      const host = window.location.hostname;
+      if (host !== "localhost" && host !== "127.0.0.1") return;
+      if (getToken()) return;
+
+      const emailInput = document.getElementById("email");
+      const passwordInput = document.getElementById("password");
+      if (!emailInput || !passwordInput) return;
+
+      const devEmail =
+        localStorage.getItem("moj_dev_login_email") || "clauderrojas@hotmail.com";
+      const devPassword = localStorage.getItem("moj_dev_login_password") || "123456";
+
+      if (!emailInput.value.trim()) emailInput.value = devEmail;
+      if (!passwordInput.value) passwordInput.value = devPassword;
+
+      window.setTimeout(() => {
+        const loginBtn = document.getElementById("btnLogin");
+        if (loginBtn) loginBtn.click();
+      }, 300);
     }
 
     function bindAuthUi() {
@@ -7755,7 +7779,12 @@ body.print-calendar-export {
       document.body.classList.add("body--in-room", "app-route-meet");
       document.body.classList.remove("app-route-login", "app-route-lobby");
       initRoomChatBarModules();
-      setChatPanelHidden(false);
+      const shell = $("roomShell");
+      if (shell?.classList.contains("room-shell--gallery")) {
+        forceGalleryChatPanelClosed();
+      } else {
+        setChatPanelHidden(false);
+      }
       requestAnimationFrame(() => {
         applyRoomVideoStripSizing();
         resizeBoardCanvasToViewport({ preserveCenter: true, resetCamera: false });
@@ -7906,6 +7935,15 @@ body.print-calendar-export {
       return !!chatPanelHidden;
     }
 
+    function forceGalleryChatPanelClosed() {
+      setChatPanelHidden(true);
+      const shell = document.getElementById("roomShell");
+      if (shell) {
+        shell.classList.remove("room-shell--chat-open");
+        shell.classList.add("room-shell--chat-hidden");
+      }
+    }
+
     function initRoomChatBarModules() {
       if (typeof ChatRoomUiModule === "undefined") return;
       ChatRoomUiModule.bindBottomBar({
@@ -8037,12 +8075,12 @@ body.print-calendar-export {
         }
         const ridNorm = normRoomKey(r.roomId);
         if (activeRoomId && normRoomKey(activeRoomId) === ridNorm) {
-          showRoom();
           if (r.view === "wait") {
             _suppressHashRoute = true;
             location.hash = "#/meet/" + encodeURIComponent(activeRoomId) + "/gallery";
             _suppressHashRoute = false;
             setMeetView("gallery");
+            forceGalleryChatPanelClosed();
           } else if (r.view === "gallery" || r.view === "board") {
             if (r.view === "gallery" && remoteBoardPresentationUserId) {
               _suppressHashRoute = true;
@@ -8051,8 +8089,10 @@ body.print-calendar-export {
               setMeetView("board");
             } else {
               setMeetView(r.view);
+              if (r.view === "gallery") forceGalleryChatPanelClosed();
             }
           }
+          showRoom();
           setTimeout(() => {
             try {
               syncZoomUi();
@@ -10471,9 +10511,17 @@ body.print-calendar-export {
                 const arl = $("activeRoomLabel");
                 if (arl) arl.textContent = activeRoomId;
               }
-              showRoom();
-              const initialMeetView = isElectronClient() ? "board" : "gallery";
+              const initialMeetView = "gallery";
               setMeetView(initialMeetView);
+              showRoom();
+              if (initialMeetView === "gallery") {
+                setChatPanelHidden(true);
+                const shell = document.getElementById("roomShell");
+                if (shell) {
+                  shell.classList.remove("room-shell--chat-open");
+                  shell.classList.add("room-shell--chat-hidden");
+                }
+              }
               setRoomBoardLayout("top");
               _suppressHashRoute = true;
               location.hash =
@@ -13169,6 +13217,7 @@ body.print-calendar-export {
         console.error("[auth] bindAuthUi (init) failed", authBindLate);
       }
       updateAuthApiHint();
+      tryDevAutoLogin();
       if (!location.hash || location.hash === "#" || location.hash === "#/") {
         _suppressHashRoute = true;
         location.hash = getToken() ? "#/lobby" : "#/login";
@@ -13182,6 +13231,10 @@ body.print-calendar-export {
           getChatPanelHidden,
         });
       }
+      window.__mojGetShareContext = () => ({
+        boardPresentationActive,
+        locallySharingScreen: isLocallySharingScreen(),
+      });
       applyRouteFromHash();
     })();
   </script>

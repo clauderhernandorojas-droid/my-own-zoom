@@ -7,6 +7,7 @@
   /** @type {object | null} */
   let deps = null;
   let initialized = false;
+  let shareUiEntered = false;
 
   function getShell() {
     return deps?.$?.("roomShell") ?? null;
@@ -46,6 +47,10 @@
       getChatPanelHidden: deps.getChatPanelHidden,
       isWeb: () => global.ClientEnv?.isWeb?.() ?? !global.__MOJ_ELECTRON,
     });
+    global.UiFloatingDock?.init?.({
+      $: deps.$,
+      getActiveRoomId: deps.getActiveRoomId,
+    });
     global.ToolbarModule?.initWebLayerPolicy?.();
     initialized = true;
   }
@@ -58,6 +63,16 @@
 
   function onLeaveRoom() {
     global.FloatPanelModule?.deactivate?.();
+    global.UiFloatingDock?.deactivate?.();
+  }
+
+  function ensureMediaDockForShareLayout() {
+    if (!isShareActive()) {
+      global.UiFloatingDock?.deactivate?.();
+      return;
+    }
+    global.UiFloatingDock?.activate?.();
+    global.UiFloatingDock?.reclamp?.();
   }
 
   function syncShareLayout() {
@@ -73,14 +88,21 @@
       }
     }
     if (isShareActive()) {
+      if (!shareUiEntered) {
+        global.ChatRoomUiModule?.onShareLayoutEnter?.();
+        shareUiEntered = true;
+      }
       global.FloatPanelModule?.activate?.();
-      global.ChatRoomUiModule?.onShareLayoutEnter?.();
+      ensureMediaDockForShareLayout();
       global.FloatPanelModule?.onShareLayoutChange?.();
       global.requestAnimationFrame(() => {
         resyncScreenOverlay();
+        global.UiFloatingDock?.reclamp?.();
       });
     } else {
+      shareUiEntered = false;
       global.FloatPanelModule?.deactivate?.();
+      global.UiFloatingDock?.deactivate?.();
     }
     deps?.onShareLayoutChange?.();
   }

@@ -242,7 +242,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Panel flotante participantes**: [`public/js/uiPresenterFloat.js`](public/js/uiPresenterFloat.js) + [`public/css/uiPresenterFloat.css`](public/css/uiPresenterFloat.css) — mueve `#videos` al panel, malla 2×2, minimizar (píldora «Participantes» sin clase `hidden` en modo minimizado), arrastre/redimensionado; estado en `localStorage` `moj_presenter_float_peers_v1_<roomId>`.
     - **Barra de medios flotante**: [`public/js/uiFloatingDock.js`](public/js/uiFloatingDock.js) — `#roomMediaControls` a `document.body`, asa `.presenter-dock-drag-handle`; `moj_presenter_float_dock_v1_<roomId>`.
     - **Clamp viewport**: [`public/js/uiFloatClamp.js`](public/js/uiFloatClamp.js) — límites para dock y panel participantes.
-    - **Invitado** (`room-shell--remote-screen-dominant`): `attachRemoteScreenToStage` mueve el `.remote-peer` del sharer al stage (primero vacía peers del stage hacia `#remotesContainer`, luego `appendChild` del peer objetivo — **no** usar `stage.textContent = ""` ni devolver el peer al contenedor tras montarlo). Desocultar `#roomRemoteScreenStage` (`hidden` / `aria-hidden`). FAB lápiz flotante en capa UI (no dock).
+    - **Invitado** (`room-shell--remote-screen-dominant`): `attachRemoteScreenToStage` mueve el `.remote-peer` del sharer al stage (primero vacía peers del stage hacia `#remotesContainer`, luego `appendChild` del peer objetivo — **no** usar `stage.textContent = ""` ni devolver el peer al contenedor tras montarlo). Marca el peer con `data-moj-screen-stage="1"` para excluirlo del panel flotante. Desocultar `#roomRemoteScreenStage` (`hidden` / `aria-hidden`). FAB lápiz flotante en capa UI (no dock). **Sin tile espejo** del stage en el panel (`#webFloatStageMirror` eliminado; el share solo se ve en el stage principal).
   - **Layout modular — solo pantalla compartida (web + Electron, todos los roles)**:
     - **Alcance**: panel flotante `#webFloatPeersRoot` y CSS modular para **presentador, docente, estudiante e invitado** (web y Electron) cuando hay share (`presenter-focus` o `remote-screen-dominant`). Fuera de share la sala no cambia.
     - **Vídeo en invitados**: depende de `meet:screenShare` → `remoteScreenShareUserId` → `attachRemoteScreenToStage` (con reintentos si el track WebRTC llega tarde) → clases `remote-screen-dominant` + `share-layout-modular`. El presentador ya ve su captura local en stage; los invitados deben ver el peer remoto con `inspectLayout().stream.videoWidth > 0`.
@@ -252,11 +252,21 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Módulos** (`public/js/modules/`):
       | Módulo | Responsabilidad | API principal |
       |--------|-----------------|---------------|
-      | `LayoutModule` | Orquestación share | `init`, `syncShareLayout`, `onLeaveRoom` |
-      | `FloatPanelModule` | Panel flotante participantes | `activate` / `deactivate` según share |
-      | `ChatRoomUiModule` | Chat + barra | `bindBottomBar`, `onShareLayoutEnter` |
+      | `LayoutModule` | Orquestación share | `init`, `syncShareLayout`, `onLeaveRoom`; `shareUiEntered` evita re-ejecutar `onShareLayoutEnter` en cada sync; `ensureMediaDockForShareLayout` activa `UiFloatingDock` en **web y Electron** durante share |
+      | `FloatPanelModule` | Panel flotante participantes (`#webFloatPeersRoot`) | `activate` / `deactivate`; reparent de `#videos`; filtra tiles de pantalla compartida; auto-ajuste de tamaño; estado en `localStorage` `moj_web_float_peers_v1_<roomId>` |
+      | `ChatRoomUiModule` | Chat + barra | `bindBottomBar`, `onShareLayoutEnter` (una vez por sesión de share vía `LayoutModule`); toggle cerrar chat en **web y Electron** |
       | `NotificationsModule` | Badge no-leídos | `init`, `getTotalUnread` |
       | `ToolbarModule` | Solo política CSS de capas | `initWebLayerPolicy` |
+    - **Panel flotante modular** ([`FloatPanelModule.js`](public/js/modules/FloatPanelModule.js) + [`floatPanel.css`](public/css/modules/floatPanel.css)):
+      - Mueve `#videos` al panel; grid 2 columnas con `display: contents` en `#remotesContainer`.
+      - **Sin duplicar share**: oculta peers con `data-moj-screen-stage="1"` o track cuyo `label` contiene screen/pantalla/display/window; elimina `#webFloatStageMirror` si existiera.
+      - Tamaño auto (`shrinkPanelToFitContent`) hasta que el usuario redimensione (`userSizedPanel` + clase `web-float-peers-root--user-sized`).
+      - Tras reparent, `resumeVideosPlayback()` evita vídeos negros.
+      - Minimizar → píldora «Participantes»; al **activar share** se fuerza `minimized: false` (no restaurar minimizado de `localStorage` al entrar).
+      - En localhost dev: guard opcional `moj_dev_disable_float_blur_auto=1`; blur sin foco no bloquea `activate` si la ventana es presentador o está compartiendo.
+    - **Chat en share y galería**: al entrar en galería (`forceGalleryChatPanelClosed` en `index.html`) el chat inicia cerrado (`room-shell--chat-hidden`). Al activar share, `collapseChatForShareLayout` en `roomScreenShareLayout.js` (flag `shareChatCollapsedOnce`) cierra el chat una sola vez. En modo presentador, `presenterFocus.css` oculta el chat solo con `room-shell--chat-hidden` (no siempre).
+    - **Barra de medios flotante en share**: `LayoutModule.ensureMediaDockForShareLayout()` activa `UiFloatingDock` para todos los clientes durante share (antes solo Electron en algunos flujos).
+    - **Dev localhost**: `tryDevAutoLogin()` en `index.html` rellena credenciales de `localStorage` (`moj_dev_login_email` / `moj_dev_login_password`) o valores por defecto y pulsa login si no hay token.
     - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationInk.js`](public/js/annotationInk.js). **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
     - **Caché de assets**: al desplegar, misma query `?v=20250604c` en `clientEnv`, módulos layout, `roomScreenShareLayout`, `screenOverlay`, `webOverrides.css` e `index.html` (recarga forzada en todas las ventanas de prueba).
     - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`, `enablePresenterMediaDock: isElectronClient()` (dock nativo; sin panel superior `UiPresenterFloat` en share).
@@ -276,8 +286,8 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       ```
       Invitado esperado: `remoteDominant` + `shareModular` + `overlay.stream.videoWidth > 0` + `inkCapture === "auto"` (con toolbar abierta y herramienta lápiz).
     - **Smoke**: `node scripts/test-web-layout-modules.cjs`
-    - **QA — sin share**: galería habitual; chat no forzado oculto al entrar; sin panel flotante ni `share-layout-modular`.
-    - **QA — con share (prof/invitado, web/Electron)**: misma UI; vídeo visible (`inspectLayout`: `video.videoWidth > 0`); lápiz dibuja; `__MOJ_ELECTRON` en cada ventana Electron; dock + captura nativos OK en presentador Electron.
+    - **QA — sin share**: galería habitual; chat cerrado al entrar en galería; sin panel flotante ni `share-layout-modular`.
+    - **QA — con share (prof/invitado, web/Electron)**: misma UI; vídeo del sharer solo en stage (no tile «Presentador» en panel); panel flotante expandido al entrar (no solo píldora); vídeo local de invitado visible en panel; `inspectLayout`: `video.videoWidth > 0`; lápiz dibuja; dock flotante en web e invitados; `__MOJ_ELECTRON` en cada ventana Electron.
     - **Overlay peer**: `syncWithStage` enlaza canvas al peer visible (`.remote-peer--local-screen-share` o `:not(.remote-peer--presenter-ink-source)`), no al peer oculto de tinta (`.remote-peer--presenter-ink-source`, 1×1 px para geometría).
     - **Auth / entrar a sala**: `bindAuthUi()` debe ejecutarse **después** de declarar `let authUiBound` en `index.html` (evita TDZ). `ScreenOverlay.init` en `try/catch` tras el bind.
   - **Módulos overlay (v3)**:
@@ -777,4 +787,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: junio 2026 — Share invitados: `attachRemoteScreenToStage` con reintento; canvas `pointer-events` para anotaciones; `?v=20250604c`; `object-fit: contain` en layout modular.*
+*Última actualización de este documento: junio 2026 — Panel flotante modular: sin tile share en panel, auto-tamaño, expandir al entrar en share; chat cerrado en galería/share; dock flotante web+Electron; `tryDevAutoLogin` en localhost.*
