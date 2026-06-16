@@ -4,6 +4,9 @@
  */
 (function (global) {
   const Ink = global.AnnotationInk;
+  const Core = global.AnnotationCore;
+  const UI = global.AnnotationUI;
+  const Sync = global.AnnotationSync;
   const Toolbar = global.UiAnnotationToolbar;
   const OverlaySel = global.OverlaySeleccion;
   const Transform = global.OverlayTransform;
@@ -23,8 +26,8 @@
   let deps = null;
 
   let overlayState = { elementos: [] };
-  const overlayHistory = [];
-  const overlayFuture = [];
+  /** @type {ReturnType<typeof Sync.createSyncManager> | null} */
+  let syncMgr = null;
 
   let overlayTool = "pointer";
   let overlayColor = "#111111";
@@ -56,6 +59,10 @@
   let drawing = false;
   let currentStroke = null;
   let activeTextInput = null;
+  /** @type {{ close: function } | null} */
+  let activeTextEditor = null;
+  /** Índice en overlayState.elementos del texto en edición (-1 = crear). */
+  let editingTextElementIndex = -1;
   let drawRaf = 0;
   let resizeTimer = 0;
   let resizeCanvasRaf = 0;
@@ -75,6 +82,10 @@
 
   /** @type {object | null} */
   let selectionPointerAction = null;
+  /** @type {{ time: number, x: number, y: number, index: number } | null} */
+  let lastTextPointerTap = null;
+  const TEXT_DOUBLE_TAP_MS = 450;
+  const TEXT_DOUBLE_TAP_NORM = 0.035;
 
   const pointerHandlers = {
     down: onPointerDown,
@@ -162,6 +173,18 @@
     return Ink?.cloneInkState ? Ink.cloneInkState(state) : { elementos: [] };
   }
 
+  function ensureSyncManager() {
+    if (!syncMgr && Sync?.createSyncManager) {
+      syncMgr = Sync.createSyncManager({
+        getSocket,
+        getRoomId,
+        cloneState,
+        historyLimit: HISTORY_LIMIT,
+      });
+    }
+    return syncMgr;
+  }
+
   function getFabSize() {
     if (!fabEl) return FAB_SIZE;
     const r = fabEl.getBoundingClientRect();
@@ -207,10 +230,42 @@
     return uiLayerEl;
   }
 
-  function isStageActive() {
-    if (!stageEl || stageEl.hidden || !Ink) return false;
+  function isFabStageReady() {
+    if (!stageEl || stageEl.hidden) return false;
     if (wrapEl?.hidden) return false;
     return true;
+  }
+
+  function isOverlayInkReady() {
+    return !!Ink;
+  }
+
+  function isStageActive() {
+    return isFabStageReady() && isOverlayInkReady();
+  }
+
+  function fabVisibleInViewport(fabHost) {
+    if (!fabHost?.isConnected) return false;
+    const r = fabHost.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const vw = global.innerWidth || document.documentElement?.clientWidth || 0;
+    const vh = global.innerHeight || document.documentElement?.clientHeight || 0;
+    return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+  }
+
+  function scheduleFabPositionWhenReady() {
+    const metrics = getStageMetrics();
+    if (metrics.h >= 2 && metrics.w >= 2) {
+      revalidateFabPosition();
+      return;
+    }
+    global.requestAnimationFrame(() => {
+      revalidateFabPosition();
+      const m = getStageMetrics();
+      if (m.h < 2 || m.w < 2) {
+        global.requestAnimationFrame(() => revalidateFabPosition());
+      }
+    });
   }
 
   function defaultFabPosition() {
@@ -822,21 +877,38 @@
     });
   }
 
-  function updatePointerHoverCursor(clientX, clientY) {
-    if (!stackEl || !toolbarOpen || overlayTool !== "pointer" || selectionPointerAction) return;
-    const ctx = canvasEl?.getContext("2d");
-    const p = normFromEvent({ clientX, clientY });
-    const hit = OverlaySel?.hitTestEditable?.(
-      p,
-      overlayState.elementos,
-      ctx,
-      getContentRect(),
-      POINTER_HIT_NORM
-    );
-    stackEl.classList.toggle(
-      "screen-overlay-stack--selection-hit",
-      !!(hit || OverlaySel?.size?.() > 0)
-    );
+  function recordTextPointerTap(p, hit) {
+    if (!hit || hit.element?.type !== "text") {
+      lastTextPointerTap = null;
+      return;
+    }
+    lastTextPointerTap = {
+      time: Date.now(),
+      x: p.x,
+      y: p.y,
+      index: hit.index,
+    };
+  }
+
+  function isTextDoublePointerTap(p, hit) {
+    if (!hit || hit.element?.type !== "text" || !lastTextPointerTap) return false;
+    const dt = Date.now() - lastTextPointerTap.time;
+    if (dt > TEXT_DOUBLE_TAP_MS) return false;
+    if (hit.index !== lastTextPointerTap.index) return false;
+    const dist = Math.hypot(p.x - lastTextPointerTap.x, p.y - lastTextPointerTap.y);
+    return dist <= TEXT_DOUBLE_TAP_NORM;
+  }
+
+  function openTextEditorForHit(hit, p) {
+    if (!hit || hit.element?.type !== "text") return false;
+    lastTextPointerTap = null;
+    openInlineTextInput(p, { index: hit.index });
+    scheduleDraw();
+    return true;
+  }
+
+  function updatePointerHoverCursor(_clientX, _clientY) {
+    /* Cursor siempre flecha amarilla en modo puntero; no alternar selection-hit. */
   }
 
   function setToolbarOpen(open) {
@@ -864,7 +936,8 @@
   }
 
   function updateHistoryButtons() {
-    toolbarApi?.setHistoryButtons?.(overlayHistory.length > 0, overlayFuture.length > 0);
+    const mgr = ensureSyncManager();
+    toolbarApi?.setHistoryButtons?.(mgr?.canUndo?.() ?? false, mgr?.canRedo?.() ?? false);
   }
 
   function syncStackClasses() {
@@ -953,8 +1026,15 @@
     };
     Ink.drawInkElementos(ctx, overlayState.elementos, scaled, {
       previewStroke: currentStroke,
+      skipTextIndices: editingTextElementIndex >= 0 ? [editingTextElementIndex] : [],
     });
-    if (toolbarOpen && overlayTool === "pointer" && Transform?.drawSelectionOverlay && OverlaySel) {
+    if (
+      toolbarOpen &&
+      overlayTool === "pointer" &&
+      !activeTextEditor &&
+      Transform?.drawSelectionOverlay &&
+      OverlaySel
+    ) {
       Transform.drawSelectionOverlay(
         ctx,
         scaled,
@@ -963,29 +1043,28 @@
         OverlaySel
       );
     }
+    if (activeTextEditor?.input && UI?.drawTextEditorChrome) {
+      const input = activeTextEditor.input;
+      const nx = Number(input.dataset.normChromeX);
+      const ny = Number(input.dataset.normChromeY);
+      const nw = Number(input.dataset.normChromeW);
+      const nh = Number(input.dataset.normChromeH);
+      if (Number.isFinite(nx) && Number.isFinite(ny) && nw > 0 && nh > 0) {
+        UI.drawTextEditorChrome(ctx, scaled, contentRect, { x: nx, y: ny, w: nw, h: nh });
+      }
+    }
   }
 
   function emitOverlayUpdate() {
-    const socket = getSocket();
-    const roomId = getRoomId();
-    if (!socket?.connected || !roomId) return;
-    socket.emit("screenshare-annotate:update", {
-      roomId,
-      contenido: cloneState(overlayState),
-    });
+    ensureSyncManager()?.emitOverlayUpdate(overlayState);
   }
 
   function applyOverlayState(nextState, opts = {}) {
     const { recordHistory = false, clearFuture = false, emit = false, resetHistory = false } = opts;
-    if (resetHistory) {
-      overlayHistory.length = 0;
-      overlayFuture.length = 0;
-    }
-    if (recordHistory) {
-      overlayHistory.push(cloneState(overlayState));
-      if (overlayHistory.length > HISTORY_LIMIT) overlayHistory.shift();
-    }
-    if (clearFuture) overlayFuture.length = 0;
+    const mgr = ensureSyncManager();
+    if (resetHistory) mgr?.resetHistory?.();
+    if (recordHistory) mgr?.pushHistory?.(overlayState);
+    if (clearFuture) mgr?.clearFuture?.();
     overlayState = cloneState(nextState || { elementos: [] });
     closeInlineTextInput(false);
     scheduleDraw();
@@ -996,29 +1075,31 @@
   function applyRemoteState(contenido, opts = {}) {
     if (!contenido || !Array.isArray(contenido.elementos)) return;
     const socket = getSocket();
-    const fromSelf = opts?.from && socket?.id && String(opts.from) === String(socket.id);
+    const mgr = ensureSyncManager();
+    const fromSelf = mgr?.isRemoteFromSelf?.(socket, opts?.from);
     applyOverlayState(contenido, { resetHistory: !fromSelf });
     OverlaySel?.reconcileAfterStateChange?.(overlayState.elementos.length);
   }
 
   function performUndo() {
-    if (!overlayHistory.length) return;
-    overlayFuture.push(cloneState(overlayState));
-    const prev = overlayHistory.pop();
+    const mgr = ensureSyncManager();
+    const prev = mgr?.prepareUndo?.(overlayState);
+    if (!prev) return;
     applyOverlayState(prev, { emit: true });
   }
 
   function performRedo() {
-    if (!overlayFuture.length) return;
-    overlayHistory.push(cloneState(overlayState));
-    const next = overlayFuture.pop();
+    const mgr = ensureSyncManager();
+    const next = mgr?.prepareRedo?.(overlayState);
+    if (!next) return;
     applyOverlayState(next, { emit: true });
   }
 
   function insertEmojiOnOverlay(emoji) {
     if (!emoji || !toolbarOpen) return;
-    const next = cloneState(overlayState);
-    next.elementos.push({
+    const cr = getContentRect();
+    const ctx = canvasEl?.getContext("2d");
+    const el = {
       type: "text",
       text: emoji,
       x: 0.4,
@@ -1027,7 +1108,16 @@
       h: 0.08,
       color: overlayColor,
       fontSize: 42,
-    });
+    };
+    if (Core?.measureTextContentNorm && ctx) {
+      const b = Core.measureTextContentNorm(el, cr, ctx);
+      if (b) {
+        el.w = b.w;
+        el.h = b.h;
+      }
+    }
+    const next = cloneState(overlayState);
+    next.elementos.push(el);
     applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
     toolbarApi?.setTool?.("pointer");
     overlayTool = "pointer";
@@ -1037,9 +1127,9 @@
   function finishSelectionGesture(snapshotBefore) {
     const next = cloneState(overlayState);
     if (snapshotBefore) {
-      overlayHistory.push(snapshotBefore);
-      if (overlayHistory.length > HISTORY_LIMIT) overlayHistory.shift();
-      overlayFuture.length = 0;
+      const mgr = ensureSyncManager();
+      mgr?.pushHistory?.(snapshotBefore);
+      mgr?.clearFuture?.();
       overlayState = next;
       closeInlineTextInput(false);
       scheduleDraw();
@@ -1062,8 +1152,8 @@
     if (selIds.length === 1) {
       const i = selIds[0];
       const el = overlayState.elementos[i];
-      const b = OverlaySel.getElementBounds(el, ctx, cr);
-      if (b) {
+      const b = OverlaySel.getElementBounds(el, cr, ctx);
+        if (b) {
         const h = Transform.hitTestResizeHandle(p, b, el, cr);
         if (h) {
           selectionPointerAction = {
@@ -1114,11 +1204,22 @@
       POINTER_HIT_NORM
     );
     if (!hit) {
+      lastTextPointerTap = null;
       OverlaySel.startMarquee(p, !!e.shiftKey);
       selectionPointerAction = { mode: "marquee", startPoint: p };
       scheduleDraw();
       return;
     }
+
+    if (isTextDoublePointerTap(p, hit)) {
+      try {
+        canvasEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      openTextEditorForHit(hit, p);
+      return;
+    }
+
+    recordTextPointerTap(p, hit);
 
     if (e.shiftKey) {
       OverlaySel.toggleInSelection(hit.index);
@@ -1185,19 +1286,16 @@
 
     if (act.mode === "resize") {
       const orig = act.originalElement;
-      let next = { ...orig };
-      if (orig.type === "text") {
-        next = Transform.applyTextBoxResize(act.resizeHandle, orig, act.originalBounds, dx, dy);
-      } else {
-        const tr = Transform.getResizeTransform(
-          act.resizeHandle,
-          act.originalBounds,
-          dx,
-          dy,
-          !!e.shiftKey
-        );
-        if (tr) next = Transform.applyResizeTransform(orig, tr.anchor, tr.sx, tr.sy);
-      }
+      const tr = Transform.getResizeTransform(
+        act.resizeHandle,
+        act.originalBounds,
+        dx,
+        dy,
+        !!e.shiftKey
+      );
+      const next = tr
+        ? Transform.applyResizeTransform(orig, tr.anchor, tr.sx, tr.sy)
+        : { ...orig };
       overlayState.elementos[act.index] = next;
       scheduleDraw();
       return;
@@ -1207,18 +1305,7 @@
       for (const i of act.indices) {
         const orig = act.originalElements.get(i);
         if (!orig) continue;
-        if (orig.type === "stroke" && orig.points) {
-          overlayState.elementos[i] = {
-            ...orig,
-            points: orig.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
-          };
-        } else if (orig.type === "text") {
-          overlayState.elementos[i] = {
-            ...orig,
-            x: (orig.x || 0) + dx,
-            y: (orig.y || 0) + dy,
-          };
-        }
+        overlayState.elementos[i] = Transform.applyDragTransform(orig, dx, dy);
       }
       scheduleDraw();
     }
@@ -1261,10 +1348,18 @@
 
   function eraseAtPoints(points) {
     if (!points?.length) return false;
+    const cr = getContentRect();
+    const ctx = canvasEl?.getContext("2d");
     const toRemove = new Set();
     for (const p of points) {
       if (!p.inBounds && !Number.isFinite(p.x)) continue;
-      const idx = Ink.hitTestAnyElementAtNorm({ x: p.x, y: p.y }, overlayState.elementos, ERASER_THRESHOLD_NORM);
+      const idx = Ink.hitTestAnyElementAtNorm(
+        { x: p.x, y: p.y },
+        overlayState.elementos,
+        cr,
+        ctx,
+        ERASER_THRESHOLD_NORM
+      );
       if (idx >= 0) toRemove.add(idx);
     }
     if (!toRemove.size) return false;
@@ -1372,72 +1467,79 @@
   }
 
   function closeInlineTextInput(commit) {
-    if (!activeTextInput || !stackEl) return;
-    const input = activeTextInput;
-    const nx = Number(input.dataset.normX);
-    const ny = Number(input.dataset.normY);
-    const nw = Number(input.dataset.normW);
-    const nh = Number(input.dataset.normH);
-    activeTextInput = null;
-    if (commit) {
-      const text = String(input.value || "").trim();
-      if (text) {
-        const next = cloneState(overlayState);
-        next.elementos.push({
-          type: "text",
-          text,
-          x: nx,
-          y: ny,
-          w: nw,
-          h: nh,
-          color: overlayColor,
-          fontSize: overlayTextSize,
-        });
-        applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
-      } else {
-        scheduleDraw();
-      }
-    } else {
-      scheduleDraw();
+    editingTextElementIndex = -1;
+    if (activeTextEditor) {
+      activeTextEditor.close(commit);
+      activeTextEditor = null;
+      activeTextInput = null;
+      return;
     }
+    if (!activeTextInput) return;
+    const input = activeTextInput;
+    activeTextInput = null;
     input.remove();
+    if (!commit) scheduleDraw();
   }
 
-  function openInlineTextInput(normPoint) {
+  function openInlineTextInput(normPoint, editOpts) {
     closeInlineTextInput(false);
-    if (!stackEl) return;
+    if (!stackEl || !UI?.createInlineTextEditor) return;
     const cr = getContentRect();
-    const tl = Ink.normToCanvas(normPoint.x, normPoint.y, cr);
-    const w = cr.w * 0.25;
-    const h = cr.h * 0.1;
-
-    const input = document.createElement("textarea");
-    input.className = "screen-overlay-text-input";
-    input.dataset.normX = String(normPoint.x);
-    input.dataset.normY = String(normPoint.y);
-    input.dataset.normW = String(0.25);
-    input.dataset.normH = String(0.1);
-    input.style.left = `${tl.x}px`;
-    input.style.top = `${tl.y}px`;
-    input.style.width = `${Math.max(120, w)}px`;
-    input.style.minHeight = `${Math.max(28, h)}px`;
-    input.style.fontSize = `${overlayTextSize}px`;
-    input.style.color = overlayColor;
-
-    stackEl.appendChild(input);
-    activeTextInput = input;
-    input.focus();
-
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") {
-        ev.preventDefault();
-        closeInlineTextInput(false);
-      } else if (ev.key === "Enter" && !ev.shiftKey) {
-        ev.preventDefault();
-        closeInlineTextInput(true);
-      }
+    const editIndex = Number.isInteger(editOpts?.index) ? editOpts.index : -1;
+    editingTextElementIndex = editIndex;
+    OverlaySel?.clearSelection?.();
+    const existing = editIndex >= 0 ? overlayState.elementos[editIndex] : null;
+    const norm = existing?.type === "text" ? { x: existing.x, y: existing.y } : normPoint;
+    activeTextEditor = UI.createInlineTextEditor({
+      hostEl: stackEl,
+      stackEl,
+      contentRect: cr,
+      normPoint: norm,
+      color: existing?.color || overlayColor,
+      fontSize: existing?.fontSize || overlayTextSize,
+      initialText: existing?.text || "",
+      existingW: existing?.w,
+      existingH: existing?.h,
+      onLayoutChange: scheduleDraw,
+      onCommit: ({ text, x, y, w, h, fontSize, color }) => {
+        editingTextElementIndex = -1;
+        activeTextEditor = null;
+        activeTextInput = null;
+        const next = cloneState(overlayState);
+        const textEl = { type: "text", text, x, y, w, h, color, fontSize };
+        if (editIndex >= 0 && editIndex < next.elementos.length) {
+          next.elementos[editIndex] = textEl;
+        } else {
+          next.elementos.push(textEl);
+        }
+        applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
+      },
+      onCancel: () => {
+        editingTextElementIndex = -1;
+        activeTextEditor = null;
+        activeTextInput = null;
+        scheduleDraw();
+      },
     });
-    input.addEventListener("blur", () => closeInlineTextInput(true));
+    activeTextInput = activeTextEditor.input;
+    activeTextEditor.input.focus();
+    if (existing?.text) {
+      activeTextEditor.input.select();
+    }
+    scheduleDraw();
+  }
+
+  function onCanvasDblClick(e) {
+    if (!toolbarOpen || overlayTool !== "pointer" || activeTextInput || !canvasEl || !OverlaySel) return;
+    const p = normFromEvent(e);
+    if (!p.inBounds) return;
+    const ctx = canvasEl.getContext("2d");
+    const cr = getContentRect();
+    const hit = OverlaySel.hitTestEditable(p, overlayState.elementos, ctx, cr, POINTER_HIT_NORM);
+    if (hit?.element?.type === "text") {
+      e.preventDefault();
+      openTextEditorForHit(hit, p);
+    }
   }
 
   function bindCanvasEvents() {
@@ -1447,6 +1549,7 @@
     canvasEl.addEventListener("pointerup", pointerHandlers.up);
     canvasEl.addEventListener("pointercancel", pointerHandlers.cancel);
     canvasEl.addEventListener("click", onCanvasClick);
+    canvasEl.addEventListener("dblclick", onCanvasDblClick);
   }
 
   function unbindCanvasEvents() {
@@ -1456,11 +1559,16 @@
     canvasEl.removeEventListener("pointerup", pointerHandlers.up);
     canvasEl.removeEventListener("pointercancel", pointerHandlers.cancel);
     canvasEl.removeEventListener("click", onCanvasClick);
+    canvasEl.removeEventListener("dblclick", onCanvasDblClick);
   }
 
   function ensureFab() {
-    if (!stageEl) return;
+    if (!stageEl || !isFabStageReady()) return;
     removeOrphanOverlayUiFromStage();
+    if (fabHostEl && !fabHostEl.isConnected) {
+      fabHostEl = null;
+      fabEl = null;
+    }
     if (fabHostEl) return;
     const layer = ensureOverlayUiLayer();
     if (!layer) return;
@@ -1511,10 +1619,14 @@
   }
 
   function ensureToolbar() {
-    if (!stageEl) return;
+    if (!stageEl || !isFabStageReady()) return;
     removeOrphanOverlayUiFromStage();
     const layer = ensureOverlayUiLayer();
     if (!layer) return;
+    if (toolbarHostEl && !toolbarHostEl.isConnected) {
+      toolbarHostEl = null;
+      toolbarApi = null;
+    }
     if (toolbarApi && toolbarHostEl && toolbarHostEl.parentElement === layer) return;
     removeToolbar();
 
@@ -1700,9 +1812,14 @@
 
     const stageCs = stage ? getComputedStyle(stage) : null;
     const metrics = getStageMetrics();
+    const fabBtn = fabHost?.querySelector?.(".screen-overlay-fab");
 
     return {
       toolbarOpen,
+      inkLoaded: isOverlayInkReady(),
+      fabStageReady: isFabStageReady(),
+      fabConnected: !!(fabHost && fabHost.isConnected),
+      fabVisible: fabVisibleInViewport(fabHost),
       shellClasses: shell ? [...shell.classList] : [],
       stageHidden: !!stage?.hidden,
       wrapHidden: !!wrap?.hidden,
@@ -1727,6 +1844,7 @@
       wrap: elInfo(wrap),
       uiLayer: elInfo(uiLayer),
       fabHost: elInfo(fabHost),
+      fabButton: elInfo(fabBtn),
       toolbarHost: elInfo(toolbarHost),
       stage: elInfo(stage),
       peer: elInfo(peer),
@@ -1755,7 +1873,7 @@
   }
 
   function ensureOverlayDom(peerWrap) {
-    if (!peerWrap || !Ink) return null;
+    if (!peerWrap || !isOverlayInkReady()) return null;
 
     let stack = peerWrap.querySelector(".screen-overlay-stack");
     if (!stack) {
@@ -1881,7 +1999,7 @@
 
   function syncWithStage(stage) {
     resolveStageContainers(stage);
-    if (!isStageActive()) {
+    if (!isFabStageReady()) {
       setToolbarOpen(false);
       detachOverlay();
       removeFab();
@@ -1894,6 +2012,13 @@
 
     ensureFab();
     ensureToolbar();
+    scheduleFabPositionWhenReady();
+
+    if (!isOverlayInkReady()) {
+      setToolbarOpen(false);
+      detachOverlay();
+      return;
+    }
 
     const peerWrap = resolveSharePeerWrap(stageEl);
     if (!peerWrap) {
@@ -1931,6 +2056,7 @@
 
   function init(options = {}) {
     deps = options;
+    ensureSyncManager();
   }
 
   const ScreenOverlay = {

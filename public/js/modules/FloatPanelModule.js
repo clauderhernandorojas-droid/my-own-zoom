@@ -24,8 +24,10 @@
   /** @type {object | null} */
   let drag = null;
   let resizeDrag = null;
+  let pillSuppressClickUntil = 0;
   let domReady = false;
   let resizeBound = false;
+  let tilesSyncTimer = 0;
   let blurGuardBound = false;
   let windowLostFocusDev = false;
   let userSizedPanel = false;
@@ -34,9 +36,17 @@
     return deps?.clamp || global.UiFloatClamp || null;
   }
 
+  function shareRoleKey() {
+    const shell = getShellEl();
+    if (shell?.classList.contains("room-shell--presenter-focus")) return "presenter";
+    if (shell?.classList.contains("room-shell--remote-screen-dominant")) return "guest";
+    return "share";
+  }
+
   function storageKey() {
     const rid = deps?.getActiveRoomId?.();
-    return rid ? `${STORAGE_KEY}_${rid}` : STORAGE_KEY;
+    const role = shareRoleKey();
+    return rid ? `${STORAGE_KEY}_${rid}_${role}` : STORAGE_KEY;
   }
 
   function loadState() {
@@ -57,11 +67,11 @@
   function defaultState() {
     return {
       left: MARGIN,
-      top: Math.max(MARGIN, (global.innerHeight || 600) - DEFAULT_H - 88),
+      top: MARGIN,
       width: DEFAULT_W,
       height: DEFAULT_H,
       minimized: false,
-      edge: null,
+      edge: "top",
     };
   }
 
@@ -207,11 +217,12 @@
     global.removeEventListener("pointerup", onPanelPointerUp);
     global.removeEventListener("pointercancel", onPanelPointerUp);
     if (wasDrag && state) {
+      if (state.minimized) pillSuppressClickUntil = Date.now() + 400;
       const snapped = snapToNearestEdge(state.left, state.top, state.width, state.height);
       state.left = snapped.left;
       state.top = snapped.top;
       state.edge = snapped.edge;
-      applyLayout();
+      applyPanelVisibility();
       saveState();
     }
   }
@@ -244,8 +255,6 @@
     const dy = e.clientY - resizeDrag.startY;
     if (!resizeDrag.dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     resizeDrag.dragging = true;
-    userSizedPanel = true;
-    rootEl?.classList.add("web-float-peers-root--user-sized");
     e.preventDefault();
     const c = clampBox(
       state.left,
@@ -307,6 +316,7 @@
     pillEl.id = "webFloatPeersPill";
     pillEl.className = "web-float-peers-pill hidden";
     pillEl.textContent = "Participantes";
+    pillEl.title = "Doble clic para expandir";
     document.body.appendChild(pillEl);
 
     headerEl?.addEventListener("pointerdown", (e) => {
@@ -318,12 +328,14 @@
       startPanelDrag(e, pillEl, state.left, state.top);
     });
     pillEl.addEventListener("click", (e) => {
-      if (drag?.dragging) return;
-      if (state) {
-        state.minimized = false;
-        applyLayout();
-        saveState();
+      if (Date.now() < pillSuppressClickUntil) {
+        e.preventDefault();
+        e.stopPropagation();
       }
+    });
+    pillEl.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      restorePanel();
     });
     resizeEl.addEventListener("pointerdown", (e) => {
       if (!state || state.minimized) return;
@@ -346,11 +358,7 @@
     });
     rootEl.querySelector(".web-float-peers-btn-min")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (state) {
-        state.minimized = true;
-        applyLayout();
-        saveState();
-      }
+      minimizePanel();
     });
 
     if (!resizeBound) {
@@ -371,20 +379,20 @@
   function filterScreenShareTilesInPanel(videosRoot) {
     document.getElementById("webFloatStageMirror")?.remove();
     videosRoot?.querySelectorAll("#remotesContainer .remote-peer").forEach((peer) => {
-        if (peer.getAttribute("data-moj-screen-stage") === "1") {
-          peer.style.display = "none";
-          return;
-        }
-        const vid = peer.querySelector("video");
-        const track = vid?.srcObject?.getVideoTracks?.()?.[0];
-        const label = String(track?.label || "").toLowerCase();
-        const isScreen =
-          label.includes("screen") ||
-          label.includes("pantalla") ||
-          label.includes("display") ||
-          label.includes("window");
-        if (isScreen) peer.style.display = "none";
-      });
+      if (peer.getAttribute("data-moj-screen-stage") === "1") {
+        peer.style.display = "none";
+        return;
+      }
+      const vid = peer.querySelector("video");
+      const track = vid?.srcObject?.getVideoTracks?.()?.[0];
+      const label = String(track?.label || "").toLowerCase();
+      const isScreen =
+        label.includes("screen") ||
+        label.includes("pantalla") ||
+        label.includes("display") ||
+        label.includes("window");
+      if (isScreen) peer.style.display = "none";
+    });
   }
 
   function resumeVideosPlayback(videosRoot) {
@@ -419,14 +427,27 @@
     });
   }
 
+  function resolveGalleryVideosParent() {
+    const stage = document.querySelector(".room-video-strip__stage");
+    if (stage) return stage;
+    const strip = document.getElementById("roomVideoStrip");
+    return strip?.querySelector?.(".room-video-strip__stage") || null;
+  }
+
   function unmountVideos() {
-    if (!videosEl || !videosParent) return;
+    const vid = videosEl || document.getElementById("videos");
+    if (!vid) return;
+    let parent = videosParent;
+    if (!parent || !parent.isConnected) {
+      parent = resolveGalleryVideosParent();
+    }
+    if (!parent) return;
     try {
-      videosEl.classList.remove("web-float-peers-videos");
-      if (videosNext && videosNext.parentNode === videosParent) {
-        videosParent.insertBefore(videosEl, videosNext);
+      vid.classList.remove("web-float-peers-videos");
+      if (videosNext && videosNext.parentNode === parent) {
+        parent.insertBefore(vid, videosNext);
       } else {
-        videosParent.appendChild(videosEl);
+        parent.appendChild(vid);
       }
     } catch (_) {}
     videosEl = null;
@@ -510,22 +531,27 @@
   }
 
   function avoidStageOverlap() {
-    if (!rootEl || !state || state.minimized) return false;
+    if (!rootEl || !state || state.minimized || drag || resizeDrag) return false;
     const shell = getShellEl();
-    if (!shell?.classList.contains("room-shell--remote-screen-dominant")) return false;
-    const stage =
-      deps?.getStageElement?.() ||
-      document.getElementById("roomRemoteScreenStage") ||
-      document.querySelector(".room-screen-share-wrap:not([hidden])");
-    if (!stage) return false;
-    const sr = stage.getBoundingClientRect();
+    const shareLayoutActive =
+      shell?.classList.contains("room-shell--remote-screen-dominant") ||
+      shell?.classList.contains("room-shell--presenter-focus");
+    if (!shareLayoutActive) return false;
+    const fabHost = document.querySelector("#screenOverlayUiLayer .screen-overlay-fab-host");
+    if (!fabHost) return false;
     const pr = rootEl.getBoundingClientRect();
-    if (sr.width < 8 || sr.height < 8 || !rectsIntersect(sr, pr)) return false;
-    const vw = global.innerWidth || document.documentElement.clientWidth || 800;
-    const vh = global.innerHeight || document.documentElement.clientHeight || 600;
-    state.left = Math.max(MARGIN, vw - MARGIN - state.width);
-    state.top = Math.max(MARGIN, vh - MARGIN - state.height - 88);
-    state.edge = "right";
+    const fr = fabHost.getBoundingClientRect();
+    const fabPad = 12;
+    const fabZone = {
+      left: fr.left - fabPad,
+      top: fr.top - fabPad,
+      right: fr.right + fabPad,
+      bottom: fr.bottom + fabPad,
+    };
+    if (!rectsIntersect(pr, fabZone)) return false;
+    state.left = fabZone.right + MARGIN;
+    state.top = Math.max(MARGIN, state.top);
+    state.edge = null;
     const c = clampBox(state.left, state.top, state.width, state.height);
     state.left = c.left;
     state.top = c.top;
@@ -544,34 +570,171 @@
     global.UiPresenterFloat?.deactivate?.();
   }
 
+  function countVisiblePeerTiles() {
+    const src = videosEl || document.getElementById("videos");
+    if (!src) return 0;
+    let n = 0;
+    src.querySelectorAll(".remote-peer").forEach((peer) => {
+      if (peer.closest("#roomRemoteScreenStage")) return;
+      const video = peer.querySelector("video");
+      if (!video) return;
+      const track = video.srcObject?.getVideoTracks?.()[0];
+      if (track && track.readyState === "live") {
+        n += 1;
+        return;
+      }
+      if (video.srcObject?.getTracks?.().length) {
+        n += 1;
+        return;
+      }
+      if (video.videoWidth > 0) n += 1;
+    });
+    return n;
+  }
+
+  function getStorePanelState() {
+    return global.AppState?.getState?.()?.ui?.participantsPanelState;
+  }
+
+  function dispatchPanelState(panelState) {
+    const T = global.MojActionTypes;
+    if (T && global.AppState?.dispatch) {
+      global.AppState.dispatch({ type: T.PARTICIPANTS_PANEL_SET, state: panelState });
+    }
+    deps?.onPanelStateChange?.(panelState);
+  }
+
+  function applyPanelVisibility() {
+    if (!rootEl || !state) return;
+    applyLayout();
+    const storeState = getStorePanelState();
+    if (storeState === "hidden" || !active) {
+      rootEl.classList.add("hidden");
+      pillEl?.classList.add("hidden");
+      return;
+    }
+    const minimized = state.minimized || storeState === "minimized";
+    if (minimized) {
+      rootEl.classList.add("hidden");
+      pillEl?.classList.remove("hidden");
+    } else {
+      rootEl.classList.remove("hidden");
+      pillEl?.classList.add("hidden");
+    }
+  }
+
+  function isShareOkInStore() {
+    const store = global.AppState?.getState?.();
+    return (
+      store?.ui?.currentLayout === "share" &&
+      global.AppState?.isShareActive?.(store)
+    );
+  }
+
+  function syncPanelVisibilityForTiles() {
+    if (!active) return;
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
+      if (tilesSyncTimer) {
+        clearTimeout(tilesSyncTimer);
+        tilesSyncTimer = 0;
+      }
+      deactivate({ force: true, destroyDom: true });
+      return;
+    }
+    if (!isShareOkInStore()) {
+      if (tilesSyncTimer) {
+        clearTimeout(tilesSyncTimer);
+        tilesSyncTimer = 0;
+      }
+      deactivate({ force: true, destroyDom: true });
+      return;
+    }
+    const tiles = countVisiblePeerTiles();
+    if (tiles === 0) {
+      if (tilesSyncTimer) return;
+      tilesSyncTimer = setTimeout(() => {
+        tilesSyncTimer = 0;
+        if (!active || !isShareOkInStore()) return;
+        if (countVisiblePeerTiles() === 0) {
+          deactivate({ force: true, destroyDom: true });
+        } else {
+          applyPanelVisibility();
+        }
+      }, 400);
+      return;
+    }
+    if (tilesSyncTimer) {
+      clearTimeout(tilesSyncTimer);
+      tilesSyncTimer = 0;
+    }
+    applyPanelVisibility();
+  }
+
+  function minimizePanel() {
+    if (!state) return;
+    state.minimized = true;
+    applyPanelVisibility();
+    saveState();
+    dispatchPanelState("minimized");
+  }
+
+  function restorePanel() {
+    if (!state || !state.minimized) return;
+    state.minimized = false;
+    applyPanelVisibility();
+    saveState();
+    dispatchPanelState("open");
+  }
+
+  function applyPanelStateFromStore(ui) {
+    if (!state || !active) return;
+    const ps = ui?.participantsPanelState;
+    if (ps === "minimized") state.minimized = true;
+    else if (ps === "open") state.minimized = false;
+    applyPanelVisibility();
+  }
+
+  function shouldAllowActivate() {
+    const store = global.AppState?.getState?.();
+    if (!global.AppState?.isShareActive?.(store)) return false;
+    if (store?.ui?.currentLayout !== "share") return false;
+    return true;
+  }
+
   function activate(options = {}) {
     if (options.fromBlur && shouldSuppressBlurAutoFloatPanel()) return;
     if (!options.fromBlur && shouldBlockFloatPanelActivateFromBlur()) return;
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) return;
+    if (!shouldAllowActivate()) return;
     ensureDom();
     suppressDesktopPresenterUi();
+    const wasActive = active;
     if (!active) {
-      const def = defaultState();
-      const loaded = loadState();
-      state = loaded || def;
+      state = loadState() || defaultState();
       const c = clampBox(state.left, state.top, state.width, state.height);
       state = { ...state, ...c };
       // Al entrar en layout de share, expandir siempre (no restaurar minimizado de sesiones previas).
       state.minimized = false;
       userSizedPanel = false;
       active = true;
+      dispatchPanelState("open");
     }
     const shell = getShellEl();
     const modClass = shareModularClass();
     shell?.classList.toggle(modClass, true);
     shell?.classList.remove("room-shell--web-layout");
     mountVideos();
-    rootEl?.classList.remove("hidden");
-    applyLayout();
-    global.requestAnimationFrame(() => avoidStageOverlap());
+    applyPanelVisibility();
+    if (!wasActive) {
+      global.requestAnimationFrame(() => {
+        avoidStageOverlap();
+        syncPanelVisibilityForTiles();
+      });
+    }
   }
 
-  function deactivate() {
-    if (!active) return;
+  function deactivate(options = {}) {
+    if (!active && !options.force) return;
     saveState();
     unmountVideos();
     rootEl?.classList.add("hidden");
@@ -582,6 +745,18 @@
     active = false;
     drag = null;
     resizeDrag = null;
+    if (options.destroyDom) {
+      try {
+        rootEl?.remove();
+        pillEl?.remove();
+      } catch (_) {}
+      rootEl = null;
+      pillEl = null;
+      headerEl = null;
+      bodyEl = null;
+      resizeEl = null;
+      domReady = false;
+    }
   }
 
   function init(options = {}) {
@@ -594,8 +769,13 @@
 
   function onShareLayoutChange() {
     if (!active) return;
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
+      deactivate({ force: true, destroyDom: true });
+      return;
+    }
     suppressDesktopPresenterUi();
-    if (state) {
+    global.RoomScreenShareLayout?.ensurePresenterMediaDock?.();
+    if (state && !drag && !resizeDrag) {
       const c = clampBox(state.left, state.top, state.width, state.height);
       state.left = c.left;
       state.top = c.top;
@@ -606,6 +786,7 @@
       if (videosEl) filterScreenShareTilesInPanel(videosEl);
       global.requestAnimationFrame(shrinkPanelToFitContent);
     }
+    syncPanelVisibilityForTiles();
   }
 
   global.FloatPanelModule = {
@@ -614,5 +795,11 @@
     deactivate,
     onShareLayoutChange,
     isActive,
+    countVisiblePeerTiles,
+    syncPanelVisibilityForTiles,
+    applyPanelVisibility,
+    applyPanelStateFromStore,
+    minimizePanel,
+    restorePanel,
   };
 })(typeof window !== "undefined" ? window : global);

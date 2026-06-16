@@ -96,6 +96,8 @@
   function pickBestRemoteStream() {
     const map = deps?.getRemoteVideos?.();
     if (!map || typeof map[Symbol.iterator] !== "function") return null;
+    const stage =
+      typeof document !== "undefined" ? document.getElementById("roomRemoteScreenStage") : null;
     let screenStream = null;
     let cameraStream = null;
     for (const [, vid] of map) {
@@ -103,6 +105,7 @@
       const stream = vid.srcObject;
       if (!hasLiveVideo(stream)) continue;
       const wrap = vid.closest?.(".remote-peer");
+      if (stage && wrap && stage.contains(wrap)) continue;
       if (wrap?.classList?.contains("remote-peer--screen-share")) {
         screenStream = stream;
       } else if (!cameraStream) {
@@ -143,8 +146,31 @@
     return videoEl.play().catch(() => {});
   }
 
+  function shouldSuppressMiniPlayer() {
+    const appState = global.AppState?.getState?.();
+    if (appState?.ui?.currentLayout === "share") return true;
+    if (global.AppState?.isShareActive?.(appState)) return true;
+    if (global.ClientEnv?.isShareLayoutActive?.()) return true;
+    if (global.RoomScreenShareLayout?.isPresenterFocusActive?.()) return true;
+    if (deps?.getActiveRoomId?.() && !document.hidden) return true;
+    return false;
+  }
+
+  function suppressForActiveSession() {
+    return hideMiniPlayer();
+  }
+
+  function onWindowFocusRestore() {
+    if (deps?.getActiveRoomId?.() && !document.hidden) {
+      void hideMiniPlayer();
+    }
+  }
+
   /** auto-PiP: ventana nativa del sistema sobre videoEl. */
   async function tryAutoPip(stream, opts = {}) {
+    if (shouldSuppressMiniPlayer()) {
+      return false;
+    }
     if (!videoEl || !rootEl || !pipSupported() || !hasLiveVideo(stream)) {
       return false;
     }
@@ -170,6 +196,10 @@
   }
 
   function showMiniPlayer(stream) {
+    if (shouldSuppressMiniPlayer()) {
+      void hideMiniPlayer();
+      return;
+    }
     if (!rootEl || !videoEl || !placeholderEl) return;
     const live = hasLiveVideo(stream);
     if (live) {
@@ -207,6 +237,10 @@
 
   function onLeavePictureInPicture() {
     autoPipActive = false;
+    if (shouldSuppressMiniPlayer()) {
+      void hideMiniPlayer();
+      return;
+    }
     if (document.hidden && deps?.getActiveRoomId?.()) {
       // fallback: div flotante tras cerrar PiP con pestaña aún oculta
       rootEl?.classList.remove("hidden");
@@ -227,6 +261,10 @@
 
   function onVisibilityChange() {
     if (!deps?.getActiveRoomId?.()) return;
+    if (shouldSuppressMiniPlayer()) {
+      void hideMiniPlayer();
+      return;
+    }
     if (document.hidden) {
       const stream = pickBestRemoteStream();
       if (hasLiveVideo(stream) && pipSupported()) {
@@ -346,7 +384,11 @@
     if (!mounted) {
       mountDom();
       document.addEventListener("visibilitychange", onVisibilityChange);
+      window.addEventListener("focus", onWindowFocusRestore);
       mounted = true;
+    }
+    if (deps?.getActiveRoomId?.()) {
+      void suppressForActiveSession();
     }
   }
 
@@ -354,6 +396,8 @@
     initMiniPlayer,
     showMiniPlayer,
     hideMiniPlayer,
+    suppressForActiveSession,
+    shouldSuppressMiniPlayer,
     isActive,
   };
 })(typeof window !== "undefined" ? window : globalThis);

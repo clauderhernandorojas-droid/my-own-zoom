@@ -215,12 +215,113 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 - **Medios locales**: si cámara y micrófono fallan, se intenta **solo micrófono** y, en último caso, unión con **stream vacío** y transceiver de vídeo **`recvonly`** para seguir en la sala. Los textos de estado de medios **no** se muestran bajo el título en la franja de vídeo (no hay `#mediaStatus` en esa zona); `setMediaStatus` puede seguir en código sin ese nodo en DOM.
 - **Barra de medios estilo Zoom**: controles inferiores con patrón botón principal + menú desplegable para **Audio**, **Vídeo**, **Compartir** y **Grabar**; listas de dispositivos movidas al menú (incluye acciones rápidas de refresco/reinicio de medios). Se simplificó UI quitando botones redundantes de aplicar/actualizar.
 - **Compartir pantalla y tablero**: menú con `Pantalla` / `Tablero`. Al compartir pantalla, se usa `getDisplayMedia`, se reemplaza la pista de vídeo enviada por WebRTC y al terminar se restaura la cámara automáticamente.
-- **Layout reunión (modular, solo share)**: `ClientEnv` + módulos en `public/js/modules/`; activación vía `syncShareLayout()`. Paridad web/Electron al compartir; sala normal sin cambios. Detalle en «Layout modular — solo pantalla compartida».
+- **Layout reunión (modular, solo share)**: `ClientEnv` + módulos en `public/js/modules/`; activación vía `AppState` + `LayoutModule.syncShareLayout()`. Paridad web/Electron al compartir; sala normal sin cambios. Detalle en «Arquitectura modular de sala (AppState)» y «Layout modular — solo pantalla compartida».
+  - **Arquitectura modular de sala (AppState)**:
+    - **Store**: [`public/js/store/AppState.js`](public/js/store/AppState.js) + [`reducer.js`](public/js/store/reducer.js) + [`actions.js`](public/js/store/actions.js). Estado: `chat.isOpen`, `chat.unreadCount`, `ui.currentLayout` (`gallery`|`board`|`share`), `ui.participantsPanelState`, `share.*`, `flags.*`. Helper `AppState.isShareActive(state?)` delega a `share.active`. **`ui.isChatOpen` eliminado** — usar solo `chat.isOpen`.
+    - **Contratos evento → slice → módulo** (socket bridges):
+
+      | Evento socket | Bridge | Escritor store | Módulo destino |
+      |---------------|--------|----------------|----------------|
+      | `chat:message` | [`ChatSocketBridge.js`](public/js/modules/chat/ChatSocketBridge.js) | `CHAT_NOTIFY_BADGE_INCREMENT` (vía `ChatModule.incrementUnreadCount`) | `ChatModule.onIncomingMessage` |
+      | `chat:messageDeleted` | ChatSocketBridge | — | `ChatModule.removeChatMessageEverywhere` |
+      | `chat:messageReaction` | ChatSocketBridge | `CHAT_NOTIFY_BADGE_INCREMENT` (guards en chat.js) | `ChatModule.onIncomingReaction` |
+      | `meet:screenShare` | [`ScreenShareSocketBridge.js`](public/js/modules/screenShare/ScreenShareSocketBridge.js) | `SHARE_*` vía [`ScreenShareOrchestrator`](public/js/modules/screenShare/ScreenShareOrchestrator.js) → `ScreenShareModule.applyRemoteFromServer` | layout + WebRTC en orchestrator |
+      | `meet:screenShare:trackRefresh` | ScreenShareSocketBridge | — | `refreshSharerVideoFromReceivers` (deps index) |
+      | `meet:screenShare:request` / `:grant` | ScreenShareSocketBridge | `SHARE_*` (grant) | `ScreenShareModule` + [`RoomNoticeBus`](public/js/modules/RoomNoticeBus.js) |
+      | `screenshare-annotate:*` | ScreenShareSocketBridge | — | `ScreenOverlay.applyRemoteState` |
+      | `board:presentation` | index.html (dominio tablero) | — | `applyBoardPresentationFromServer` |
+
+      **Regla congelada:** ningún módulo de chat escribe `share.*`; ningún módulo de share escribe `chat.*` excepto [`crossDomainEffects.js`](public/js/store/crossDomainEffects.js) (`CHAT_SET_OPEN false` al entrar layout `share`, **sin** resetear `unreadCount`).
+
+      **Avisos share → chat:** `RoomNoticeBus.emitRoomNotice(text)` → evento DOM `moj:room:notice` → `ChatModule.appendRecordingNotice` (si `flags.enableChat`). Share **no** llama a chat directamente.
+
+      **OwnerId:** [`shareState.js`](public/js/store/shareState.js) `MojShareState.getShareOwnerId()` — reemplaza la variable legacy `remoteScreenShareUserId`. Probe: `getShareOwnerId()` o `AppState.getState().share.ownerId`.
+
+      **Legacy deprecado (no borrar aún):** [`notificaciones.js`](public/js/notificaciones.js) / [`NotificationsModule.js`](public/js/modules/NotificationsModule.js) — ya no participan en el badge de sala (`AppState.chat.unreadCount` + `ChatPanel`).
+    - **Notificaciones de chat**:
+      - Ícono burbuja (`#btnChatBar`) = **toggle** (`toggleChatPanel()`) + **badge** (`AppState.chat.unreadCount` vía `updateChatBadge()`).
+      - Separación de responsabilidades: `toggleChatPanel()` solo abre/cierra panel; `updateChatBadge(count)` solo renderiza `.room-tb-badge` (sin tocar `aria-label` del botón; eso lo gestiona `applyChatOpen`).
+      - Entrada socket: `chat:message` y `chat:messageReaction` (doc: `chat:reaction`) → [`chat.js`](public/js/chat.js) `incrementUnreadCount()` con guards (mensaje propio no cuenta; reacción propia no cuenta; reacción con panel abierto no cuenta).
+      - Incremento store: `CHAT_NOTIFY_BADGE_INCREMENT` → subscribe en `ChatPanel.bindBottomBar` → `UiBarra.updateChatBadge()`. **No** hay evento socket `chat:notifyBadgeIncrement`.
+      - Al abrir panel: `CHAT_UNREAD_RESET` + `ChatModule.markAllRead()` (badge → 0).
+      - Probe:
+        ```js
+        ({ chat: AppState.getState().chat, panelHidden: getChatPanelHidden?.(),
+           badgeText: document.querySelector("#btnChatBar .room-tb-badge")?.textContent })
+        ```
+      - Tests: `npm run test:chat-badge`, `npm run test:chat`.
+    - **Vista previa local del sharer (regla de diseño)**: quien comparte (presentador **o** invitado autorizado) **siempre** ve su propia captura en `#roomRemoteScreenStage` (`.remote-peer--local-screen-share`). No depende del rol sino de `isLocallySharingScreen()`. Montaje: `enterPresenterFocusUi` (modo sharer local) → `syncLocalSharePreview()` → `mountLocalScreenSharePreviewToStage()`. Fallback vía socket: si llega `meet:screenShare { active:true, userId: myId }` con captura viva, se re-sincroniza el preview. Los **viewers** ven el stream remoto vía `attachRemoteScreenToStage`.
+    - **Ciclo de vida de pantalla compartida**:
+      - **Sharer** → preview local (`screenShareStream` en stage); **resto** → WebRTC remoto en stage.
+      - **Eventos universales**: `meet:screenShare` start/stop se emite con `io.in` a **toda** la sala; todos los clientes aplican `applyMeetScreenShareFromServer` (cola `meetScreenShareApplyQueue`). Mapeo: `screenShare:start` → `{ active: true }`; `screenShare:stop` → `{ active: false }`.
+      - **Takeover**: stop anterior (`onForcedRemoteStop` en viewers + `onForcedLocalStop` en sharer desplazado) **antes** de montar el nuevo stream.
+      - **Layout y `ownerId`**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) suscribe `AppState.share.ownerId`; al cambiar owner desmonta peers remotos del stage y re-renderiza (local preview o attach remoto). `onForcedRemoteStop(prevOwner)` cuando el viewer deja de seguir al owner anterior.
+      - **Probe ciclo de vida**:
+        ```js
+        ({ share: AppState.getState().share, local: isLocallySharingScreen?.(),
+           ownerId: getShareOwnerId?.(),
+           stagePeers: [...document.querySelectorAll("#roomRemoteScreenStage .remote-peer")].map((el) => el.className) })
+        ```
+    - **Panel Participantes (regla de diseño)**: el panel flotante `#webFloatPeersRoot` **solo se monta** cuando AppState indica share activo (`currentLayout === 'share'`). Estado `ui.participantsPanelState`: `'open'` | `'minimized'` | `'hidden'`. Durante share solo alterna **abierto ↔ minimizado** (`FloatPanelModule.minimizePanel` / `restorePanel`); `'hidden'` solo al terminar share o salir de sala. Al detener share, `ParticipantsModule.teardownPanel()` desmonta el DOM; `destroy()` queda reservado para `onLeaveRoom`. No confundir con `#presenterFloatRoot` (legacy).
+    - **Regla de acoplamiento**: los módulos **leen** el store vía `subscribe`; las mutaciones van solo por `AppState.dispatch({ type: MojActionTypes.* })`. Evitar llamar `setChatPanelHidden` / `FloatPanelModule.activate` entre módulos.
+    - **Módulos y ciclo de vida** (`init` → `update` / subscribe → `destroy` en `leaveRoom`):
+      | Módulo | Archivo | Responsabilidad |
+      |--------|---------|-----------------|
+      | `RoomChatModule` | [`modules/chat/`](public/js/modules/chat/) | Panel chat (DOM) + delega mensajes a [`chat.js`](public/js/chat.js) |
+      | `ParticipantsModule` | [`modules/participants/ParticipantsModule.js`](public/js/modules/participants/ParticipantsModule.js) | Panel `#webFloatPeersRoot` vía `FloatPanelModule` |
+      | `ScreenShareModule` | [`modules/screenShare/ScreenShareModule.js`](public/js/modules/screenShare/ScreenShareModule.js) | Sync store share + layout |
+      | `ScreenShareOrchestrator` | [`modules/screenShare/ScreenShareOrchestrator.js`](public/js/modules/screenShare/ScreenShareOrchestrator.js) | Cola `meet:screenShare` + apply desde servidor |
+      | `ChatSocketBridge` | [`modules/chat/ChatSocketBridge.js`](public/js/modules/chat/ChatSocketBridge.js) | Listeners `chat:*` |
+      | `ScreenShareSocketBridge` | [`modules/screenShare/ScreenShareSocketBridge.js`](public/js/modules/screenShare/ScreenShareSocketBridge.js) | Listeners `meet:screenShare*` + annotate |
+      | `LayoutModule` | [`modules/LayoutModule.js`](public/js/modules/LayoutModule.js) | Clase `share-layout-modular`, overlay sync; **no** activa chat/participantes directamente |
+    - **Feature flags**: [`featureFlags.js`](public/js/store/featureFlags.js) — `?flags=noChat,noParticipants,noScreenShare`; `localStorage.moj_dev_flags` (JSON). Defaults en `FLAGS_SET` al boot (`initAppStateStore`).
+    - **Tests por módulo**: `npm run test:app-state`, `test:chat`, `test:chat-badge`, `test:participants`, `test:screen-share`, bridges (`test-chat-socket-bridge.cjs`, `test-share-socket-bridge.cjs`, `test-share-ownerid-layout.cjs`), agregado `npm run test:room-modules`.
+    - **Visibilidad chat durante share** (matriz CSS):
+
+      | Shell classes | presenterFocus.css | layoutShell.css override | Chat visible |
+      |---------------|-------------------|--------------------------|--------------|
+      | `presenter-focus` sin modular | oculta `.room-chat-panel` | — | No |
+      | `presenter-focus` + `share-layout-modular` + `:not(.chat-hidden)` | oculta | **restaura flex** | Sí (panel fijo derecha) |
+      | `remote-screen-dominant` + modular + `:not(.chat-hidden)` | N/A | restaura flex | Sí |
+      | cualquier share + `.room-shell--chat-hidden` | — | — | No |
+
+      Regla: CSS de share **no** debe tocar `.room-tb-badge` ni controles chat; solo `.room-chat-panel` y layout shell. `LayoutModule.syncShareLayout` aplica `room-shell--share-layout-modular` cuando `ui.currentLayout === 'share'`.
+
+      Probe CSS: `({ chatDisplay: getComputedStyle(document.querySelector('.room-chat-panel')).display, shell: roomShell?.className })`
+
+    - **QA aislamiento chat vs share** (probes DevTools):
+      ```js
+      // Tras chat:message ajeno, panel cerrado — share sin cambios
+      ({ chat: AppState.getState().chat, share: AppState.getState().share })
+
+      // Tras meet:screenShare takeover — ownerId cambia, unreadCount intacto
+      ({ ownerId: AppState.getState().share.ownerId, unread: AppState.getState().chat.unreadCount })
+      ```
+      Escenarios manuales críticos: mensaje + share en paralelo; reacción con panel cerrado durante share; takeover A→presentador→B; grant + notice en chat; entrar share cierra panel conservando badge; toggle chat en share (Electron).
+    - **Checklist manual por módulo** (antes de merge):
+      - Chat: 2 clics `#btnChatBar` / `#btnToggleChat` alternan; share oculta chat al entrar; reapertura OK.
+      - Participantes: panel visible en share con tiles; oculto sin share y al salir de sala; un solo `#webFloatPeersRoot` (sin residuo en galería).
+      - ScreenShare: start/stop presentador + invitado grant; socket `meet:screenShare`; takeover presentador (invitado compartiendo → presentador toma pantalla o tablero); invitado desplazado detiene `getDisplayMedia` (Edge).
+    - **Riesgos conocidos**: orden `emitMeetScreenShare` antes de `trackRefresh`; CSS `presenterFocus.css` vs `layoutShell.css` para chat en share; no confundir `#webFloatPeersRoot` con `#presenterFloatRoot`.
 - **Anotaciones sobre pantalla compartida (sync en sala)**:
   - Estado **solo en RAM** en el servidor (`meetScreenShareInkByRoom` en `src/socket/index.js`), **sin persistencia** en base de datos; se limpia al dejar de compartir o al cambiar de presentador.
   - Eventos Socket: **`screenshare-annotate:update`** (el cliente envía `contenido.elementos`; el servidor sanitiza —trazos y textos únicamente— y rebroadcast); **`screenshare-annotate:state`** para enviar estado actual o vacío a quien entra durante share o cuando termina la captura.
   - **Cliente (MVP implementado)**: módulos [`public/js/screenOverlay.js`](public/js/screenOverlay.js), [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js), [`public/js/annotationInk.js`](public/js/annotationInk.js) y estilos [`public/css/screenOverlay.css`](public/css/screenOverlay.css). Overlay sobre `#roomRemoteScreenStage` con canvas transparente, coords **normalizadas 0–1** respecto al rectángulo útil del vídeo (`object-fit: contain`, misma lógica que la grabación compuesta).
   - **UX FAB lápiz (por participante)**: botón circular arrastrable (inicial abajo-izquierda) despliega una **barra vertical estilo tablero** encima del FAB; **clic** = abrir/cerrar panel; **arrastre** = reubicar sin toggle. Posición persistida en `localStorage` (`moj_screen_overlay_fab_pos_v2`; la clave legacy se migra o resetea). Panel: puntero, lápiz, borrador, texto, colores, grosor, tamaño, Undo/Redo (barra inferior tipo `#boardBottomBar`) y botón **×**; `Escape` o segundo clic FAB cierran. La captura del canvas solo se activa con lápiz, borrador o texto (puntero = passthrough). Las trazos sincronizados vía socket permanecen visibles al cerrar el panel.
+  - **FAB lápiz — inicialización y diagnóstico**:
+    - **Cuándo aparece**: solo con pantalla compartida activa (`room-shell--presenter-focus` o `room-shell--remote-screen-dominant` + `#roomScreenShareWrap` / `#roomRemoteScreenStage` visibles). No se monta en galería sin share.
+    - **Cadena de montaje**: `updateRemoteScreenShareLayout()` → [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) → `ScreenOverlay.syncWithStage(#roomRemoteScreenStage)` → `ensureFab()` en `#screenOverlayUiLayer`. [`LayoutModule`](public/js/modules/LayoutModule.js) solo re-sincroniza vía `resyncScreenOverlay()` cuando hay share; [`ToolbarModule`](public/js/modules/ToolbarModule.js) y [`PencilFabToolbar.js`](public/js/PencilFabToolbar.js) **no** montan el FAB del flujo principal.
+    - **`syncAnnotateCapture()`** controla pointer-events del canvas al abrir toolbar / cambiar herramienta; **no** afecta la visibilidad del FAB.
+    - **Probe DevTools** (con share activo):
+      ```js
+      ({ ScreenOverlay: !!ScreenOverlay, Ink: !!AnnotationInk })
+      ScreenOverlay.inspectLayout()
+      // fabConnected, fabVisible, fabStageReady, inkLoaded, fabHost, uiLayer
+      ScreenOverlay.inspectInteractionState()
+      document.querySelector('#screenOverlayUiLayer .screen-overlay-fab')?.getBoundingClientRect()
+      ScreenOverlay.syncWithStage(document.getElementById('roomRemoteScreenStage'))
+      ```
+    - **Checklist visual**: botón azul ~44×44 px (✏️), abajo-izquierda del área de share; clic abre toolbar (`inspectInteractionState().toolbarOpen === true`). Si no aparece: borrar `moj_screen_overlay_fab_pos*` en localStorage; recarga forzada con `screenOverlay.js?v=20250610a`.
   - **Nota técnica**: el overlay **no** reutiliza las clases `board-ol` / `board-ol--vbar` del tablero (evita posicionamiento absoluto fijo que ocultaba la barra). Estilos scoped en [`public/css/screenOverlay.css`](public/css/screenOverlay.css).
   - **Barra inferior de medios (`#roomMediaControls`)**: con `room-shell--remote-screen-dominant` aplica scrim oscuro semitransparente + `backdrop-filter` y sombra en iconos para legibilidad sobre pantallas compartidas claras.
   - **Herramientas MVP**: lápiz, borrador, texto, colores, grosor, deshacer/rehacer con historial **independiente** del tablero. Cualquier participante en la sala puede anotar mientras hay pantalla compartida activa (UI local; tinta compartida).
@@ -230,46 +331,274 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Layout vídeo en overlay**: `ensureOverlayDom` mueve el `<video>` dentro de `.screen-overlay-stack`, por lo que el selector `.room-remote-screen-stage .remote-peer > video` deja de aplicar. Reglas equivalentes en [`public/css/screenOverlay.css`](public/css/screenOverlay.css) (`.screen-overlay-stack > video`) y selector defensivo en `index.html`. Sin `object-fit: contain` el preview local (alta resolución nativa) puede verse con zoom excesivo frente al stream remoto codificado.
   - **Posicionamiento FAB/toolbar (ui layer)**: FAB y toolbar viven en `#screenOverlayUiLayer` (hermano de `#roomRemoteScreenStage`, fuera del flex del vídeo). Posición por defecto **abajo-izquierda**; `localStorage` `moj_screen_overlay_fab_pos_v2_<roomId>` con fallback global (legacy se resetea). `computeToolbarPlacement()` + `resolveToolbarOverlap()`: candidatos `above` / `below` / `rightVertical` / horizontal; en **stage compacto** (`isCompactStage`) prioriza barra **horizontal** a la derecha del FAB; `toolbarPlacementValid` rechaza solape con el FAB. Medición: panel visible + clon off-screen; fallback acotado al alto del wrap. Diagnóstico: `ScreenOverlay.inspectInteractionState()` (`overlap`, `overlapLogical`, `placementAnchor`).
   - **Geometría del canvas**: coords **0–1** respecto al frame útil del vídeo (`object-fit: contain`). `AnnotationInk.getVideoContentRectForOverlay(video, canvas)` alinea el rectángulo de dibujo con la caja pintada del `<video>` (offset + letterbox). `ResizeObserver` observa stack y `<video>` para recalcular tras `loadedmetadata`.
-  - **Preview local vs remoto**: presentador ve `ensureLocalScreenShareStageWrap()`; invitado ve el peer remoto en stage. Ambos deben compartir el mismo CSS de encuadre; la resolución nativa del `getDisplayMedia` solo afectaba la apariencia cuando faltaba `object-fit: contain` en el vídeo anidado.
+  - **Preview local vs remoto**: presentador ve `ensureLocalScreenShareStageWrap()` + `mountLocalScreenSharePreviewToStage()` (mirror en stage, no en `#localVideo`); invitado ve el peer remoto en stage. Ambos deben compartir el mismo CSS de encuadre; la resolución nativa del `getDisplayMedia` solo afectaba la apariencia cuando faltaba `object-fit: contain` en el vídeo anidado.
   - **Troubleshooting**:
     - FAB arriba-derecha o barra en el centro superior → borrar `moj_screen_overlay_fab_pos` y `moj_screen_overlay_fab_pos_v2` en DevTools; recargar sala. Comprobar que el FAB quedó abajo-izquierda y la barra vertical justo encima.
     - Lápiz no dibuja en mitad inferior → DevTools: comparar `stackEl` vs `videoEl` `getBoundingClientRect()`; comprobar `object-fit: contain` en `.screen-overlay-stack > video`.
     - Presentador con zoom excesivo → mismo diagnóstico; verificar computed `object-fit` en vídeo dentro del stack (no en hijo directo de `.remote-peer`).
+  - **Troubleshooting: preview local del presentador y compartir tablero**:
+    - **Preview pantalla (presentador)**: `#localVideo` es la **cámara**, no la captura de pantalla. El mirror local va a `#roomRemoteScreenStage` vía `ensureLocalScreenShareStageWrap()` → `.remote-peer--local-screen-share` con `video.srcObject = screenShareStream`. Tras `startScreenShare()`, `mountLocalScreenSharePreviewToStage()` inserta el wrap de forma síncrona (además del rAF de `scheduleRemoteScreenLayoutUpdate` → `enterPresenterFocusUi`). Si el presentador no ve nada, ejecutar en consola:
+      ```javascript
+      const wrap = document.querySelector('.remote-peer--local-screen-share');
+      const vid = wrap?.querySelector('video');
+      ({ locallySharing: isLocallySharingScreen?.(), track: screenShareTrack?.readyState,
+         wrapConnected: !!wrap?.isConnected, srcOk: vid?.srcObject === screenShareStream,
+         videoWxH: [vid?.videoWidth, vid?.videoHeight],
+         stage: document.getElementById('roomRemoteScreenStage')?.getBoundingClientRect(),
+         shell: document.getElementById('roomShell')?.className })
+      ```
+    - **Tablero compartido**: no existe `board:share` ni `boardOverlay.js`. El evento real es **`board:presentation`** ([`src/socket/index.js`](src/socket/index.js)). Presentador: `startLocalBoardPresentation()` → `applyRemoteBoardPresentationUi(true)` (vista tablero + `resizeBoardCanvasToViewport` + `drawBoard`) + `emitBoardPresentation` con ack. Invitados: reciben el socket y `applyRemoteBoardPresentationUi`. ACL servidor: `socketCanShareMeetingContent` (docente de la reunión o admin); rechazo devuelve `{ ok: false, error: 'FORBIDDEN' }` al emisor.
+    - **`roomDocenteUsuarioId`**: si es `null` al unirse, `updateShareControlsForRole` ya **no** fuerza `stopBoardPresentation` (evita cortar share antes de cargar participantes). Verificar que `loadParticipantsForRoom` / `room:join` asignen el id del docente.
+    - **No mezclar dominios**: `ScreenOverlay` es solo anotación en **pantalla compartida**; compartir tablero no inicializa overlay de share.
+    - **Regresiones a vigilar**: edición de texto overlay (`editingTextElementIndex`, `measureTextLayoutNorm`), stage con `clientHeight === 0`, anotaciones tras `ScreenOverlay.syncWithStage`.
+  - **Troubleshooting: pantalla compartida (invitado, stop presentador, señal socket)**:
+    - **Evento real**: `meet:screenShare` `{ active, userId }` (no `screenShare:start/stop`). Servidor rebroadcast con `io.in` (todos los clientes, incluido el emisor); guards idempotentes evitan doble stop/start. Sharer con captura viva: `syncLocalSharePreview` + `mountLocalScreenSharePreviewToStage`.
+    - **Invitado comparte y otros no ven**: requiere grant (`meet:screenShare:response` → `share.grantedToMe` en AppState). Orden cliente: `emitMeetScreenShare(true)` **antes** de `meet:screenShare:trackRefresh` (servidor ignora trackRefresh si `meetScreenShareSharer` aún no está). Tras start OK: `share.ownerId` refleja al emisor vía `ScreenShareModule`. Viewers: `ScreenShareOrchestrator.applyFromServer` → `refreshSharerVideoFromReceivers` → `attachRemoteScreenToStage`. Si `trackRefresh` llega antes del uid: `pendingMeetScreenShareTrackRefresh` + `runDeferredSharerTrackRefresh`.
+    - **Presentador toma control con invitado compartiendo**: servidor `presenterPreemptScreenShare` en `meet:screenShare` / `board:presentation`; orden **stop** (`io.in`) → **start**. Cliente invitado: `stopScreenShare({ force, skipServerAnnounce, supersededByPresenter })` vía cola en `ScreenShareOrchestrator` (no solo teardown DOM). Si `share.ownerId` sigue siendo el invitado tras takeover, comprobar que `ScreenShareModule.onForcedLocalStop()` corrió y que `isLocallySharingScreen()` es `false`.
+    - **Presentador UI pegada tras Dejar**: causas típicas — `canEmitMeetScreenShareStop` bloqueaba stop si otro usuario era owner en store; `stopScreenShare` emitía stop **después** de limpiar tracks. Fix: emit stop con captura aún live; `isLocallySharingScreen()` en `canEmitMeetScreenShareStop`; owner solo vía AppState; `ScreenOverlay.clear()` + `WebLayoutOverrides.syncShareLayout()` en stop.
+    - **Probe presentador tras Dejar**:
+      ```javascript
+      ({ localShare: isLocallySharingScreen?.(), ownerId: getShareOwnerId?.(),
+         presenterFocus: roomShell?.classList.contains("room-shell--presenter-focus"),
+         remoteDominant: roomShell?.classList.contains("room-shell--remote-screen-dominant"),
+         wrapHidden: document.getElementById("roomScreenShareWrap")?.hidden })
+      ```
+    - **ACL**: `emitMeetScreenShare` devuelve ack; `FORBIDDEN` revierte captura. Test: `npm run test:screen-share-stop`.
+
+  - **Troubleshooting: chat Electron y panel Participantes**:
+    - **Botón chat web vs Electron**: web y Electron usan `toggleChatPanel()` — web vía `#btnToggleChat` / `#btnToggleChatInline`; Electron vía `#btnChatBar` ([`uiBarra.js`](public/js/uiBarra.js) → [`ChatRoomUiModule.toggleChatPanel()`](public/js/modules/ChatRoomUiModule.js)). Al abrir: reset badge + `openChatFromBar()`. No hay IPC en `electron/`.
+    - **Badge vs toggle**: el badge lee `AppState.chat.unreadCount` (subscribe); el toggle lee `AppState.chat.isOpen`. No mezclar `updateChatBadge` con `applyChatOpen` (`aria-label` del botón solo en toggle).
+    - **Bug presentador share (no abre chat)**: [`presenterFocus.css`](public/css/presenterFocus.css) oculta `.room-chat-panel` con `display: none !important`. Durante share modular, [`layoutShell.css`](public/css/modules/layoutShell.css) debe reaplicar `display: flex !important` cuando `:not(.room-shell--chat-hidden)` — requiere clase `room-shell--share-layout-modular` activa (`LayoutModule.syncShareLayout`).
+    - **Probe chat presentador (share)**:
+      ```javascript
+      ({ electron: !!window.__MOJ_ELECTRON, chatHidden: getChatPanelHidden?.(),
+         shareModular: roomShell?.classList.contains("room-shell--share-layout-modular"),
+         chatDisplay: getComputedStyle(document.querySelector(".room-chat-panel")).display })
+      ```
+    - **Panel Participantes ausente o duplicado**: activación solo durante share vía `ParticipantsModule` (observa AppState) → `FloatPanelModule.activate`. Al detener share: `ParticipantsModule.teardownPanel()` (desde `stopScreenShare` / `applyMeetScreenShareFromServer(false)` y vía subscribe al cambiar layout). Regresión típica: DOM residual `#webFloatPeersRoot` en galería (z-index 1850) o coexistencia con `#presenterFloatRoot`. Flag `enableParticipantsPanel` (default `true`) en boot.
+    - **Probe panel (share activo)**:
+      ```javascript
+      ({ shareActive: ClientEnv?.isShareLayoutActive?.(roomShell),
+         floatActive: FloatPanelModule?.isActive?.(),
+         visibleTiles: FloatPanelModule?.countVisiblePeerTiles?.(),
+         rootHidden: document.getElementById("webFloatPeersRoot")?.classList.contains("hidden") })
+      ```
+    - **Precauciones**: no confundir `#webFloatPeersRoot` (participantes modular en share) con `#presenterFloatRoot` (legacy) ni `#roomMediaControls` (dock medios). Test: `node scripts/test-web-layout-modules.cjs`.
+
+  - **Troubleshooting: ventana flotante negra (invitado)**:
+    - **No es overlay**: `screenOverlay.js` / `annotationUI.js` no crean cajas `fixed` abajo-izquierda. Candidato principal: **`#webFloatPeersRoot`** ([`FloatPanelModule.js`](public/js/modules/FloatPanelModule.js)) — panel modular de participantes (`background: rgba(15,23,42,0.94)`), posición por defecto `left: 12px` cerca del borde inferior. Otros: `#presenterFloatRoot` (legacy, desactivado), `#roomMediaControls.room-media-controls--presenter-float` (dock Electron presentador), `#miniPlayer` (abajo-**derecha**).
+    - **Probe — identificar nodo** (con la ventana visible):
+      ```javascript
+      const fixed = [...document.querySelectorAll("*")].filter((el) => {
+        const s = getComputedStyle(el);
+        if (s.position !== "fixed" || s.display === "none") return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 40 && r.height > 40 && r.bottom > innerHeight * 0.5 && r.left < innerWidth * 0.4;
+      });
+      fixed.map((el) => ({ id: el.id, class: el.className?.slice?.(0, 60), rect: el.getBoundingClientRect() }));
+      ```
+    - **Probe — estado layout**:
+      ```javascript
+      const roomShell = document.getElementById("roomShell");
+      ({ remoteDominant: roomShell?.classList.contains("room-shell--remote-screen-dominant"),
+         shareModular: roomShell?.classList.contains("room-shell--share-layout-modular"),
+         floatPanelVisible: !document.getElementById("webFloatPeersRoot")?.classList.contains("hidden"),
+         floatPanelActive: FloatPanelModule?.isActive?.(),
+         visibleTiles: FloatPanelModule?.countVisiblePeerTiles?.(),
+         videosParent: document.getElementById("videos")?.parentElement?.id })
+      ```
+    - **Esperado vs bug**: durante share modular el panel **puede** estar activo, pero solo si `visibleTiles > 0` (vídeo live en `#videos`, excluyendo peer ya en stage). **Bug** si `floatPanelVisible: true` sin `remoteDominant`/`presenterFocus` (residual tras stop share) o panel expandido vacío (sharer en stage + cámara local apagada).
+    - **Cadena**: activación `updateRemoteScreenShareLayout` → `LayoutModule.syncShareLayout` → `FloatPanelModule.activate`; desactivación `syncShareLayout` cuando `!isShareActive()` o `leaveRoom` → `deactivate({ force: true, destroyDom: true })`. `ensurePresenterMediaDock` solo en `enterPresenterFocusUi` (presentador local), no en `FloatPanelModule.onShareLayoutChange`.
+    - **Precauciones**: no desactivar `FloatPanelModule` sin alternativa de franja de vídeo durante share; no tocar `ScreenOverlay` para este síntoma.
+
+  - **Corrección de ventana flotante residual**:
+    - **Árbol de decisión** (con la ventana visible en esquina inferior):
+      | Señal | Origen | Acción |
+      |-------|--------|--------|
+      | Barra del **sistema** con URL (`127.0.0.1:3000`), minimizar/cerrar nativos | PiP (`requestPictureInPicture`) | [`uiMiniPlayer.js`](public/js/uiMiniPlayer.js) — `MiniPlayerControls.suppressForActiveSession()` |
+      | Panel DOM con cabecera «Participantes», sin barra OS | `#webFloatPeersRoot` | [`FloatPanelModule.js`](public/js/modules/FloatPanelModule.js) — ocultar si `countVisiblePeerTiles() === 0` |
+      | Handle «My Own Zoom», abajo-derecha | `#miniPlayer` fallback DOM | Mismo módulo mini-player |
+    - **Probes DevTools** (share activo):
+      ```javascript
+      ({
+        pipActive: !!document.pictureInPictureElement,
+        suppress: MiniPlayerControls?.shouldSuppressMiniPlayer?.(),
+        miniPlayerHidden: document.getElementById("miniPlayer")?.classList.contains("hidden"),
+        floatActive: FloatPanelModule?.isActive?.(),
+        visibleTiles: FloatPanelModule?.countVisiblePeerTiles?.(),
+        webFloatHidden: document.getElementById("webFloatPeersRoot")?.classList.contains("hidden"),
+      })
+      ```
+    - **Fix aplicado**:
+      - `shouldSuppressMiniPlayer()` consulta `AppState.ui.currentLayout === 'share'`, `AppState.isShareActive()` y sala visible.
+      - `suppressForActiveSession()` (cierra PiP + oculta `#miniPlayer`) en: `updateRemoteScreenShareLayout` (presentador e invitado), `LayoutModule.updateFromStore`, `stopScreenShare`, `showRoom`, `leaveRoom`.
+      - `pickBestRemoteStream()` excluye peers ya montados en `#roomRemoteScreenStage` (evita PiP duplicando la captura).
+      - `FloatPanelModule.syncPanelVisibilityForTiles()` destruye el panel (`deactivate({ destroyDom: true })`) cuando no hay tiles live o el store ya no indica share; `activate()` respeta `flags.enableParticipantsPanel`.
+    - **Nota**: PiP con título `127.0.0.1:3000` es ventana del **navegador/Electron**, no un bug de CSS del overlay.
+    - **Tests**: `node scripts/test-mini-player-suppression.cjs`; regresión `npm run test:room-modules`.
+    - **QA manual**: presentador/invitado con share → sin ventana residual; stop share / Dejar → PiP cerrado y DOM limpio; overlay lápiz intacto.
+
+  - **Corrección panel flotante DOM residual** (galería / navegador):
+    - **Síntoma**: cuadro negro superpuesto a participantes en layout galería (`/#/meet/.../gallery`), típicamente esquina inferior derecha — es `#webFloatPeersRoot` (no PiP ni `#miniPlayer`).
+    - **Probe** (con el cuadro visible o en galería tras share):
+      ```javascript
+      const root = document.getElementById("webFloatPeersRoot");
+      ({
+        rootExists: !!root,
+        rootHidden: root?.classList.contains("hidden"),
+        floatActive: FloatPanelModule?.isActive?.(),
+        visibleTiles: FloatPanelModule?.countVisiblePeerTiles?.(),
+        videosParent: document.getElementById("videos")?.parentElement?.id,
+        shareLayout: AppState?.getState?.()?.ui?.currentLayout,
+        shareActive: AppState?.isShareActive?.(),
+      })
+      ```
+      Fuera de share: `rootExists` idealmente `false`; si existe, `rootHidden` debe ser `true`.
+    - **Fix aplicado**:
+      - `syncPanelVisibilityForTiles()` → `deactivate({ force: true, destroyDom: true })` si `!isShareOkInStore()` o `countVisiblePeerTiles() === 0`.
+      - `shouldAllowActivate()` exige `AppState.isShareActive()` y `currentLayout === 'share'`.
+      - `updateRemoteScreenShareLayout()` sincroniza tiles o fuerza `deactivate` si no hay share.
+      - `LayoutModule.updateFromStore` destruye panel al salir de layout share.
+      - CSS defensivo en [`layoutShell.css`](public/css/modules/layoutShell.css): oculta `#webFloatPeersRoot` sin clase `room-shell--share-layout-modular`.
+    - **Probe post-fix**: `document.getElementById("webFloatPeersRoot")?.classList.contains("hidden")` → `true` o elemento ausente (`null`).
+
+  - **Corrección de stream remoto no visible en Electron** (fallo intermitente):
+    - **Síntoma**: invitado **navegador** se ve a sí mismo pero no aparece en el mosaico Electron; a veces galería central negra con panel «Participantes» visible fuera de share. Comportamiento **inestable** (a veces sí, a veces no).
+    - **Causas superpuestas**:
+      - **DOM**: `#videos` reparentado al panel flotante y no repatriado a `.room-video-strip__stage`; `ensureRemotePeerUi` con mapa stale si el nodo quedó detached.
+      - **WebRTC**: tras `room:join`, `syncLocalTracksToAllSenders` no corría con `pcs.size === 0`; reconexión socket sin `negotiateOffer`; cámara activada después sin renegociación.
+    - **Nota**: `meet:stream` **no existe**; la media va por `webrtc:offer/answer/ice-candidate`.
+    - **Probe A — layout vs store**:
+      ```javascript
+      const shell = document.getElementById("roomShell");
+      const videos = document.getElementById("videos");
+      ({
+        url: location.hash,
+        modular: shell?.classList.contains("room-shell--share-layout-modular"),
+        gallery: shell?.classList.contains("room-shell--gallery"),
+        shareActive: AppState?.isShareActive?.(),
+        floatActive: FloatPanelModule?.isActive?.(),
+        videosConnected: videos?.isConnected,
+        videosParent: videos?.parentElement?.className?.slice(0, 40),
+        remotesCount: document.querySelectorAll("#remotesContainer .remote-peer").length,
+      })
+      ```
+      Fuera de share: `videosConnected: true`, `videosParent` debe incluir `room-video-strip__stage`; sin `floatActive`.
+    - **Probe B — publicación (navegador)**:
+      ```javascript
+      ({
+        localTracks: localStream?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })),
+        pcs: [...pcs.entries()].map(([sid, pc]) => ({
+          sid: sid.slice(0, 8),
+          senders: pc.getSenders().map(s => ({ kind: s.track?.kind, ready: s.track?.readyState })),
+          cs: pc.connectionState,
+        })),
+      })
+      ```
+    - **Probe C — recepción (Electron)**:
+      ```javascript
+      ({
+        remoteSockets: [...remoteVideos.keys()].map(s => s.slice(0, 8)),
+        tracksPerVideo: [...document.querySelectorAll(".remote-peer video")].map(v => ({
+          peer: v.dataset.peer?.slice(0, 8),
+          connected: v.isConnected,
+          tracks: v.srcObject?.getTracks()?.length ?? 0,
+        })),
+      })
+      ```
+      QA: `[...document.querySelectorAll(".remote-peer video")].map(v => v.srcObject?.getTracks()?.length)` → ≥1 por peer con cámara activa.
+    - **Regresión 647b958** (share en tile del panel, stage vacío): `onRemoteTrackMounted` usaba estado obsoleto y llamaba `refreshGalleryVideoMosaic`, que ejecutaba `moveStageRemotePeersToContainer` y anulaba `attachRemoteScreenToStage`. `negotiateOffer` en `presence:join` causaba offer glare (peer navegador ausente).
+    - **Fix aplicado**:
+      - `isInShareContext()` — `isLocallySharingScreen()` o `AppState.isShareActive()` (sin `getShareOwnerId()` legacy post-stop).
+      - `refreshGalleryVideoMosaic()` solo si `!isInShareContext()`; no reparenta peers en `#roomRemoteScreenStage`.
+      - `onRemoteTrackMounted` usa `stateNow`; en share llama `scheduleRemoteScreenLayoutUpdate`, no `refreshGallery`.
+      - Sin `negotiateOffer` en `presence:join` (solo el joiner negocia en `enterRoom`).
+      - `refreshSharerVideoFromReceivers` en `pc.ontrack` solo si `peerUserId === getShareOwnerId()`.
+      - `propagateLocalMediaToAllPeers` no renegocia PCs `stable`+`connected` con vídeo.
+    - **Probe durante share (Electron viewer)**:
+      ```javascript
+      ({
+        shareActive: AppState.isShareActive(),
+        ownerId: getShareOwnerId()?.slice(0,8),
+        stagePeers: document.querySelectorAll("#roomRemoteScreenStage .remote-peer").length,
+        remoteDominant: roomShell.classList.contains("room-shell--remote-screen-dominant"),
+      })
+      ```
+      Esperado: `stagePeers: 1`, `remoteDominant: true`.
+    - **Tests**: `node scripts/test-gallery-video-mosaic.cjs`; regresión `npm run test:room-modules`.
+
+  - **Detener share remoto (invitado / viewer)**:
+    - **Cadena cliente** (no usar `stopScreenShare()` en viewers): `ScreenShareSocketBridge.bind()` → `applyMeetScreenShareFromServer` → [`ScreenShareOrchestrator.applyFromServer`](public/js/modules/screenShare/ScreenShareOrchestrator.js) → `teardownRemoteShareView` → `ScreenShareModule.applyRemoteFromServer(false)` → store (`SHARE_REMOTE_SET`, `recomputeLayout` → `gallery`) → `ParticipantsModule.teardownPanel` + `refreshGalleryVideoMosaic`.
+    - **Servidor** ([`src/socket/index.js`](src/socket/index.js)): emite `meet:screenShare` con `{ active: false, userId }` (campo `userId`, no `oid`) vía `io.in(room)` a todos los sockets de la sala.
+    - **`stopScreenShare()`** solo en el path **local** (presentador que detiene su propia captura). Invocarlo en un viewer remoto es incorrecto semánticamente.
+    - **`socket.listeners("meet:screenShare")`** no es fiable en el cliente browser (socket.io-browser); el handler vive en el closure de `ScreenShareSocketBridge`. Usar `inspectShareSocketProbe()` o `npm run test:share-socket-bridge` (mock con `listenerCount`).
+    - **Probes post-stop** (consola en sala):
+      ```javascript
+      inspectShareStopProbe()
+      // o manualmente:
+      ({
+        shareActive: AppState.isShareActive(),
+        shareRaw: AppState.getState().share,
+        ownerId: getShareOwnerId(),
+        layout: AppState.getState()?.ui?.currentLayout,
+        floatActive: FloatPanelModule?.isActive?.(),
+        localSharing: isLocallySharingScreen?.(),
+        inShareContext: isInShareContext?.(),
+      })
+      ```
+      Esperado: `shareActive: false`, `ownerId: ""`, `layout: "gallery"`, `floatActive: false`, `inShareContext: false`.
+    - **Probe DOM**:
+      ```javascript
+      ({
+        remoteDominant: roomShell.classList.contains("room-shell--remote-screen-dominant"),
+        modular: roomShell.classList.contains("room-shell--share-layout-modular"),
+        stagePeers: document.querySelectorAll("#roomRemoteScreenStage .remote-peer").length,
+      })
+      ```
+      Esperado: sin clases share, `stagePeers: 0`.
+    - **`isInShareContext()`**: retorna `false` si `!AppState.isShareActive()` y `!isLocallySharingScreen()` (ignora `ownerId` legacy en store).
+    - **Tests**: `node scripts/test-share-stop-remote-viewer.cjs`; `node scripts/test-share-socket-bridge.cjs` (caso `active: false`).
+
   - **Modo presentador / invitado (layout pantalla compartida)**:
     - [`public/js/roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — alterna `room-shell--presenter-focus` (quien comparte) y `room-shell--remote-screen-dominant` (quien ve el share remoto). Llama a `ScreenOverlay.syncWithStage(stage)` pasando `#roomRemoteScreenStage` (o resolviendo el stage por defecto en `screenOverlay.js`).
     - **Presentador** (`room-shell--presenter-focus`): oculta tablero/chat/franja fija; muestra `#roomScreenShareWrap` + vista previa local (`ensureLocalScreenShareStageWrap` → `.remote-peer--local-screen-share`). CSS en [`public/css/presenterFocus.css`](public/css/presenterFocus.css) — el stage requiere `display: flex` (no solo `flex: 1`).
     - **Dock de anotación (presentador)**: [`public/js/PencilFabToolbar.js`](public/js/PencilFabToolbar.js) monta `.screen-overlay-annotate-dock` en `#screenOverlayUiLayer` (FAB + toolbar horizontal/vertical). Primer clic abre/cierra toolbar aunque el dock esté pegado a un borde (`edge`); doble clic rápido desancla del borde.
     - **Panel flotante participantes**: [`public/js/uiPresenterFloat.js`](public/js/uiPresenterFloat.js) + [`public/css/uiPresenterFloat.css`](public/css/uiPresenterFloat.css) — mueve `#videos` al panel, malla 2×2, minimizar (píldora «Participantes» sin clase `hidden` en modo minimizado), arrastre/redimensionado; estado en `localStorage` `moj_presenter_float_peers_v1_<roomId>`.
-    - **Barra de medios flotante**: [`public/js/uiFloatingDock.js`](public/js/uiFloatingDock.js) — `#roomMediaControls` a `document.body`, asa `.presenter-dock-drag-handle`; `moj_presenter_float_dock_v1_<roomId>`.
+    - **Barra de medios flotante**: [`public/js/uiFloatingDock.js`](public/js/uiFloatingDock.js) — `#roomMediaControls` a `document.body`, asa `.presenter-dock-drag-handle`; `moj_presenter_float_dock_v1_<roomId>`. Con **layout modular** (`room-shell--share-layout-modular`) la barra inferior `.room-bottom-toolbar` ya cubre mic/vídeo: `FloatPanelModule.suppressDesktopPresenterUi` desactiva el dock en **web y Electron**; `roomScreenShareLayout.enterPresenterFocusUi` no llama `UiFloatingDock.activate()` si `ClientEnv.isModularShareLayoutEligible()`. El panel participantes `#webFloatPeersRoot` sigue activo.
     - **Clamp viewport**: [`public/js/uiFloatClamp.js`](public/js/uiFloatClamp.js) — límites para dock y panel participantes.
     - **Invitado** (`room-shell--remote-screen-dominant`): `attachRemoteScreenToStage` mueve el `.remote-peer` del sharer al stage (primero vacía peers del stage hacia `#remotesContainer`, luego `appendChild` del peer objetivo — **no** usar `stage.textContent = ""` ni devolver el peer al contenedor tras montarlo). Marca el peer con `data-moj-screen-stage="1"` para excluirlo del panel flotante. Desocultar `#roomRemoteScreenStage` (`hidden` / `aria-hidden`). FAB lápiz flotante en capa UI (no dock). **Sin tile espejo** del stage en el panel (`#webFloatStageMirror` eliminado; el share solo se ve en el stage principal).
   - **Layout modular — solo pantalla compartida (web + Electron, todos los roles)**:
     - **Alcance**: panel flotante `#webFloatPeersRoot` y CSS modular para **presentador, docente, estudiante e invitado** (web y Electron) cuando hay share (`presenter-focus` o `remote-screen-dominant`). Fuera de share la sala no cambia.
-    - **Vídeo en invitados**: depende de `meet:screenShare` → `remoteScreenShareUserId` → `attachRemoteScreenToStage` (con reintentos si el track WebRTC llega tarde) → clases `remote-screen-dominant` + `share-layout-modular`. El presentador ya ve su captura local en stage; los invitados deben ver el peer remoto con `inspectLayout().stream.videoWidth > 0`.
+    - **Vídeo en invitados**: depende de `meet:screenShare` → `AppState.share.ownerId` / `getShareOwnerId()` → `attachRemoteScreenToStage` (con reintentos si el track WebRTC llega tarde) → clases `remote-screen-dominant` + `share-layout-modular`. El presentador ya ve su captura local en stage; los invitados deben ver el peer remoto con `inspectLayout().stream.videoWidth > 0`.
     - **Clase activa**: `room-shell--share-layout-modular` (`FloatPanelModule`). CSS en [`public/css/modules/`](public/css/modules/) scoped por esa clase (no depende de `html.moj-web-client`; Electron también aplica reglas).
     - **Entorno**: [`public/js/clientEnv.js`](public/js/clientEnv.js) — `isElectron()` / `isWeb()` desde `__MOJ_ELECTRON` o `mojElectron` (defensivo). Sin `localStorage` ni rol. `isShareLayoutActive(shell)` detecta share.
     - **Fachada**: [`public/js/WebLayoutOverrides.js`](public/js/WebLayoutOverrides.js) delega siempre a [`LayoutModule`](public/js/modules/LayoutModule.js) (web y Electron). Activación: `updateRemoteScreenShareLayout()` → `WebLayoutOverrides.syncShareLayout()`.
     - **Módulos** (`public/js/modules/`):
       | Módulo | Responsabilidad | API principal |
       |--------|-----------------|---------------|
-      | `LayoutModule` | Orquestación share | `init`, `syncShareLayout`, `onLeaveRoom`; `shareUiEntered` evita re-ejecutar `onShareLayoutEnter` en cada sync; `ensureMediaDockForShareLayout` activa `UiFloatingDock` en **web y Electron** durante share |
-      | `FloatPanelModule` | Panel flotante participantes (`#webFloatPeersRoot`) | `activate` / `deactivate`; reparent de `#videos`; filtra tiles de pantalla compartida; auto-ajuste de tamaño; estado en `localStorage` `moj_web_float_peers_v1_<roomId>` |
-      | `ChatRoomUiModule` | Chat + barra | `bindBottomBar`, `onShareLayoutEnter` (una vez por sesión de share vía `LayoutModule`); toggle cerrar chat en **web y Electron** |
+      | `LayoutModule` | Orquestación share (AppState) | `init`, `syncShareLayout`, `updateFromStore`, `onLeaveRoom`; `shareUiEntered` evita re-ejecutar `onShareLayoutEnter`; `ensureMediaDockForShareLayout` activa `UiFloatingDock` en **web y Electron** |
+      | `ParticipantsModule` | Panel participantes (store) | `init`, `update`, `destroy`; activa `FloatPanelModule` según `AppState` |
+      | `FloatPanelModule` | DOM panel flotante (`#webFloatPeersRoot`) | `activate` / `deactivate`; reparent `#videos`; filtra tiles de share; auto-tamaño; `localStorage` `moj_web_float_peers_v1_<roomId>_<presenter|guest>` |
+      | `RoomChatModule` / `ChatPanelModule` | Chat panel + barra | `toggleFromBar`, subscribe `isChatOpen` |
+      | `ChatRoomUiModule` | Chat legacy + share | `onShareLayoutEnter`, toggle cerrar en web/Electron |
+      | `ScreenShareModule` | Sync share en store | `notifyLocalShareStarted/Stopped`, `applyRemoteFromServer` |
       | `NotificationsModule` | Badge no-leídos | `init`, `getTotalUnread` |
       | `ToolbarModule` | Solo política CSS de capas | `initWebLayerPolicy` |
     - **Panel flotante modular** ([`FloatPanelModule.js`](public/js/modules/FloatPanelModule.js) + [`floatPanel.css`](public/css/modules/floatPanel.css)):
       - Mueve `#videos` al panel; grid 2 columnas con `display: contents` en `#remotesContainer`.
       - **Sin duplicar share**: oculta peers con `data-moj-screen-stage="1"` o track cuyo `label` contiene screen/pantalla/display/window; elimina `#webFloatStageMirror` si existiera.
-      - Tamaño auto (`shrinkPanelToFitContent`) hasta que el usuario redimensione (`userSizedPanel` + clase `web-float-peers-root--user-sized`).
+      - Tamaño auto (`shrinkPanelToFitContent`) hasta redimensionar manual (`userSizedPanel` + `web-float-peers-root--user-sized`).
       - Tras reparent, `resumeVideosPlayback()` evita vídeos negros.
       - Minimizar → píldora «Participantes»; al **activar share** se fuerza `minimized: false` (no restaurar minimizado de `localStorage` al entrar).
-      - En localhost dev: guard opcional `moj_dev_disable_float_blur_auto=1`; blur sin foco no bloquea `activate` si la ventana es presentador o está compartiendo.
-    - **Chat en share y galería**: al entrar en galería (`forceGalleryChatPanelClosed` en `index.html`) el chat inicia cerrado (`room-shell--chat-hidden`). Al activar share, `collapseChatForShareLayout` en `roomScreenShareLayout.js` (flag `shareChatCollapsedOnce`) cierra el chat una sola vez. En modo presentador, `presenterFocus.css` oculta el chat solo con `room-shell--chat-hidden` (no siempre).
-    - **Barra de medios flotante en share**: `LayoutModule.ensureMediaDockForShareLayout()` activa `UiFloatingDock` para todos los clientes durante share (antes solo Electron en algunos flujos).
-    - **Dev localhost**: `tryDevAutoLogin()` en `index.html` rellena credenciales de `localStorage` (`moj_dev_login_email` / `moj_dev_login_password`) o valores por defecto y pulsa login si no hay token.
-    - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationInk.js`](public/js/annotationInk.js). **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
-    - **Caché de assets**: al desplegar, misma query `?v=20250604c` en `clientEnv`, módulos layout, `roomScreenShareLayout`, `screenOverlay`, `webOverrides.css` e `index.html` (recarga forzada en todas las ventanas de prueba).
-    - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`, `enablePresenterMediaDock: isElectronClient()` (dock nativo; sin panel superior `UiPresenterFloat` en share).
+      - En localhost dev: `moj_dev_disable_float_blur_auto=1`; blur sin foco no bloquea `activate` si la ventana es presentador o comparte.
+    - **Chat en share y galería**: galería con chat cerrado (`forceGalleryChatPanelClosed`); share con `collapseChatForShareLayout` una sola vez (`shareChatCollapsedOnce`). En presentador, `presenterFocus.css` oculta chat solo con `room-shell--chat-hidden`.
+    - **Regresión v4 anotaciones (layout)**: la modularización overlay v4 eliminó por error `FloatPanelModule.activate()` durante share. Síntomas: invitados volvían a la franja legacy (~17vh), presentador sin panel de participantes (`presenterFocus.css` oculta `.room-video-strip` sin reemplazo). **Fix**: `ParticipantsModule` + `LayoutModule` aplican `room-shell--share-layout-modular` y activan el panel vía store. No confundir con [`UiPresenterFloat`](public/js/uiPresenterFloat.js) (legacy, `enablePresenterFloatUi: false`).
+    - **Cadena de activación share** (orden): `ChatRoomUiModule.onShareLayoutEnter` (una vez) → `applyShareModularClass(true)` → `ensureMediaDockForShareLayout` → `rAF` → `resyncScreenOverlay` → `ParticipantsModule` → `FloatPanelModule.activate` → `onShareLayoutChange` (reclamp + `avoidStageOverlap` con zona FAB).
+    - **Posición del panel**: `localStorage` por rol; `avoidStageOverlap()` desplaza a la derecha del FAB (no colisiona con el stage).
+    - **Dev localhost**: `tryDevAutoLogin()` en `index.html` (`moj_dev_login_email` / `moj_dev_login_password` o valores por defecto).
+    - **Anotaciones (cadena real, web + Electron)**: [`screenOverlay.js`](public/js/screenOverlay.js) (FAB, canvas, `pointerHandlers`) → [`uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) → [`annotationCore.js`](public/js/annotationCore.js) / shims. **ToolbarModule no enlaza ink** (solo capas en `toolbarWeb.css`). El canvas necesita `pointer-events: auto` con `.screen-overlay-stack--annotate-active` (ver `screenOverlay.css`). Peer visible: `resolveSharePeerWrap()` evita `remote-peer--presenter-ink-source`.
+    - **Caché de assets**: al desplegar, misma query `?v=20250617b` en `screenOverlay`, `screenOverlay.css` e `index.html` (recarga forzada en todas las ventanas de prueba). Resto de módulos overlay en `?v=20250617a`.
+    - **Share / Electron**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) — `enablePresenterFloatUi: false`; dock flotante modular vía `LayoutModule` + `UiFloatingDock` (web y Electron durante share).
     - **Probe DevTools** (comparar presentador vs invitado con share activo):
       ```js
       ({
@@ -279,25 +608,30 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
         presenterFocus: document.getElementById("roomShell")?.classList.contains("room-shell--presenter-focus"),
         shareModular: document.getElementById("roomShell")?.classList.contains("room-shell--share-layout-modular"),
         floatPanel: !!document.getElementById("webFloatPeersRoot") && !document.getElementById("webFloatPeersRoot")?.classList.contains("hidden"),
+        videosParent: document.getElementById("videos")?.parentElement?.id,
+        fabVisible: ScreenOverlay?.inspectLayout?.()?.fabVisible,
         overlay: ScreenOverlay?.inspectLayout?.(),
         inkCapture: document.querySelector(".screen-overlay-stack--annotate-active .screen-overlay-canvas") &&
           getComputedStyle(document.querySelector(".screen-overlay-stack--annotate-active .screen-overlay-canvas")).pointerEvents,
       })
       ```
-      Invitado esperado: `remoteDominant` + `shareModular` + `overlay.stream.videoWidth > 0` + `inkCapture === "auto"` (con toolbar abierta y herramienta lápiz).
+      Invitado esperado: `remoteDominant` + `shareModular: true` + `floatPanel: true` + `videosParent: "webFloatPeersRoot"` + `overlay.stream.videoWidth > 0` + `fabVisible: true` + `inkCapture === "auto"` (con toolbar abierta y herramienta lápiz).
+      Presentador esperado: `presenterFocus` + `shareModular: true` + `floatPanel: true` + grid 2×2 en panel participantes.
     - **Smoke**: `node scripts/test-web-layout-modules.cjs`
     - **QA — sin share**: galería habitual; chat cerrado al entrar en galería; sin panel flotante ni `share-layout-modular`.
     - **QA — con share (prof/invitado, web/Electron)**: misma UI; vídeo del sharer solo en stage (no tile «Presentador» en panel); panel flotante expandido al entrar (no solo píldora); vídeo local de invitado visible en panel; `inspectLayout`: `video.videoWidth > 0`; lápiz dibuja; dock flotante en web e invitados; `__MOJ_ELECTRON` en cada ventana Electron.
     - **Overlay peer**: `syncWithStage` enlaza canvas al peer visible (`.remote-peer--local-screen-share` o `:not(.remote-peer--presenter-ink-source)`), no al peer oculto de tinta (`.remote-peer--presenter-ink-source`, 1×1 px para geometría).
     - **Auth / entrar a sala**: `bindAuthUi()` debe ejecutarse **después** de declarar `let authUiBound` en `index.html` (evita TDZ). `ScreenOverlay.init` en `try/catch` tras el bind.
-  - **Módulos overlay (v3)**:
-    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — canvas, socket, FAB y toolbar (`ensureFab` / `ensureToolbar` + `UiAnnotationToolbar`); historial local undo/redo.
-    - [`public/js/PencilFabToolbar.js`](public/js/PencilFabToolbar.js) — alternativa de FAB/dock (cargado en `index.html`; **no** usado por `screenOverlay.js` en el flujo actual).
+  - **Módulos overlay (v4 — arquitectura modular)**:
+    - [`public/js/annotationCore.js`](public/js/annotationCore.js) — trazos, texto, emojis, selección, bounds y transformaciones. **Layout de texto unificado**: `measureTextLayoutNorm` devuelve `textOrigin` (donde dibuja `drawText`), `textSize` (glifos) y `chromeBounds` (marco con padding simétrico `TEXT_CHROME_PAD_PX`); `measureTextContentNorm` expone solo `chromeBounds` (selección/hit-test). Altura de línea única: `TEXT_LINE_HEIGHT_FACTOR` (1.25), igual que `drawText` y el editor DOM. Línea vacía: `measureEmptyTextLineNorm` (marco inicial acorde al `fontSize`, no fallback 0.25×0.1). `drawInkElementos` acepta `skipTextIndices` para omitir texto en edición.
+    - [`public/js/annotationUI.js`](public/js/annotationUI.js) — handlers cuadrados (`HANDLE_VISUAL_PX` 4 / `HANDLE_HIT_PX` 14), `drawSelectionOverlay`, `drawTextEditorChrome` (marco punteado + handles en canvas). **Editor de texto inline**: `<textarea class="screen-overlay-text-input">` transparente en `.screen-overlay-stack`; el chrome visual lo pinta el canvas (no borde DOM). Textarea en `textOrigin` + `textSize`; dataset `normChrome*` para el marco y `normTextX/Y` para commit. `line-height` en px vía JS (`fs * TEXT_LINE_HEIGHT_FACTOR`). **Edición existente**: doble toque (`isTextDoublePointerTap`) o respaldo `onCanvasDblClick`; al abrir editor se limpia selección y se omite el texto en canvas (`editingTextElementIndex` en `screenOverlay.js`, patrón del tablero).
+    - [`public/js/annotationSync.js`](public/js/annotationSync.js) — clonado de estado, historial undo/redo local y emisión socket (`fromSelf` sin resetear historial).
+    - [`public/js/screenOverlay.js`](public/js/screenOverlay.js) — orquestador: canvas, FAB, toolbar, pointer routing; delega en core/UI/sync. **Texto**: `openInlineTextInput` pasa `existingW/H` al editar; `drawOverlay` pinta `drawTextEditorChrome` con `normChrome*` mientras hay editor activo (sin `drawSelectionOverlay` paralelo). **Hit-test resize**: `OverlaySel.getElementBounds(el, contentRect, ctx)` — orden `(el, cr, ctx)`; intercambiar `ctx`/`cr` desalinea handles medidos vs almacenados y el segundo resize cae en arrastre.
+    - Shims legacy (re-export): [`annotationInk.js`](public/js/annotationInk.js), [`overlayTransform.js`](public/js/overlayTransform.js), [`overlaySeleccion.js`](public/js/overlaySeleccion.js).
     - [`public/js/uiAnnotationToolbar.js`](public/js/uiAnnotationToolbar.js) — barra reutilizable (IDs propios).
-    - [`public/js/annotationInk.js`](public/js/annotationInk.js) — geometría 0–1 y dibujo.
-    - [`public/js/overlaySeleccion.js`](public/js/overlaySeleccion.js) — selección/marquee en coords norm.
-    - [`public/js/overlayTransform.js`](public/js/overlayTransform.js) — bounds, handles, resize en norm.
     - [`public/js/boardToolCatalog.js`](public/js/boardToolCatalog.js) — catálogo de emojis compartido con el tablero.
+    - **Probes bbox**: con share activo, `AnnotationCore.getElementNormBounds(el, ScreenOverlay.getStageMetrics(), canvas.getContext('2d'))` (o content rect del stack) para verificar caja ceñida vs `el.w`/`el.h` almacenados.
+    - **Smoke unitario**: `npm run test:annotation-overlay-core` — bounds, hit-test, drag, handles, `skipTextIndices`, layout vacío por `fontSize`, chrome simétrico (`measureTextLayoutNorm`).
     - `historialAcciones.js` es solo para **citas**; no usarlo para tinta de pantalla compartida.
   - **Regresiones overlay / layout (troubleshooting)**:
     - **Undo/Redo “no funcionan”**: el servidor reemite `screenshare-annotate:update` al emisor; si `applyRemoteState` hace `resetHistory: true` en el eco propio, se borra la pila local. Solución: pasar `from` del socket y en eco propio (`from === socket.id`) aplicar estado **sin** resetear historial.
@@ -305,7 +639,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Pantalla partida (franja `#252525` arriba)**: peer/stack con `flex: 1 1 0; min-height: 0; height: 100%`; vídeo en stack solo `position: absolute; inset: 0` (sin `flex !important` en `.screen-overlay-stack > video`). En consola: comparar alturas `stage` / `peer` / `stack` / `video` con `getBoundingClientRect()` — deben coincidir ±1px.
     - **Toolbar lejos o cortada**: `computeToolbarPlacement()` prioriza **arriba** del FAB en zona inferior; clases `--v` / `--h`; Undo/Redo dentro de `.screen-overlay-vtoolbar`.
     - **FAB/toolbar tras fin de share**: `moveStageRemotePeersToContainer` solo mueve `.remote-peer`.
-    - **Selección (cursor)**: puntero + toolbar abierto; hit-test con `POINTER_HIT_NORM` y AABB de trazos (`overlaySeleccion.js`); marco/handlers en coords canvas vía `drawSelectionOverlay(ctx, scaledCr, cssCr, …)`. Si no selecciona, comprobar que la barra superior no tapa el canvas (`pointer-events` del host).
+    - **Selección (cursor)**: puntero + toolbar abierto; cursor **siempre** flecha amarilla (`--screen-overlay-pointer-cursor` en `screenOverlay.css` sobre stack y canvas; `crosshair` solo lápiz/borrador). No usar `screen-overlay-stack--selection-hit` para cambiar cursor (regla `move` eliminada). Hit-test con `POINTER_HIT_NORM`; marco/handlers vía `drawSelectionOverlay(ctx, scaledCr, cssCr, …)`.
     - **Pantalla compartida completamente negra (PDF invisible)**:
       - El canvas de anotaciones es transparente (`clearRect`); no debería tapar el vídeo. Causas habituales: **stream** (`videoWidth === 0`, sin `srcObject`), **layout** (`stack.clientHeight === 0`), **DOM** (`video` fuera de `.screen-overlay-stack`).
       - Si `inspectLayout()` muestra **`videoWidth > 0` pero `stage`/`stack`/`video` con `clientHeight === 0`**: el stream llega bien; el fallo es **layout del stage** (no el canvas). Revisar `stageDisplay`: si es `none` con `stageHidden: false`, el selector `#roomRemoteScreenStage { display: none }` en el `<style>` de `index.html` ganaba por especificidad a la regla solo por clase — la corrección usa `#roomRemoteScreenStage:not([hidden])` con `display: flex`. También `shellClasses` (`room-shell--remote-screen-dominant`) y `stripInline` vacío.
@@ -328,7 +662,8 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - Clic FAB muestra barra junto al FAB; en esquina inferior izquierda la barra se despliega **hacia arriba**, pegada; en las cuatro esquinas tras arrastre, orientación `--v` / `--h` según cuadrante.
     - **Botones toolbar** (puntero, lápiz, paleta, emoji 😀, undo ↶) responden; puntero activo al abrir panel; en **invitado** la barra no tapa el FAB y lápiz/texto dibujan en todo el frame.
     - Arrastre FAB no abre/cierra panel; clic sí.
-    - Puntero: seleccionar, mover y redimensionar texto/trazos/emojis (marco punteado + handles).
+    - Puntero: seleccionar, mover y redimensionar texto/trazos/emojis (marco punteado + handles cuadrados); redimensionar varias veces seguidas; doble clic en texto para editar (marco y glifos alineados, sin doble capa canvas+DOM).
+    - Herramienta **T**: marco inicial del tamaño de la fuente seleccionada (no caja gigante 25%×10%); al escribir crece con el contenido.
     - Undo/Redo tras commitear trazo; invitado recibe sync sin romper historial local del presentador.
     - Lápiz dibuja en todo el frame del vídeo (sin franja gris del 50% en el stage).
     - Emoji insertado visible y sincronizado entre participantes.
@@ -339,12 +674,28 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - Tras resize del stage, FAB y toolbar permanecen dentro del contenedor.
     - Barra inferior de medios legible sobre share con fondo blanco (contraste AA en DevTools).
     - `npm run test:screenshare-annotate` sigue pasando (sync socket sin regresión).
-- **Flujo de autorización para compartir pantalla (nuevo)**:
-  - Invitado: al pulsar **Compartir**, no arranca captura directa; envía **solicitud** al presentador.
-  - Presentador (docente/admin): recibe una solicitud **obvia en modal centrado** con acciones `Aceptar` / `Rechazar`.
-  - Servidor: eventos Socket `meet:screenShare:request`, `meet:screenShare:response`, `meet:screenShare:grant`; solo presentador/admin puede conceder permiso.
-  - El permiso para invitado es **temporal** y enfocado a compartir **pantalla** (no tablero).
-  - Si la solicitud llega con la pestaña del presentador en segundo plano, se encola y se muestra al recuperar foco.
+- **Flujo de autorización para compartir pantalla**:
+  - Invitado: al pulsar **Compartir**, no arranca captura directa; envía **solicitud** al presentador (`meet:screenShare:request`).
+  - Presentador (docente/admin): modal `#shareRequestModal` con `Aceptar` / `Rechazar`; si ya hay sharer activo, **Aceptar y reemplazar** (`replaceActive: true` en `meet:screenShare:response`).
+  - Servidor: un solo sharer por sala (`SHARE_ALREADY_ACTIVE` para invitados si otro ya comparte). **El presentador (docente/admin) siempre puede tomar control**: al iniciar pantalla (`meet:screenShare active:true`) o tablero (`board:presentation active:true`), el servidor ejecuta `forceStopRoomScreenShare` sobre el sharer ajeno, emite **stop antes de start** (`meet:screenShare active:false` vía `io.in`) y devuelve `replacedUserId` / `screenShareStopped` en el ack.
+  - Cliente invitado desplazado: `applyMeetScreenShareFromServer` llama `stopScreenShare({ force, skipServerAnnounce, supersededByPresenter })` para detener `getDisplayMedia` (crítico en Edge; no basta con teardown DOM).
+  - Grant temporal en `meetScreenShareGrant`; solicitudes pendientes en `meetScreenSharePendingRequests`.
+  - El permiso (grant) **no** equivale a share activo: el invitado debe emitir `meet:screenShare { active: true }` tras el grant.
+  - Si la solicitud llega con la pestaña del presentador en segundo plano, se encola en AppState (`share.pendingRequests`) y se muestra al recuperar foco.
+  - **AppState** (`share`): `active`, `ownerId`, `pendingRequests[]`, `myRequestStatus` (`none`|`pending`|`granted`|`rejected`), `grantedToMe`. Puente: `ScreenShareModule` (socket ↔ dispatch).
+  - **Mapeo eventos** (no usar namespace `screenShare:*` en código nuevo):
+
+    | Concepto | Evento real |
+    |----------|-------------|
+    | Solicitud | `meet:screenShare:request` |
+    | Aceptar / Rechazar | `meet:screenShare:response` (`approved`, opcional `replaceActive`) |
+    | Notificación al invitado | `meet:screenShare:grant` |
+    | Inicio / fin share | `meet:screenShare` (`active`, `userId`) |
+    | `screenShare:stop` (concepto) | `meet:screenShare { active: false, userId }` |
+    | `screenShare:start` (concepto) | `meet:screenShare { active: true, userId }` |
+
+  - Probe DevTools: `({ share: AppState.getState().share, local: isLocallySharingScreen?.(), ownerId: getShareOwnerId?.() })`
+  - Prueba automatizada socket: `npm run test:screen-share-auth` (casos takeover presentador: pantalla y tablero en `scripts/test-screen-share-auth-socket.cjs`).
 - **Dejar de compartir (quién puede detener)**:
   - UI en `public/index.html` (`canStopLocalScreenShare` / `canStopLocalBoardPresentation`): el label y el menú **Dejar** solo si hay captura **local** propia; docente/admin también para tablero.
   - Invitado autorizado puede detener **solo su** pantalla; no la del docente ni la de otro participante.
@@ -513,15 +864,16 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     1. Dos participantes en galería → no aparece botón de reintento manual.
     2. Simular fallo de enlace (DevTools offline breve o ICE failed) → mensaje de reconexión automática y nueva oferta.
     3. Ningún usuario puede forzar renegociación manual desde la interfaz.
-- **Mini-player flotante (auto-PiP) (`uiMiniPlayer.js`)**:
+- **Mini-player flotante (auto-PiP) (`uiMiniPlayer.js`)** — **desactivado** en `index.html` (`initMiniPlayer` comentado; el script sigue cargado). Ventana «My Own Zoom» con Mic/Vídeo/Restaurar era DOM/PiP del renderer, no una `BrowserWindow` de Electron.
   - **`public/js/uiMiniPlayer.js`**: al ocultar la pestaña (`visibilitychange` + `document.hidden`) durante una reunión activa, intenta **auto-PiP** (best-effort) con `requestPictureInPicture()` sobre el vídeo remoto (prioridad: pantalla compartida > cámara). Puede fallar por políticas del navegador (p. ej. Chrome exige gesto previo del usuario).
   - **Sin vídeo remoto**: muestra `#miniPlayer` flotante y draggable con placeholder «Sin vídeo remoto» y controles **Mic**, **Vídeo**, **Restaurar**. El div dentro de una pestaña oculta no se pinta hasta volver a la pestaña.
   - **Fallback auto-PiP**: si falla o no hay soporte PiP → div flotante (limitado en pestaña oculta).
   - **Controles**: mic/cám local (`setMicEnabled` / `setCamEnabled`), **Restaurar** (vuelve a la pestaña).
   - **Estilos**: [`public/css/uiMiniPlayer.css`](public/css/uiMiniPlayer.css) (cargado por el módulo vía `<link>`).
+  - **Supresión en sala visible**: `shouldSuppressMiniPlayer()` oculta PiP y `#miniPlayer` cuando hay sala activa con pestaña visible, cuando `ui.currentLayout === 'share'`, cuando `AppState.isShareActive()`, o durante share (`ClientEnv.isShareLayoutActive` / `RoomScreenShareLayout.isPresenterFocusActive`). `MiniPlayerControls.suppressForActiveSession()` cierra PiP explícitamente al entrar/salir de share (`roomScreenShareLayout`, `LayoutModule`, `stopScreenShare`). Listener `window.focus` refuerza el ocultado en Electron.
   - **Ciclo de vida**: al volver a la pestaña, `hideMiniPlayer()` cierra PiP y oculta el div. Si se cierra PiP con la pestaña aún oculta, reaparece `#miniPlayer` como fallback.
   - **Nota**: la pestaña incógnito del otro participante no impide PiP local; solo afecta si hay pista de vídeo remota WebRTC.
-  - **Integración**: `MiniPlayerControls.initMiniPlayer(...)` en `init()`; `hideMiniPlayer()` en `leaveRoom()`.
+  - **Integración**: `MiniPlayerControls.initMiniPlayer(...)` en `init()` está comentado; `hideMiniPlayer()` en `leaveRoom()`/`showRoom()` se mantiene como limpieza defensiva.
   - **QA manual**:
     1. Mini-player visible → Mic, Vídeo, Restaurar; **no** `#pipBtn` ni Preview.
     2. DevTools → no existe `#pipBtn` ni `[data-action="pip"]`.

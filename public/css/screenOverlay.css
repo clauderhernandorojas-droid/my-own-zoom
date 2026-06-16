@@ -1,5 +1,12 @@
 /* Overlay de anotaciones sobre pantalla compartida */
 
+/* Flecha amarilla — puntero de selección (misma silueta que la barra de herramientas) */
+:root {
+  --screen-overlay-pointer-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4 3l7.8 15 2.1-5.5 5.6-2.2z' fill='%23facc15' stroke='%23854d0e' stroke-width='1.2'/%3E%3C/svg%3E")
+      4 3,
+    default;
+}
+
 .screen-overlay-stack {
   position: relative;
   width: 100%;
@@ -31,11 +38,7 @@
 }
 
 .screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-pointer {
-  cursor: default;
-}
-
-.screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-pointer.screen-overlay-wrap-ink--selection-hit {
-  cursor: move;
+  cursor: var(--screen-overlay-pointer-cursor);
 }
 
 .screen-overlay-wrap-ink--capture.screen-overlay-wrap-ink--tool-text {
@@ -80,16 +83,21 @@
 }
 
 .screen-overlay-stack--annotate-active .screen-overlay-canvas {
-  cursor: crosshair;
   pointer-events: auto !important;
+}
+
+.screen-overlay-stack--annotate-active.screen-overlay-stack--tool-pencil .screen-overlay-canvas,
+.screen-overlay-stack--annotate-active.screen-overlay-stack--tool-eraser .screen-overlay-canvas {
+  cursor: crosshair;
+}
+
+.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open {
+  cursor: var(--screen-overlay-pointer-cursor);
 }
 
 .screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open .screen-overlay-canvas {
   pointer-events: auto !important;
-}
-
-.screen-overlay-stack--tool-pointer.screen-overlay-stack--toolbar-open.screen-overlay-stack--selection-hit .screen-overlay-canvas {
-  cursor: move;
+  cursor: var(--screen-overlay-pointer-cursor);
 }
 
 .screen-overlay-stack--tool-text.screen-overlay-stack--annotate-active .screen-overlay-canvas {
@@ -168,6 +176,21 @@
 .screen-overlay-ui-layer > .screen-overlay-toolbar-host,
 .screen-overlay-ui-layer > .screen-overlay-annotate-dock {
   pointer-events: auto;
+}
+
+.room-shell.room-shell--presenter-focus .room-screen-share-wrap:not([hidden]) .screen-overlay-ui-layer,
+.room-shell.room-shell--remote-screen-dominant .room-screen-share-wrap:not([hidden]) .screen-overlay-ui-layer {
+  min-height: 100%;
+  width: 100%;
+}
+
+.room-shell--share-layout-modular.room-shell--presenter-focus
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host,
+.room-shell--share-layout-modular.room-shell--remote-screen-dominant:not(.room-shell--presenter-focus)
+  .screen-overlay-ui-layer
+  > .screen-overlay-fab-host {
+  z-index: 1900;
 }
 
 /* Dock de anotación (modo presentador) */
@@ -482,6 +505,12 @@
   pointer-events: none;
 }
 
+.screen-overlay-vtoolbar .board-tool-icon--cursor {
+  fill: #facc15;
+  stroke: #854d0e;
+  stroke-width: 1.2;
+}
+
 .screen-overlay-vtoolbar .board-tool-emoji {
   font-size: 0.88rem;
   line-height: 1;
@@ -630,20 +659,25 @@
   position: absolute !important;
 }
 
+.screen-overlay-stack > .screen-overlay-text-input {
+  z-index: 12;
+  pointer-events: auto;
+}
+
 .screen-overlay-text-input {
   position: absolute;
   z-index: 3;
-  min-width: 120px;
-  min-height: 28px;
-  padding: 4px 6px;
-  border: 2px solid #0b57d0;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.95);
-  resize: both;
-  overflow: auto;
+  min-width: 48px;
+  padding: 0;
+  border: none;
+  outline: none;
+  border-radius: 0;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
   font-family: "Segoe UI", system-ui, sans-serif;
-  line-height: 1.25;
   box-sizing: border-box;
+  margin: 0;
 }
 
 .room-remote-screen-stage {

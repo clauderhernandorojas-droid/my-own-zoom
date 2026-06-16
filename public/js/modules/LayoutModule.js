@@ -1,5 +1,5 @@
 /**
- * LayoutModule — layout modular solo durante pantalla compartida (web + Electron).
+ * LayoutModule — layout modular durante share (observa AppState).
  */
 (function (global) {
   const SHARE_MODULAR_CLASS = "room-shell--share-layout-modular";
@@ -7,21 +7,18 @@
   /** @type {object | null} */
   let deps = null;
   let initialized = false;
+  let unsubLayout = null;
+  let unsubFlags = null;
   let shareUiEntered = false;
 
   function getShell() {
     return deps?.$?.("roomShell") ?? null;
   }
 
-  function isShareActive() {
+  function applyShareModularClass(on) {
     const shell = getShell();
-    if (global.ClientEnv?.isShareLayoutActive) {
-      return global.ClientEnv.isShareLayoutActive(shell);
-    }
-    return (
-      shell?.classList.contains("room-shell--presenter-focus") ||
-      shell?.classList.contains("room-shell--remote-screen-dominant")
-    );
+    if (!shell) return;
+    shell.classList.toggle(SHARE_MODULAR_CLASS, !!on);
   }
 
   function resyncScreenOverlay() {
@@ -31,19 +28,58 @@
     }
   }
 
+  function ensureMediaDockForShareLayout() {
+    global.UiFloatingDock?.activate?.();
+    global.UiFloatingDock?.reclamp?.();
+  }
+
+  function deactivateShareLayoutUi(options = {}) {
+    applyShareModularClass(false);
+    global.UiPresenterFloat?.deactivate?.();
+    if (options.skipParticipants) return;
+    global.ParticipantsModule?.destroy?.();
+    global.FloatPanelModule?.deactivate?.(options);
+    global.UiFloatingDock?.deactivate?.();
+  }
+
+  function updateFromStore(state) {
+    if (!state) return;
+    const modular =
+      state.flags?.enableModularLayout !== false &&
+      global.ClientEnv?.isModularShareLayoutEligible?.() !== false;
+    if (!modular) {
+      applyShareModularClass(false);
+      return;
+    }
+    const shareActive = state.ui.currentLayout === "share";
+    applyShareModularClass(shareActive);
+    if (shareActive) {
+      if (!shareUiEntered) {
+        global.ChatRoomUiModule?.onShareLayoutEnter?.();
+        shareUiEntered = true;
+      }
+      global.MiniPlayerControls?.suppressForActiveSession?.();
+      ensureMediaDockForShareLayout();
+      global.requestAnimationFrame(() => {
+        resyncScreenOverlay();
+        global.UiFloatingDock?.reclamp?.();
+      });
+    } else {
+      shareUiEntered = false;
+      global.MiniPlayerControls?.suppressForActiveSession?.();
+      global.FloatPanelModule?.deactivate?.({ force: true, destroyDom: true });
+      global.UiFloatingDock?.deactivate?.();
+    }
+    deps?.onShareLayoutChange?.();
+  }
+
   function init(options = {}) {
     deps = options;
+    if (initialized) return;
     if (!global.ClientEnv?.isModularShareLayoutEligible?.()) return;
 
-    global.FloatPanelModule?.init?.({
-      $: deps.$,
-      getActiveRoomId: deps.getActiveRoomId,
-      getStageElement: () => document.getElementById("roomRemoteScreenStage"),
-      clamp: global.UiFloatClamp,
-      shareModularClass: SHARE_MODULAR_CLASS,
-    });
     global.ChatRoomUiModule?.init?.({
-      setChatPanelHidden: deps.setChatPanelHidden,
+      dispatch: (action) => global.AppState?.dispatch?.(action),
       getChatPanelHidden: deps.getChatPanelHidden,
       isWeb: () => global.ClientEnv?.isWeb?.() ?? !global.__MOJ_ELECTRON,
     });
@@ -52,57 +88,66 @@
       getActiveRoomId: deps.getActiveRoomId,
     });
     global.ToolbarModule?.initWebLayerPolicy?.();
+
+    const store = global.AppState;
+    if (store) {
+      const handler = () => updateFromStore(store.getState());
+      unsubLayout = store.subscribe((s) => s.ui.currentLayout, handler);
+      unsubFlags = store.subscribe((s) => s.flags.enableModularLayout, handler);
+      handler();
+    }
+
+    global.ParticipantsModule?.init?.({
+      $: deps.$,
+      getActiveRoomId: deps.getActiveRoomId,
+      shareModularClass: SHARE_MODULAR_CLASS,
+    });
+
     initialized = true;
   }
 
   function isActive() {
-    return !!global.FloatPanelModule?.isActive?.();
+    const shell = getShell();
+    return (
+      !!global.FloatPanelModule?.isActive?.() ||
+      !!shell?.classList.contains(SHARE_MODULAR_CLASS)
+    );
   }
 
-  function onEnterRoom() {}
+  function onEnterRoom() {
+    if (!global.AppState) return;
+    updateFromStore(global.AppState.getState());
+    global.requestAnimationFrame(() => {
+      resyncScreenOverlay();
+      global.requestAnimationFrame(() => resyncScreenOverlay());
+    });
+  }
 
   function onLeaveRoom() {
-    global.FloatPanelModule?.deactivate?.();
-    global.UiFloatingDock?.deactivate?.();
-  }
-
-  function ensureMediaDockForShareLayout() {
-    if (!isShareActive()) {
-      global.UiFloatingDock?.deactivate?.();
-      return;
+    if (unsubLayout) {
+      unsubLayout();
+      unsubLayout = null;
     }
-    global.UiFloatingDock?.activate?.();
-    global.UiFloatingDock?.reclamp?.();
+    if (unsubFlags) {
+      unsubFlags();
+      unsubFlags = null;
+    }
+    shareUiEntered = false;
+    global.ParticipantsModule?.destroy?.();
+    deactivateShareLayoutUi({ destroyDom: true, force: true, skipParticipants: true });
+    global.AppState?.dispatch?.({ type: global.MojActionTypes?.ROOM_RESET });
+    initialized = false;
   }
 
   function syncShareLayout() {
+    if (!initialized && deps) init(deps);
     if (!initialized) {
-      if (deps) {
-        init(deps);
-      }
-      if (!initialized) {
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn("[LayoutModule] syncShareLayout: init no completado");
-        }
-        return;
-      }
+      console.warn("[LayoutModule] syncShareLayout: init no completado");
+      return;
     }
-    if (isShareActive()) {
-      if (!shareUiEntered) {
-        global.ChatRoomUiModule?.onShareLayoutEnter?.();
-        shareUiEntered = true;
-      }
-      global.FloatPanelModule?.activate?.();
-      ensureMediaDockForShareLayout();
-      global.FloatPanelModule?.onShareLayoutChange?.();
-      global.requestAnimationFrame(() => {
-        resyncScreenOverlay();
-        global.UiFloatingDock?.reclamp?.();
-      });
-    } else {
-      shareUiEntered = false;
-      global.FloatPanelModule?.deactivate?.();
-      global.UiFloatingDock?.deactivate?.();
+    if (global.AppState) {
+      updateFromStore(global.AppState.getState());
+      return;
     }
     deps?.onShareLayoutChange?.();
   }
@@ -118,5 +163,7 @@
     onLeaveRoom,
     syncShareLayout,
     onShareLayoutChange,
+    SHARE_MODULAR_CLASS,
+    updateFromStore,
   };
 })(typeof window !== "undefined" ? window : global);

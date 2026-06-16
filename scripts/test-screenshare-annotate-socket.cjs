@@ -58,10 +58,20 @@ const SAMPLE_INK = {
       text: 'Hola overlay',
       x: 0.2,
       y: 0.2,
-      w: 0.25,
-      h: 0.1,
+      w: 0.06,
+      h: 0.04,
       color: '#1e88e5',
       fontSize: 24,
+    },
+    {
+      type: 'text',
+      text: '😀',
+      x: 0.6,
+      y: 0.3,
+      w: 0.04,
+      h: 0.04,
+      color: '#111111',
+      fontSize: 42,
     },
   ],
 };
@@ -139,7 +149,7 @@ async function main() {
 
   sockEst.on('screenshare-annotate:update', (p) => {
     if (normRoomId(p?.roomId) !== canonical) return;
-    if (Array.isArray(p?.contenido?.elementos) && p.contenido.elementos.length >= 2) {
+    if (Array.isArray(p?.contenido?.elementos) && p.contenido.elementos.length >= 3) {
       estSawAnnotateUpdate = true;
     }
   });
@@ -206,6 +216,18 @@ async function main() {
     process.exit(1);
   }
   console.log('[annotate] Join tardío recibió estado (OK), elementos=', lateJoinState.contenido.elementos.length);
+
+  const tightText = lateJoinState.contenido.elementos.find((e) => e.text === 'Hola overlay');
+  const emojiEl = lateJoinState.contenido.elementos.find((e) => e.text === '😀');
+  if (!tightText || tightText.w > 0.15 || tightText.h > 0.08) {
+    console.error('[annotate] Texto con bbox ajustado no persistió w/h:', tightText);
+    process.exit(1);
+  }
+  if (!emojiEl || emojiEl.w > 0.08) {
+    console.error('[annotate] Emoji con bbox ajustado no persistió w/h:', emojiEl);
+    process.exit(1);
+  }
+  console.log('[annotate] Bbox texto/emoji round-trip (OK)');
 
   estSawClearState = false;
   sockDoc.emit('meet:screenShare', { roomId, active: false });
