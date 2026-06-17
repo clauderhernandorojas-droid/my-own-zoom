@@ -9,7 +9,6 @@
   let initialized = false;
   let unsubLayout = null;
   let unsubFlags = null;
-  let shareUiEntered = false;
 
   function getShell() {
     return deps?.$?.("roomShell") ?? null;
@@ -54,20 +53,22 @@
     const shareActive = state.ui.currentLayout === "share";
     applyShareModularClass(shareActive);
     if (shareActive) {
-      if (!shareUiEntered) {
-        global.ChatRoomUiModule?.onShareLayoutEnter?.();
-        shareUiEntered = true;
-      }
       global.MiniPlayerControls?.suppressForActiveSession?.();
       ensureMediaDockForShareLayout();
+      if (!global.isUpdatingRemoteLayout) {
+        global.scheduleRemoteScreenLayoutUpdate?.();
+      }
       global.requestAnimationFrame(() => {
         resyncScreenOverlay();
         global.UiFloatingDock?.reclamp?.();
+        global.FloatPanelModule?.syncSharerTileVisibility?.();
+        global.requestAnimationFrame(() => {
+          global.ParticipantsModule?.update?.();
+        });
       });
     } else {
-      shareUiEntered = false;
       global.MiniPlayerControls?.suppressForActiveSession?.();
-      global.FloatPanelModule?.deactivate?.({ force: true, destroyDom: true });
+      global.FloatPanelModule?.deactivate?.({ force: true, clearMinimizeState: true });
       global.UiFloatingDock?.deactivate?.();
     }
     deps?.onShareLayoutChange?.();
@@ -117,10 +118,7 @@
   function onEnterRoom() {
     if (!global.AppState) return;
     updateFromStore(global.AppState.getState());
-    global.requestAnimationFrame(() => {
-      resyncScreenOverlay();
-      global.requestAnimationFrame(() => resyncScreenOverlay());
-    });
+    global.requestAnimationFrame(resyncScreenOverlay);
   }
 
   function onLeaveRoom() {
@@ -132,9 +130,8 @@
       unsubFlags();
       unsubFlags = null;
     }
-    shareUiEntered = false;
     global.ParticipantsModule?.destroy?.();
-    deactivateShareLayoutUi({ destroyDom: true, force: true, skipParticipants: true });
+    deactivateShareLayoutUi({ force: true, skipParticipants: true, clearMinimizeState: true });
     global.AppState?.dispatch?.({ type: global.MojActionTypes?.ROOM_RESET });
     initialized = false;
   }

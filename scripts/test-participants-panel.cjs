@@ -93,7 +93,7 @@ const actBefore = ctx._calls.activate;
 const deactBefore = ctx._calls.deactivate;
 store.dispatch({ type: T.SHARE_REMOTE_SET, active: true, userId: "u1" });
 assert(ctx._calls.floatInit === 1, "FloatPanelModule.init on first share");
-assert(ctx._calls.activate > actBefore, "activate on remote share");
+assert(ctx._calls.activate > actBefore, "activate on remote share without chat toggle");
 assert(ctx._calls.deactivate === deactBefore, "no deactivate when share starts");
 assert(
   ctx.AppState.isShareActive(store.getState()) === true,
@@ -118,15 +118,25 @@ assert(
 const beforeDeact = ctx._calls.deactivate;
 store.dispatch({ type: T.SHARE_REMOTE_SET, active: false, userId: "" });
 assert(ctx._calls.deactivate > beforeDeact, "deactivate when share ends");
-assert(ctx._calls.lastDeactivateOpts?.destroyDom === true, "destroyDom on share end");
 assert(ctx._calls.lastDeactivateOpts?.force === true, "force deactivate on share end");
+assert(
+  ctx._calls.lastDeactivateOpts?.destroyDom !== true,
+  "singleton: no destroyDom on share end"
+);
 assert(
   ctx.AppState.isShareActive(store.getState()) === false,
   "isShareActive false after share ends"
 );
 
 ctx.ParticipantsModule.teardownPanel();
-assert(ctx._calls.lastDeactivateOpts?.destroyDom === true, "teardownPanel uses destroyDom");
+assert(
+  ctx._calls.lastDeactivateOpts?.clearMinimizeState === true,
+  "teardown clears minimize intent for next session"
+);
+assert(
+  ctx._calls.lastDeactivateOpts?.destroyDom !== true,
+  "singleton: teardownPanel must not destroyDom"
+);
 
 ctx.ParticipantsModule.destroy();
 store.dispatch({

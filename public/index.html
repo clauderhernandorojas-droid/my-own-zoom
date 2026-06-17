@@ -853,6 +853,22 @@
     .remote-peer--local-screen-share .peer-cap {
       color: #93c5fd;
     }
+    .remote-peer--local-screen-share .local-screen-share-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1 1 auto;
+      min-height: 120px;
+      padding: 1.5rem;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 0.9rem;
+      background: #0f172a;
+    }
+    .remote-peer--local-screen-share .local-screen-share-placeholder.hidden,
+    .remote-peer--local-screen-share video.hidden {
+      display: none !important;
+    }
     .room-tb-btn.room-tb-btn--no-share {
       cursor: not-allowed;
     }
@@ -2898,7 +2914,14 @@
               class="room-remote-screen-stage"
               hidden
               aria-hidden="true"
-            ></div>
+            >
+              <div
+                class="room-remote-screen-stage__viewport remote-peer remote-peer--stage-mirror"
+                data-label="Pantalla compartida"
+              >
+                <video id="roomRemoteScreenVideo" autoplay playsinline muted></video>
+              </div>
+            </div>
             <div
               id="screenOverlayUiLayer"
               class="screen-overlay-ui-layer"
@@ -3492,6 +3515,8 @@
     let lastMediaCaptureLevel = "av";
     /** Contenedor UI de vista previa local al compartir pantalla (sharer). */
     let localScreenShareStageWrap = null;
+    let electronContentProtectionOn = false;
+    let localSharePreviewMountLock = false;
     let screenShareStream = null;
     let screenShareTrack = null;
     let screenShareAudioTrack = null;
@@ -4118,12 +4143,81 @@
       }
     }
 
+    async function setElectronContentProtection(enable) {
+      if (!window.mojElectron?.setContentProtection) {
+        electronContentProtectionOn = false;
+        return false;
+      }
+      try {
+        await window.mojElectron.setContentProtection(!!enable);
+        electronContentProtectionOn = !!enable;
+        return true;
+      } catch (e) {
+        console.warn("[screen-share] setContentProtection", e);
+        electronContentProtectionOn = false;
+        return false;
+      }
+    }
+
+    function isFullDisplayScreenCapture() {
+      const label = String(screenShareTrack?.label || "").toLowerCase();
+      return (
+        label.includes("screen") ||
+        label.includes("pantalla") ||
+        label.includes("display") ||
+        label.includes("monitor") ||
+        label.includes("entire") ||
+        label.includes("whole")
+      );
+    }
+
+    function shouldShowLocalShareVideoPreview() {
+      if (!screenShareStream || screenShareTrack?.readyState !== "live") return false;
+      if (!isFullDisplayScreenCapture()) return true;
+      if (isElectronClient() && electronContentProtectionOn) return true;
+      return false;
+    }
+
+    function applyLocalSharePreviewDisplay(wrap) {
+      if (!wrap) return;
+      const vid = wrap.querySelector("video") || (wrap.id === "roomRemoteScreenVideo" ? wrap : null);
+      let placeholder = wrap.querySelector?.(".local-screen-share-placeholder");
+      const showVideo = shouldShowLocalShareVideoPreview();
+      if (showVideo) {
+        placeholder?.classList.add("hidden");
+        if (vid) {
+          vid.classList.remove("hidden");
+          if (vid.srcObject !== screenShareStream) {
+            vid.srcObject = screenShareStream;
+            vid.play().catch(() => {});
+          }
+        }
+      } else {
+        if (vid) {
+          vid.pause?.();
+          vid.srcObject = null;
+          vid.classList.add("hidden");
+        }
+        if (!placeholder && wrap.appendChild) {
+          placeholder = document.createElement("div");
+          placeholder.className = "local-screen-share-placeholder";
+          placeholder.textContent = "Compartiendo pantalla — vista previa simplificada";
+          wrap.appendChild(placeholder);
+        }
+        placeholder?.classList.remove("hidden");
+      }
+    }
+
     function teardownLocalScreenShareStageWrap() {
-      if (!localScreenShareStageWrap) return;
-      const vid = localScreenShareStageWrap.querySelector("video");
-      if (vid) vid.srcObject = null;
-      localScreenShareStageWrap.remove();
       localScreenShareStageWrap = null;
+      localSharePreviewMountLock = false;
+      const stageVid = $("roomRemoteScreenVideo");
+      if (stageVid) {
+        stageVid.pause?.();
+        stageVid.srcObject = null;
+      }
+      const stage = $("roomRemoteScreenStage");
+      stage?.querySelector(".local-screen-share-placeholder")?.remove();
     }
 
     function ensureLocalScreenShareStageWrap() {
@@ -4131,56 +4225,40 @@
         teardownLocalScreenShareStageWrap();
         return null;
       }
-      if (localScreenShareStageWrap) {
-        const vid = localScreenShareStageWrap.querySelector("video");
-        if (vid && vid.srcObject !== screenShareStream) {
-          vid.srcObject = screenShareStream;
-          vid.play().catch(() => {});
-        }
-        return localScreenShareStageWrap;
+      const viewport = $("roomRemoteScreenStage")?.querySelector(
+        ".room-remote-screen-stage__viewport"
+      );
+      if (viewport) {
+        applyLocalSharePreviewDisplay(viewport);
+        return viewport;
       }
-      const wrap = document.createElement("div");
-      wrap.className = "remote-peer remote-peer--screen-share remote-peer--local-screen-share";
-      wrap.setAttribute("data-label", "Tu pantalla compartida");
-      const cap = document.createElement("div");
-      cap.className = "peer-cap";
-      cap.textContent = "Tu pantalla compartida (vista previa)";
-      const vid = document.createElement("video");
-      vid.autoplay = true;
-      vid.playsInline = true;
-      vid.muted = true;
-      vid.srcObject = screenShareStream;
-      vid.play().catch(() => {});
-      wrap.appendChild(cap);
-      wrap.appendChild(vid);
-      localScreenShareStageWrap = wrap;
-      return wrap;
+      return null;
     }
 
     function mountLocalScreenSharePreviewToStage() {
       if (!isLocallySharingScreen()) return;
-      const shareWrap = ensureLocalScreenShareStageWrap();
-      const stage = $("roomRemoteScreenStage");
-      if (!shareWrap || !stage) return;
-      if (!shareWrap.isConnected) {
-        stage.insertBefore(shareWrap, stage.firstChild);
-      }
-      const vid = shareWrap.querySelector("video");
-      if (!vid) return;
-      if (vid.srcObject !== screenShareStream) {
-        vid.srcObject = screenShareStream;
-      }
-      vid.play().catch(() => {});
-      if (!vid.dataset.mojLocalShareMetaBound) {
-        vid.dataset.mojLocalShareMetaBound = "1";
-        vid.addEventListener("loadedmetadata", () => {
-          if (typeof ScreenOverlay !== "undefined") {
-            ScreenOverlay.syncWithStage(stage);
-          }
-        });
-      }
-      if (typeof ScreenOverlay !== "undefined") {
-        ScreenOverlay.syncWithStage(stage);
+      if (localSharePreviewMountLock) return;
+      localSharePreviewMountLock = true;
+      try {
+        const stage = $("roomRemoteScreenStage");
+        const stageVid = $("roomRemoteScreenVideo");
+        if (!stage || !stageVid) return;
+        applyLocalSharePreviewDisplay(stageVid);
+        if (!stageVid.dataset.mojLocalShareMetaBound) {
+          stageVid.dataset.mojLocalShareMetaBound = "1";
+          stageVid.addEventListener("loadedmetadata", () => {
+            if (typeof ScreenOverlay !== "undefined") {
+              ScreenOverlay.syncWithStage(stage);
+            }
+          });
+        }
+        if (typeof RoomScreenShareLayout !== "undefined") {
+          RoomScreenShareLayout.syncStageScreenStream?.();
+        } else if (typeof ScreenOverlay !== "undefined") {
+          ScreenOverlay.syncWithStage(stage);
+        }
+      } finally {
+        localSharePreviewMountLock = false;
       }
     }
 
@@ -4757,6 +4835,9 @@
     }
     window.scheduleRemoteScreenLayoutUpdate = scheduleRemoteScreenLayoutUpdate;
     window.isInShareContext = isInShareContext;
+    window.isDisplayCaptureVideoTrack = isDisplayCaptureVideoTrack;
+    window.__mojPeerSocketToUserId = peerSocketToUserId;
+    window.__mojGetShareOwnerId = getShareOwnerId;
 
     function isDisplayCaptureVideoTrack(track) {
       if (!track || track.kind !== "video") return false;
@@ -4790,15 +4871,28 @@
       const peers = [...stage.children].filter(
         (el) =>
           el.classList?.contains("remote-peer") &&
-          !el.classList?.contains("remote-peer--local-screen-share")
+          !el.classList?.contains("room-remote-screen-stage__viewport") &&
+          !el.classList?.contains("remote-peer--stage-mirror")
       );
-      for (const peer of peers) rc.appendChild(peer);
+      for (const peer of peers) {
+        peer.classList.remove("moj-is-sharing", "moj-hide-in-float-panel");
+        peer.removeAttribute("data-moj-screen-stage");
+        peer.style.removeProperty("display");
+        rc.appendChild(peer);
+      }
     }
 
     function onForcedRemoteStop(_stoppedUserId) {
-      const stage = $("roomRemoteScreenStage");
-      const rc = $("remotesContainer");
-      moveStageRemotePeersToContainer(stage, rc);
+      moveStageRemotePeersToContainer($("roomRemoteScreenStage"), $("remotesContainer"));
+      const shareStillActive =
+        !!String(getShareOwnerId() || "").trim() &&
+        !!AppState?.isShareActive?.(AppState?.getState?.());
+      if (!shareStillActive && typeof RoomScreenShareLayout !== "undefined") {
+        RoomScreenShareLayout.clearStageScreenStream?.();
+      }
+      if (typeof FloatPanelModule !== "undefined") {
+        FloatPanelModule.syncSharerTileVisibility?.();
+      }
       clearShareVideoPoll();
       pendingMeetScreenShareTrackRefresh = false;
       if (typeof ScreenOverlay !== "undefined") {
@@ -4828,8 +4922,10 @@
         try {
           const s = t.getSettings?.() || {};
           score = (s.width || 0) * (s.height || 0);
+          if ((s.width || 0) >= 1280) score += 5e8;
         } catch (_) {}
         if (isDisplayCaptureVideoTrack(t)) score += 1e9;
+        if (sharing && t.readyState === "live") score += 1e6;
         if (score > bestScore) {
           bestScore = score;
           best = t;
@@ -4856,31 +4952,67 @@
       vid.addEventListener("resize", bump);
     }
 
-    /** Reconstruye srcObject del vídeo remoto desde receivers (tras replaceTrack de pantalla). */
-    function refreshSharerVideoFromReceivers(remoteSocketId) {
+    function getSharerDisplayTrack(remoteSocketId) {
       const pc = pcs.get(remoteSocketId);
-      const vid = remoteVideos.get(remoteSocketId);
-      if (!pc || !vid) return false;
+      if (!pc) return null;
       const videoTracks = pc
         .getReceivers()
         .map((r) => r.track)
         .filter((t) => t && t.kind === "video" && t.readyState === "live");
-      if (!videoTracks.length) return false;
-      const nextTrack = pickBestSharerVideoTrack(videoTracks);
-      if (!nextTrack) return false;
-      bindSharerTrackLayoutBump(nextTrack, remoteSocketId);
-      bindSharerVideoElementBump(vid, remoteSocketId);
-      const curTrack = vid.srcObject?.getVideoTracks?.()?.[0];
-      if (curTrack?.id !== nextTrack.id) {
-        vid.srcObject = new MediaStream([nextTrack]);
-        try {
-          vid.load();
-        } catch (_) {}
-        vid.play().catch(() => {});
-      } else if (vid.paused) {
-        vid.play().catch(() => {});
+      if (!videoTracks.length) return null;
+      const displayTracks = videoTracks.filter((t) => isDisplayCaptureVideoTrack(t));
+      if (displayTracks.length) return pickBestSharerVideoTrack(displayTracks);
+      return pickBestSharerVideoTrack(videoTracks);
+    }
+
+    /** Alimenta el vídeo estático del stage desde receivers (no muta tiles del panel). */
+    function refreshSharerVideoFromReceivers(remoteSocketId) {
+      const displayTrack = getSharerDisplayTrack(remoteSocketId);
+      if (!displayTrack) return false;
+      const stageVid = $("roomRemoteScreenVideo");
+      if (!stageVid) return false;
+      const curTrack = stageVid.srcObject?.getVideoTracks?.()?.[0];
+      const trackChanged = !curTrack || curTrack.id !== displayTrack.id;
+      if (trackChanged) {
+        bindSharerTrackLayoutBump(displayTrack, remoteSocketId);
+        bindSharerVideoElementBump(stageVid, remoteSocketId);
       }
-      return vid.videoWidth > 0;
+      let assigned = false;
+      if (typeof RoomScreenShareLayout !== "undefined" && RoomScreenShareLayout.assignStageStream) {
+        assigned = !!RoomScreenShareLayout.assignStageStream(displayTrack);
+      } else {
+        assigned = assignStageStreamFallback(stageVid, displayTrack);
+      }
+      return trackChanged || assigned;
+    }
+
+    function assignStageStreamFallback(vid, track) {
+      if (!vid || !track) return false;
+      const cur = vid.srcObject?.getVideoTracks?.()?.[0];
+      if (cur?.id === track.id) {
+        if (typeof RoomScreenShareLayout !== "undefined") {
+          RoomScreenShareLayout.ensureStageVideoAutoplayCompat?.(vid);
+        } else {
+          vid.muted = true;
+          vid.autoplay = true;
+          vid.playsInline = true;
+        }
+        if (vid.paused) vid.play().catch(() => {});
+        return true;
+      }
+      if (typeof RoomScreenShareLayout !== "undefined") {
+        RoomScreenShareLayout.ensureStageVideoAutoplayCompat?.(vid);
+      } else {
+        vid.muted = true;
+        vid.autoplay = true;
+        vid.playsInline = true;
+        vid.setAttribute("muted", "");
+        vid.setAttribute("autoplay", "");
+        vid.setAttribute("playsinline", "");
+      }
+      vid.srcObject = new MediaStream([track]);
+      vid.play().catch(() => {});
+      return true;
     }
 
     function clearShareVideoPoll() {
@@ -4903,12 +5035,14 @@
         }
         const socketId = findPeerSocketForUserId(getShareOwnerId());
         if (socketId) {
-          refreshSharerVideoFromReceivers(socketId);
-          updateRemoteScreenShareLayout();
-          const vid = remoteVideos.get(socketId);
-          if (vid?.videoWidth > 0) {
+          const changed = refreshSharerVideoFromReceivers(socketId);
+          if (changed && typeof RoomScreenShareLayout !== "undefined") {
+            RoomScreenShareLayout.scheduleStageStreamSync?.();
+          }
+          const stageVid = $("roomRemoteScreenVideo");
+          if (stageVid?.videoWidth > 0) {
             if (isScreenShareDebugEnabled()) {
-              console.info("[screen-share] guest poll: videoWidth ready", vid.videoWidth);
+              console.info("[screen-share] guest poll: videoWidth ready", stageVid.videoWidth);
             }
             clearShareVideoPoll();
             return;
@@ -4934,9 +5068,34 @@
     function inspectGuestShareProbe() {
       const sharerUid = String(getShareOwnerId() || "").trim().toLowerCase();
       const sharerSocket = sharerUid ? findPeerSocketForUserId(sharerUid) : null;
+      const stageVid = $("roomRemoteScreenVideo");
+      const stageTrack = stageVid?.srcObject?.getVideoTracks?.()?.[0] || null;
+      const panelEl = document.getElementById("webFloatPeersRoot");
+      let elementFromPointAtHeader = null;
+      if (panelEl) {
+        const r = panelEl.getBoundingClientRect();
+        const el = document.elementFromPoint(r.left + 24, r.top + 12);
+        elementFromPointAtHeader = el
+          ? { id: el.id || null, className: String(el.className || "").slice(0, 80) }
+          : null;
+      }
       return {
         attach: typeof RoomScreenShareLayout !== "undefined"
-          ? RoomScreenShareLayout.inspectAttachState?.()
+          ? {
+              stageVideoWidth: stageVid?.videoWidth || 0,
+              hasStageStream: !!stageVid?.srcObject,
+              stageTrackId: stageTrack?.id || null,
+              stageReadyState: stageTrack?.readyState || null,
+            }
+          : null,
+        panel: panelEl
+          ? {
+              pointerEvents: getComputedStyle(panelEl).pointerEvents,
+              panelPointerEvents: getComputedStyle(panelEl).pointerEvents,
+              panelConnected: panelEl.isConnected,
+              panelNodeStable: panelEl === window.__mojPanelProbeRef,
+              elementFromPointAtHeader,
+            }
           : null,
         overlay: typeof ScreenOverlay !== "undefined"
           ? ScreenOverlay.inspectLayout?.()
@@ -4977,6 +5136,9 @@
         refreshSharerVideoFromReceivers(remoteSocketId);
       }
       scheduleRemoteScreenLayoutUpdate();
+      if (typeof RoomScreenShareLayout !== "undefined") {
+        RoomScreenShareLayout.scheduleStageStreamSync?.();
+      }
     }
 
     function bindPeerReceiverTrackWatch(pc, remoteSocketId) {
@@ -4996,7 +5158,7 @@
     function refreshGalleryVideoMosaic() {
       if (isInShareContext()) return;
       if (typeof FloatPanelModule !== "undefined") {
-        FloatPanelModule.deactivate?.({ force: true, destroyDom: true });
+        FloatPanelModule.deactivate?.({ force: true });
       }
       const stage = $("roomRemoteScreenStage");
       const rc = $("remotesContainer");
@@ -5020,7 +5182,6 @@
           continue;
         }
         const wrap = vid.closest(".remote-peer");
-        if (wrap?.closest("#roomRemoteScreenStage")) continue;
         if (wrap && rc && !rc.contains(wrap)) {
           rc.appendChild(wrap);
         }
@@ -5029,17 +5190,19 @@
     window.refreshGalleryVideoMosaic = refreshGalleryVideoMosaic;
 
     function updateRemoteScreenShareLayout() {
-      if (!isInShareContext()) {
-        refreshGalleryVideoMosaic();
+      window.isUpdatingRemoteLayout = true;
+      try {
+        if (!isInShareContext()) {
+          refreshGalleryVideoMosaic();
+          window.WebLayoutOverrides?.syncShareLayout?.();
+          return;
+        }
+        if (typeof RoomScreenShareLayout !== "undefined") {
+          RoomScreenShareLayout.updateRemoteScreenShareLayout();
+        }
         window.WebLayoutOverrides?.syncShareLayout?.();
-        return;
-      }
-      if (typeof RoomScreenShareLayout !== "undefined") {
-        RoomScreenShareLayout.updateRemoteScreenShareLayout();
-      }
-      window.WebLayoutOverrides?.syncShareLayout?.();
-      if (typeof FloatPanelModule !== "undefined" && FloatPanelModule.isActive?.()) {
-        FloatPanelModule.syncPanelVisibilityForTiles?.();
+      } finally {
+        window.isUpdatingRemoteLayout = false;
       }
     }
 
@@ -5072,7 +5235,7 @@
         teardownLocalScreenShareStageWrap,
         ensureLocalScreenShareStageWrap,
         mountLocalScreenSharePreviewToStage,
-        moveStageRemotePeersToContainer,
+        applyLocalSharePreviewDisplay,
         setMeetView,
         applyRemoteScreenShareStripSizing,
         applyRoomVideoStripSizing,
@@ -5086,6 +5249,8 @@
         enablePresenterMediaDock: () =>
           isElectronClient() && !!isLocallySharingScreen(),
         refreshSharerVideoFromReceivers,
+        getSharerDisplayTrack,
+        findPeerSocketForUserId,
         AppState: typeof AppState !== "undefined" ? AppState : undefined,
       });
     }
@@ -5220,6 +5385,7 @@
         screenSharePreviewVideo = null;
       }
       teardownLocalScreenShareStageWrap();
+      void setElectronContentProtection(false);
       if (typeof RoomScreenShareLayout !== "undefined") {
         RoomScreenShareLayout.onStopScreenShare();
       }
@@ -5394,14 +5560,13 @@
           setMediaStatus("Compartiendo pantalla con la sala.");
         }
         log("Compartir pantalla activo.");
+        await setElectronContentProtection(true);
         scheduleRemoteScreenLayoutUpdate();
         mountLocalScreenSharePreviewToStage();
         requestAnimationFrame(() => {
           mountLocalScreenSharePreviewToStage();
           const stage = $("roomRemoteScreenStage");
-          const vid = document.querySelector(
-            ".remote-peer--local-screen-share video"
-          );
+          const vid = $("roomRemoteScreenVideo");
           if (stage && vid && vid.videoWidth === 0 && typeof ScreenOverlay !== "undefined") {
             ScreenOverlay.syncWithStage(stage);
           }
@@ -8636,7 +8801,11 @@ body.print-calendar-export {
         flags: typeof FeatureFlags !== "undefined" ? FeatureFlags.resolve() : {},
       });
       if (typeof MojRoomEffects !== "undefined") {
-        MojRoomEffects.registerRoomEffects(AppState, {});
+        MojRoomEffects.registerRoomEffects(AppState, {
+          onShareLayoutEnter() {
+            /* ParticipantsModule + LayoutModule coordinan el panel vía AppState */
+          },
+        });
       }
       if (typeof MojCrossDomainEffects !== "undefined") {
         MojCrossDomainEffects.registerCrossDomainEffects(AppState);

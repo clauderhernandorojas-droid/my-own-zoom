@@ -8,4 +8,6 @@ contextBridge.exposeInMainWorld('mojElectron', {
     ipcRenderer.invoke('moj:notify-screen-source-selected', {
       sourceId: String(sourceId || ''),
     }),
+  setContentProtection: (enable) =>
+    ipcRenderer.invoke('moj:set-content-protection', { enable: !!enable }),
 });

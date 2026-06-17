@@ -263,6 +263,9 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
            stagePeers: [...document.querySelectorAll("#roomRemoteScreenStage .remote-peer")].map((el) => el.className) })
         ```
     - **Panel Participantes (regla de diseño)**: el panel flotante `#webFloatPeersRoot` **solo se monta** cuando AppState indica share activo (`currentLayout === 'share'`). Estado `ui.participantsPanelState`: `'open'` | `'minimized'` | `'hidden'`. Durante share solo alterna **abierto ↔ minimizado** (`FloatPanelModule.minimizePanel` / `restorePanel`); `'hidden'` solo al terminar share o salir de sala. Al detener share, `ParticipantsModule.teardownPanel()` desmonta el DOM; `destroy()` queda reservado para `onLeaveRoom`. No confundir con `#presenterFloatRoot` (legacy).
+    - **Candado de reentrada layout (panel estable en invitado)**: `updateRemoteScreenShareLayout()` en [`index.html`](public/index.html) marca `window.isUpdatingRemoteLayout = true` (try/finally). [`LayoutModule.updateFromStore`](public/js/modules/LayoutModule.js) **no** agenda `scheduleRemoteScreenLayoutUpdate` mientras la bandera está activa — rompe el bucle trans-frame `layout → syncShareLayout → updateFromStore → layout` (~60 fps) que titilaba el panel y rompía drag/transparencia. Activación del panel: `ParticipantsModule.syncPanel` deduplicado por frame (`panelSyncRaf`); `LayoutModule` difiere `ParticipantsModule.update` tras overlay/stage (doble rAF).
+    - **Stage negro transitorio**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) no llama `clearStageScreenStream()` si `AppState.isShareActive()` sigue true aunque `viewingRemote` sea false un frame (carrera de `ownerId`).
+    - **Minimizar panel**: `FloatPanelModule` conserva `isManuallyMinimized` en `deactivate` salvo `clearMinimizeState: true` (fin share / `teardownPanel` / leave). `activate` y `applyPanelStateFromStore` respetan Store `minimized`.
     - **Regla de acoplamiento**: los módulos **leen** el store vía `subscribe`; las mutaciones van solo por `AppState.dispatch({ type: MojActionTypes.* })`. Evitar llamar `setChatPanelHidden` / `FloatPanelModule.activate` entre módulos.
     - **Módulos y ciclo de vida** (`init` → `update` / subscribe → `destroy` en `leaveRoom`):
       | Módulo | Archivo | Responsabilidad |
@@ -408,7 +411,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
          videosParent: document.getElementById("videos")?.parentElement?.id })
       ```
     - **Esperado vs bug**: durante share modular el panel **puede** estar activo, pero solo si `visibleTiles > 0` (vídeo live en `#videos`, excluyendo peer ya en stage). **Bug** si `floatPanelVisible: true` sin `remoteDominant`/`presenterFocus` (residual tras stop share) o panel expandido vacío (sharer en stage + cámara local apagada).
-    - **Cadena**: activación `updateRemoteScreenShareLayout` → `LayoutModule.syncShareLayout` → `FloatPanelModule.activate`; desactivación `syncShareLayout` cuando `!isShareActive()` o `leaveRoom` → `deactivate({ force: true, destroyDom: true })`. `ensurePresenterMediaDock` solo en `enterPresenterFocusUi` (presentador local), no en `FloatPanelModule.onShareLayoutChange`.
+    - **Cadena**: `scheduleRemoteScreenLayoutUpdate` → `updateRemoteScreenShareLayout` (candado `isUpdatingRemoteLayout`) → `RoomScreenShareLayout` + `WebLayoutOverrides.syncShareLayout` → `LayoutModule.updateFromStore` (sin re-agendar layout si reentrada) → `ParticipantsModule` en rAF diferido. Desactivación al terminar share: `FloatPanelModule.deactivate({ force: true, clearMinimizeState: true })`. `ensurePresenterMediaDock` solo en `enterPresenterFocusUi` (presentador local).
     - **Precauciones**: no desactivar `FloatPanelModule` sin alternativa de franja de vídeo durante share; no tocar `ScreenOverlay` para este síntoma.
 
   - **Corrección de ventana flotante residual**:
@@ -917,6 +920,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Diagnóstico**: `MOJ_ELECTRON_DEBUG=1` (main: listado IPC); en renderer `localStorage.setItem('MOJ_SCREEN_SHARE_DEBUG','1')` o `?MOJ_SCREEN_SHARE_DEBUG=1` → `console.debug` con prefijo `[screen-share]`.
     - **Permisos**: `display-capture` en [`main.js`](main.js); **macOS** → Grabación de pantalla → Electron; **Windows** → Privacidad → Captura de pantalla.
     - Si falla el audio de sistema, reintento automático solo vídeo.
+    - **Anti-recursión preview local (share pantalla completa)**: durante share activo, `mainWindow.setContentProtection(true)` vía IPC `moj:set-content-protection` ([`main.js`](main.js), [`preload.js`](preload.js)); el renderer lo activa en `startScreenShare` y lo desactiva en `stopScreenShare`. En Windows 10 2004+ la ventana de Electron queda fuera de la captura; en builds anteriores puede verse negra en el stream remoto. Si no hay protección (web/macOS), la vista previa local usa placeholder en lugar del `screenShareStream` crudo para evitar el túnel Droste. Guard `visibilitychange` en [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) llama `MiniPlayerControls.suppressForActiveSession()` durante share.
     - **Navegador (no Electron)**: `getDisplayMedia` nativo sin cambios.
     - **Troubleshooting «no pasa nada»**:
       | Síntoma | Comprobación |
@@ -1139,4 +1143,4 @@ Tras migrar a CLI, **sustituir o condicionar** `sequelize.sync()` en producción
 
 ---
 
-*Última actualización de este documento: junio 2026 — Panel flotante modular: sin tile share en panel, auto-tamaño, expandir al entrar en share; chat cerrado en galería/share; dock flotante web+Electron; `tryDevAutoLogin` en localhost.*
+*Última actualización de este documento: junio 2026 — Candado reentrada layout share (`isUpdatingRemoteLayout`); dedup panel/stage; minimizar estable; anti-recursión preview Electron; módulos store bridges.*

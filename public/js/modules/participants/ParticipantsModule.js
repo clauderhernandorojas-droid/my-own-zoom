@@ -8,6 +8,7 @@
   let unsubFlags = null;
   let floatInited = false;
   let onTrackRaf = 0;
+  let panelSyncRaf = 0;
 
   function isShareActiveState(state) {
     if (global.AppState?.isShareActive) {
@@ -37,6 +38,15 @@
       getStageElement: () => document.getElementById("roomRemoteScreenStage"),
       clamp: global.UiFloatClamp,
       shareModularClass: deps?.shareModularClass || "room-shell--share-layout-modular",
+      isDisplayCaptureVideoTrack: (track) =>
+        typeof global.isDisplayCaptureVideoTrack === "function"
+          ? global.isDisplayCaptureVideoTrack(track)
+          : false,
+      getShareOwnerId: () =>
+        typeof global.__mojGetShareOwnerId === "function"
+          ? global.__mojGetShareOwnerId()
+          : global.AppState?.getState?.()?.share?.ownerId || "",
+      peerSocketToUserId: global.__mojPeerSocketToUserId || null,
       onPanelStateChange: (panelState) => {
         const T = global.MojActionTypes;
         if (T && global.AppState?.dispatch) {
@@ -49,28 +59,33 @@
 
   function teardownPanelDom() {
     global.UiPresenterFloat?.deactivate?.();
-    global.FloatPanelModule?.deactivate?.({ force: true, destroyDom: true });
-    floatInited = false;
+    global.FloatPanelModule?.deactivate?.({ force: true, clearMinimizeState: true });
   }
 
-  function syncPanel(state) {
+  function syncPanelImmediate(state) {
     if (shouldActivate(state)) {
       if (!floatInited) initFloatPanel();
-      global.requestAnimationFrame(() => {
-        if (global.FloatPanelModule?.isActive?.()) {
-          global.FloatPanelModule?.applyPanelStateFromStore?.(state.ui);
-          global.FloatPanelModule?.onShareLayoutChange?.();
-        } else {
-          global.FloatPanelModule?.activate?.();
-          global.requestAnimationFrame(() => {
-            global.FloatPanelModule?.applyPanelStateFromStore?.(state.ui);
-            global.FloatPanelModule?.onShareLayoutChange?.();
-          });
-        }
-      });
+      const ui = state.ui;
+      if (global.FloatPanelModule?.isActive?.()) {
+        global.FloatPanelModule?.applyPanelStateFromStore?.(ui);
+        global.FloatPanelModule?.onShareLayoutChange?.();
+      } else {
+        global.FloatPanelModule?.activate?.();
+        global.FloatPanelModule?.applyPanelStateFromStore?.(ui);
+        global.FloatPanelModule?.onShareLayoutChange?.();
+      }
     } else {
       teardownPanelDom();
     }
+  }
+
+  function syncPanel(_state) {
+    if (panelSyncRaf) return;
+    panelSyncRaf = global.requestAnimationFrame(() => {
+      panelSyncRaf = 0;
+      const fresh = global.AppState?.getState?.();
+      if (fresh) syncPanelImmediate(fresh);
+    });
   }
 
   function onRemoteTrackMounted(_socketId) {
@@ -81,6 +96,7 @@
       const stateNow = global.AppState.getState();
       if (shouldActivate(stateNow)) {
         global.FloatPanelModule?.onShareLayoutChange?.();
+        global.scheduleRemoteScreenLayoutUpdate?.();
       } else if (!global.isInShareContext?.()) {
         global.refreshGalleryVideoMosaic?.();
       } else {
@@ -131,6 +147,10 @@
   }
 
   function destroy() {
+    if (panelSyncRaf) {
+      global.cancelAnimationFrame(panelSyncRaf);
+      panelSyncRaf = 0;
+    }
     if (unsubLayout) {
       unsubLayout();
       unsubLayout = null;

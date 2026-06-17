@@ -1,7 +1,7 @@
 const path = require('path');
 const http = require('http');
 const { fork } = require('child_process');
-const { app, BrowserWindow, session, systemPreferences, dialog } = require('electron');
+const { app, BrowserWindow, session, systemPreferences, dialog, ipcMain } = require('electron');
 
 const DEBUG =
   process.env.MOJ_ELECTRON_DEBUG === '1' || process.env.MOJ_ELECTRON_DEBUG === 'true';
@@ -530,12 +530,23 @@ function stopEmbeddedServer() {
   }
 }
 
+function registerContentProtectionIpc() {
+  ipcMain.handle('moj:set-content-protection', (_event, payload) => {
+    const enable = !!(payload && payload.enable);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setContentProtection(enable);
+    }
+    return { ok: true, enabled: enable };
+  });
+}
+
 app.whenReady().then(async () => {
   try {
     require('./electron/screenShareIpc.cjs').register();
   } catch (e) {
     console.error('[electron] screen share IPC register failed:', e?.message || e);
   }
+  registerContentProtectionIpc();
   logElectronEnv();
   setupMediaPermissions();
   try {

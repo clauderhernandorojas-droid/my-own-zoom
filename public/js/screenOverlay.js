@@ -1682,12 +1682,26 @@
     video.addEventListener("resize", videoLayoutHandlers.resize);
   }
 
+  function isStageMirrorViewport(peerWrap) {
+    if (!peerWrap) return false;
+    if (peerWrap.id === "roomRemoteScreenVideo") return true;
+    return (
+      peerWrap.classList?.contains("room-remote-screen-stage__viewport") ||
+      peerWrap.classList?.contains("remote-peer--stage-mirror") ||
+      !!peerWrap.querySelector?.("#roomRemoteScreenVideo")
+    );
+  }
+
   /**
    * Garantiza que el <video> vive dentro del stack (reparent idempotente).
+   * No reparenta el vídeo estático del stage (#roomRemoteScreenVideo).
    * @returns {HTMLVideoElement | null}
    */
   function ensureVideoInStack(peerWrap, stack) {
     if (!peerWrap || !stack) return null;
+    if (isStageMirrorViewport(peerWrap)) {
+      return peerWrap.querySelector("video");
+    }
     let video = stack.querySelector("video");
     if (!video) {
       video = peerWrap.querySelector(":scope > video");
@@ -1875,6 +1889,7 @@
   function ensureOverlayDom(peerWrap) {
     if (!peerWrap || !isOverlayInkReady()) return null;
 
+    const stageMirror = isStageMirrorViewport(peerWrap);
     let stack = peerWrap.querySelector(".screen-overlay-stack");
     if (!stack) {
       peerWrap.classList.add("screen-overlay-peer");
@@ -1891,7 +1906,9 @@
       canvas.setAttribute("aria-hidden", "true");
 
       const video = peerWrap.querySelector("video");
-      if (video) {
+      if (stageMirror) {
+        peerWrap.appendChild(stack);
+      } else if (video) {
         peerWrap.insertBefore(stack, video);
         stack.appendChild(video);
       } else {
@@ -1904,15 +1921,21 @@
       peerWrap.classList.add("screen-overlay-peer");
     }
 
-    ensureVideoInStack(peerWrap, stack);
+    if (stageMirror) {
+      videoEl = peerWrap.querySelector("video");
+    } else {
+      ensureVideoInStack(peerWrap, stack);
+      videoEl = stack.querySelector("video");
+    }
 
-    peerWrap.querySelectorAll(":scope > .peer-cap, :scope > .peer-conn-status").forEach((el) => {
-      el.classList.add("screen-overlay-peer-sibling-hidden");
-      stack.appendChild(el);
-    });
+    if (!stageMirror) {
+      peerWrap.querySelectorAll(":scope > .peer-cap, :scope > .peer-conn-status").forEach((el) => {
+        el.classList.add("screen-overlay-peer-sibling-hidden");
+        stack.appendChild(el);
+      });
+    }
 
     stackEl = stack;
-    videoEl = stack.querySelector("video");
     canvasEl = stack.querySelector(".screen-overlay-canvas");
 
     if (canvasEl && canvasEl !== boundPeerWrap?.canvas) {
@@ -1991,8 +2014,8 @@
   function resolveSharePeerWrap(container) {
     if (!container) return null;
     return (
+      container.querySelector(".room-remote-screen-stage__viewport") ||
       container.querySelector(".remote-peer--local-screen-share") ||
-      container.querySelector(".remote-peer:not(.remote-peer--presenter-ink-source)") ||
       container.querySelector(".remote-peer")
     );
   }

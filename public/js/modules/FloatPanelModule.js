@@ -26,11 +26,63 @@
   let resizeDrag = null;
   let pillSuppressClickUntil = 0;
   let domReady = false;
+  let listenersBound = false;
   let resizeBound = false;
   let tilesSyncTimer = 0;
   let blurGuardBound = false;
   let windowLostFocusDev = false;
   let userSizedPanel = false;
+  let unsubShareOwner = null;
+  let shrinkScheduleRaf = 0;
+  let isManuallyMinimized = false;
+  let minBtnEl = null;
+  /** @type {object | null} */
+  let panelHandlers = null;
+
+  function scheduleShrinkPanelToFitContent() {
+    if (shrinkScheduleRaf) return;
+    shrinkScheduleRaf = global.requestAnimationFrame(() => {
+      shrinkScheduleRaf = 0;
+      shrinkPanelToFitContent();
+    });
+  }
+
+  function normUid(uid) {
+    return uid != null ? String(uid).trim().toLowerCase() : "";
+  }
+
+  function syncSharerTileVisibility() {
+    const ownerId = normUid(
+      deps?.getShareOwnerId?.() ?? global.AppState?.getState?.()?.share?.ownerId
+    );
+    const rc = document.getElementById("remotesContainer");
+    if (!rc) return;
+    rc.querySelectorAll(".remote-peer").forEach((peer) => {
+      const socketId = peer.querySelector("video")?.dataset?.peer;
+      const peerUid =
+        socketId && deps?.peerSocketToUserId?.get
+          ? normUid(deps.peerSocketToUserId.get(socketId))
+          : "";
+      const isSharing = !!(ownerId && peerUid && peerUid === ownerId);
+      peer.classList.toggle("moj-is-sharing", isSharing);
+    });
+    if (!userSizedPanel) scheduleShrinkPanelToFitContent();
+  }
+
+  function bindShareOwnerSubscription() {
+    if (unsubShareOwner || !global.AppState?.subscribe) return;
+    unsubShareOwner = global.AppState.subscribe(
+      (s) => s.share?.ownerId,
+      () => syncSharerTileVisibility()
+    );
+  }
+
+  function unbindShareOwnerSubscription() {
+    if (unsubShareOwner) {
+      unsubShareOwner();
+      unsubShareOwner = null;
+    }
+  }
 
   function getClamp() {
     return deps?.clamp || global.UiFloatClamp || null;
@@ -165,7 +217,8 @@
     bodyEl.style.flex = "0 0 auto";
     bodyEl.style.height = "auto";
     if (videos) videos.style.height = "auto";
-    const peers = videos?.querySelectorAll(".remote-peer:not([hidden])") || [];
+    const peers =
+      videos?.querySelectorAll(".remote-peer:not([hidden]):not(.moj-is-sharing)") || [];
     const peerCount = Math.max(1, peers.length);
     const cols = peerCount <= 1 ? 1 : 2;
     const rows = Math.ceil(peerCount / cols);
@@ -218,10 +271,10 @@
     global.removeEventListener("pointercancel", onPanelPointerUp);
     if (wasDrag && state) {
       if (state.minimized) pillSuppressClickUntil = Date.now() + 400;
-      const snapped = snapToNearestEdge(state.left, state.top, state.width, state.height);
-      state.left = snapped.left;
-      state.top = snapped.top;
-      state.edge = snapped.edge;
+      const c = clampBox(state.left, state.top, state.width, state.height);
+      state.left = c.left;
+      state.top = c.top;
+      state.edge = null;
       applyPanelVisibility();
       saveState();
     }
@@ -282,84 +335,129 @@
     global.removeEventListener("pointercancel", onResizePointerUp);
     if (was && state) {
       userSizedPanel = true;
-      const snapped = snapToNearestEdge(state.left, state.top, state.width, state.height);
-      state.left = snapped.left;
-      state.top = snapped.top;
-      state.edge = snapped.edge;
+      const c = clampBox(state.left, state.top, state.width, state.height);
+      state.left = c.left;
+      state.top = c.top;
+      state.width = c.width;
+      state.height = c.height;
+      state.edge = null;
       applyLayout();
       saveState();
     }
   }
 
-  function ensureDom() {
-    if (domReady) return;
-    domReady = true;
-    rootEl = document.createElement("div");
-    rootEl.id = "webFloatPeersRoot";
-    rootEl.className = "web-float-peers-root hidden";
-    rootEl.innerHTML =
-      '<div class="web-float-peers-header">' +
-      '<span class="web-float-peers-title">Participantes</span>' +
-      '<button type="button" class="web-float-peers-btn-min" aria-label="Minimizar">−</button></div>' +
-      '<div class="web-float-peers-body"></div>';
-    resizeEl = document.createElement("div");
-    resizeEl.className = "web-float-peers-resize-handle";
-    resizeEl.title = "Redimensionar";
-    rootEl.appendChild(resizeEl);
-    document.body.appendChild(rootEl);
+  function applyResizeHandleStyles() {
+    if (!resizeEl) return;
+    resizeEl.style.pointerEvents = "auto";
+    resizeEl.style.zIndex = "10";
+    resizeEl.style.cursor = "nwse-resize";
+    resizeEl.style.position = "absolute";
+    resizeEl.style.right = "0";
+    resizeEl.style.bottom = "0";
+    resizeEl.style.width = "20px";
+    resizeEl.style.height = "20px";
+  }
 
+  function hydrateDomRefs() {
+    if (!rootEl) return;
     headerEl = rootEl.querySelector(".web-float-peers-header");
     bodyEl = rootEl.querySelector(".web-float-peers-body");
+    minBtnEl = rootEl.querySelector(".web-float-peers-btn-min");
+    resizeEl = rootEl.querySelector(".web-float-peers-resize-handle");
+    if (!resizeEl) {
+      resizeEl = document.createElement("div");
+      resizeEl.className = "web-float-peers-resize-handle";
+      resizeEl.title = "Redimensionar";
+      rootEl.appendChild(resizeEl);
+    }
+    applyResizeHandleStyles();
+    if (minBtnEl) {
+      minBtnEl.style.pointerEvents = "auto";
+      minBtnEl.style.position = "relative";
+      minBtnEl.style.zIndex = "11";
+      minBtnEl.style.cursor = "pointer";
+    }
+  }
 
-    pillEl = document.createElement("button");
-    pillEl.type = "button";
-    pillEl.id = "webFloatPeersPill";
-    pillEl.className = "web-float-peers-pill hidden";
-    pillEl.textContent = "Participantes";
-    pillEl.title = "Doble clic para expandir";
-    document.body.appendChild(pillEl);
+  function unbindPanelControlListeners() {
+    if (!panelHandlers) return;
+    headerEl?.removeEventListener("pointerdown", panelHandlers.headerDown);
+    pillEl?.removeEventListener("pointerdown", panelHandlers.pillDown);
+    pillEl?.removeEventListener("click", panelHandlers.pillClick);
+    pillEl?.removeEventListener("dblclick", panelHandlers.pillDblClick);
+    resizeEl?.removeEventListener("pointerdown", panelHandlers.resizeDown);
+    minBtnEl?.removeEventListener("pointerdown", panelHandlers.minDown);
+    minBtnEl?.removeEventListener("click", panelHandlers.minClick);
+    panelHandlers = null;
+  }
 
-    headerEl?.addEventListener("pointerdown", (e) => {
-      if (!state || state.minimized) return;
-      startPanelDrag(e, headerEl, state.left, state.top);
-    });
-    pillEl.addEventListener("pointerdown", (e) => {
-      if (!state || !state.minimized) return;
-      startPanelDrag(e, pillEl, state.left, state.top);
-    });
-    pillEl.addEventListener("click", (e) => {
-      if (Date.now() < pillSuppressClickUntil) {
+  function bindPanelControlListeners() {
+    hydrateDomRefs();
+    unbindPanelControlListeners();
+
+    panelHandlers = {
+      headerDown: (e) => {
+        if (!state || state.minimized) return;
+        if (e.target.closest?.(".web-float-peers-btn-min")) return;
+        startPanelDrag(e, headerEl, state.left, state.top);
+      },
+      pillDown: (e) => {
+        if (!state || !state.minimized) return;
+        startPanelDrag(e, pillEl, state.left, state.top);
+      },
+      pillClick: (e) => {
+        if (Date.now() < pillSuppressClickUntil) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      pillDblClick: (e) => {
+        e.preventDefault();
+        restorePanel();
+      },
+      resizeDown: (e) => {
+        if (!state || state.minimized) return;
         e.preventDefault();
         e.stopPropagation();
-      }
-    });
-    pillEl.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      restorePanel();
-    });
-    resizeEl.addEventListener("pointerdown", (e) => {
-      if (!state || state.minimized) return;
-      e.preventDefault();
-      e.stopPropagation();
-      resizeDrag = {
-        dragging: false,
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        originW: state.width,
-        originH: state.height,
-      };
-      try {
-        resizeEl.setPointerCapture(e.pointerId);
-      } catch (_) {}
-      global.addEventListener("pointermove", onResizePointerMove);
-      global.addEventListener("pointerup", onResizePointerUp);
-      global.addEventListener("pointercancel", onResizePointerUp);
-    });
-    rootEl.querySelector(".web-float-peers-btn-min")?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      minimizePanel();
-    });
+        resizeDrag = {
+          dragging: false,
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          originW: state.width,
+          originH: state.height,
+        };
+        try {
+          resizeEl.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        global.addEventListener("pointermove", onResizePointerMove);
+        global.addEventListener("pointerup", onResizePointerUp);
+        global.addEventListener("pointercancel", onResizePointerUp);
+      },
+      minDown: (e) => {
+        e.stopPropagation();
+      },
+      minClick: (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        minimizePanel();
+      },
+    };
+
+    headerEl?.addEventListener("pointerdown", panelHandlers.headerDown);
+    pillEl?.addEventListener("pointerdown", panelHandlers.pillDown);
+    pillEl?.addEventListener("click", panelHandlers.pillClick);
+    pillEl?.addEventListener("dblclick", panelHandlers.pillDblClick);
+    resizeEl?.addEventListener("pointerdown", panelHandlers.resizeDown);
+    minBtnEl?.addEventListener("pointerdown", panelHandlers.minDown);
+    minBtnEl?.addEventListener("click", panelHandlers.minClick);
+  }
+
+  function bindDomListeners() {
+    if (listenersBound) return;
+    listenersBound = true;
+
+    bindPanelControlListeners();
 
     if (!resizeBound) {
       resizeBound = true;
@@ -376,23 +474,46 @@
     bindBlurFloatPanelGuard();
   }
 
-  function filterScreenShareTilesInPanel(videosRoot) {
-    document.getElementById("webFloatStageMirror")?.remove();
-    videosRoot?.querySelectorAll("#remotesContainer .remote-peer").forEach((peer) => {
-      if (peer.getAttribute("data-moj-screen-stage") === "1") {
-        peer.style.display = "none";
-        return;
-      }
-      const vid = peer.querySelector("video");
-      const track = vid?.srcObject?.getVideoTracks?.()?.[0];
-      const label = String(track?.label || "").toLowerCase();
-      const isScreen =
-        label.includes("screen") ||
-        label.includes("pantalla") ||
-        label.includes("display") ||
-        label.includes("window");
-      if (isScreen) peer.style.display = "none";
-    });
+  function ensureDom() {
+    const alreadyConnected = domReady && rootEl?.isConnected;
+    if (alreadyConnected) {
+      bindPanelControlListeners();
+      return;
+    }
+
+    rootEl = document.getElementById("webFloatPeersRoot");
+    if (!rootEl) {
+      rootEl = document.createElement("div");
+      rootEl.id = "webFloatPeersRoot";
+      rootEl.className = "web-float-peers-root hidden";
+      rootEl.innerHTML =
+        '<div class="web-float-peers-header">' +
+        '<span class="web-float-peers-title">Participantes</span>' +
+        '<button type="button" class="web-float-peers-btn-min" aria-label="Minimizar">−</button></div>' +
+        '<div class="web-float-peers-body"></div>';
+      resizeEl = document.createElement("div");
+      resizeEl.className = "web-float-peers-resize-handle";
+      resizeEl.title = "Redimensionar";
+      rootEl.appendChild(resizeEl);
+      document.body.appendChild(rootEl);
+    }
+    hydrateDomRefs();
+
+    pillEl = document.getElementById("webFloatPeersPill");
+    if (!pillEl) {
+      pillEl = document.createElement("button");
+      pillEl.type = "button";
+      pillEl.id = "webFloatPeersPill";
+      pillEl.className = "web-float-peers-pill hidden";
+      pillEl.textContent = "Participantes";
+      pillEl.title = "Doble clic para expandir";
+      document.body.appendChild(pillEl);
+    }
+
+    bindDomListeners();
+    bindPanelControlListeners();
+    rootEl.style.pointerEvents = "auto";
+    domReady = true;
   }
 
   function resumeVideosPlayback(videosRoot) {
@@ -407,11 +528,8 @@
     if (src.parentElement === bodyEl) {
       videosEl = src;
       resumeVideosPlayback(src);
-      filterScreenShareTilesInPanel(src);
-      global.requestAnimationFrame(() => {
-        shrinkPanelToFitContent();
-        global.requestAnimationFrame(shrinkPanelToFitContent);
-      });
+      syncSharerTileVisibility();
+      if (active && rootEl && !state) state = loadState() || defaultState();
       return;
     }
     videosParent = src.parentElement;
@@ -420,11 +538,8 @@
     src.classList.add("web-float-peers-videos");
     bodyEl.appendChild(src);
     resumeVideosPlayback(src);
-    filterScreenShareTilesInPanel(src);
-    global.requestAnimationFrame(() => {
-      shrinkPanelToFitContent();
-      global.requestAnimationFrame(shrinkPanelToFitContent);
-    });
+    syncSharerTileVisibility();
+    if (active && rootEl && !state) state = loadState() || defaultState();
   }
 
   function resolveGalleryVideosParent() {
@@ -517,12 +632,24 @@
       return;
     }
     windowLostFocusDev = false;
+    if (shouldAllowActivate() && !active) {
+      activate();
+    }
+  }
+
+  function onWindowFocusFloatPanel() {
+    if (!isLocalDevHost()) return;
+    windowLostFocusDev = false;
+    if (shouldAllowActivate() && !active) {
+      activate();
+    }
   }
 
   function bindBlurFloatPanelGuard() {
     if (blurGuardBound) return;
     blurGuardBound = true;
     global.addEventListener("blur", onWindowBlurFloatPanel);
+    global.addEventListener("focus", onWindowFocusFloatPanel);
     document.addEventListener("visibilitychange", onVisibilityChangeFloatPanel);
   }
 
@@ -575,7 +702,7 @@
     if (!src) return 0;
     let n = 0;
     src.querySelectorAll(".remote-peer").forEach((peer) => {
-      if (peer.closest("#roomRemoteScreenStage")) return;
+      if (peer.classList.contains("moj-is-sharing")) return;
       const video = peer.querySelector("video");
       if (!video) return;
       const track = video.srcObject?.getVideoTracks?.()[0];
@@ -597,30 +724,41 @@
   }
 
   function dispatchPanelState(panelState) {
+    if (panelState !== "open" && panelState !== "minimized") return;
+    const storeState = getStorePanelState();
+    if (storeState === panelState) return;
     const T = global.MojActionTypes;
     if (T && global.AppState?.dispatch) {
       global.AppState.dispatch({ type: T.PARTICIPANTS_PANEL_SET, state: panelState });
     }
-    deps?.onPanelStateChange?.(panelState);
   }
 
   function applyPanelVisibility() {
     if (!rootEl || !state) return;
-    applyLayout();
     const storeState = getStorePanelState();
     if (storeState === "hidden" || !active) {
       rootEl.classList.add("hidden");
       pillEl?.classList.add("hidden");
       return;
     }
-    const minimized = state.minimized || storeState === "minimized";
-    if (minimized) {
+    const panelMinimized = state.minimized || storeState === "minimized";
+    rootEl.classList.toggle(
+      "web-float-peers-root--empty",
+      active && !panelMinimized && !isManuallyMinimized && countVisiblePeerTiles() === 0
+    );
+    applyLayout();
+    if (isManuallyMinimized) {
       rootEl.classList.add("hidden");
       pillEl?.classList.remove("hidden");
-    } else {
-      rootEl.classList.remove("hidden");
-      pillEl?.classList.add("hidden");
+      return;
     }
+    if (panelMinimized) {
+      rootEl.classList.add("hidden");
+      pillEl?.classList.remove("hidden");
+      return;
+    }
+    rootEl.classList.remove("hidden");
+    pillEl?.classList.add("hidden");
   }
 
   function isShareOkInStore() {
@@ -633,45 +771,24 @@
 
   function syncPanelVisibilityForTiles() {
     if (!active) return;
-    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
-      if (tilesSyncTimer) {
-        clearTimeout(tilesSyncTimer);
-        tilesSyncTimer = 0;
-      }
-      deactivate({ force: true, destroyDom: true });
-      return;
-    }
-    if (!isShareOkInStore()) {
-      if (tilesSyncTimer) {
-        clearTimeout(tilesSyncTimer);
-        tilesSyncTimer = 0;
-      }
-      deactivate({ force: true, destroyDom: true });
-      return;
-    }
-    const tiles = countVisiblePeerTiles();
-    if (tiles === 0) {
-      if (tilesSyncTimer) return;
-      tilesSyncTimer = setTimeout(() => {
-        tilesSyncTimer = 0;
-        if (!active || !isShareOkInStore()) return;
-        if (countVisiblePeerTiles() === 0) {
-          deactivate({ force: true, destroyDom: true });
-        } else {
-          applyPanelVisibility();
-        }
-      }, 400);
-      return;
-    }
     if (tilesSyncTimer) {
       clearTimeout(tilesSyncTimer);
       tilesSyncTimer = 0;
+    }
+    if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
+      deactivate({ force: true });
+      return;
+    }
+    if (!isShareOkInStore()) {
+      deactivate({ force: true });
+      return;
     }
     applyPanelVisibility();
   }
 
   function minimizePanel() {
     if (!state) return;
+    isManuallyMinimized = true;
     state.minimized = true;
     applyPanelVisibility();
     saveState();
@@ -679,18 +796,39 @@
   }
 
   function restorePanel() {
-    if (!state || !state.minimized) return;
+    if (!state || (!state.minimized && !isManuallyMinimized)) return;
+    isManuallyMinimized = false;
     state.minimized = false;
     applyPanelVisibility();
     saveState();
     dispatchPanelState("open");
   }
 
+  function getStorePanelState() {
+    return global.AppState?.getState?.()?.ui?.participantsPanelState;
+  }
+
+  function syncMinimizeFromStore() {
+    if (getStorePanelState() === "minimized") {
+      isManuallyMinimized = true;
+      if (state) state.minimized = true;
+    }
+  }
+
   function applyPanelStateFromStore(ui) {
     if (!state || !active) return;
+    if (isManuallyMinimized) {
+      state.minimized = true;
+      applyPanelVisibility();
+      return;
+    }
     const ps = ui?.participantsPanelState;
-    if (ps === "minimized") state.minimized = true;
-    else if (ps === "open") state.minimized = false;
+    if (ps === "minimized") {
+      isManuallyMinimized = true;
+      state.minimized = true;
+    } else if (ps === "open") {
+      state.minimized = false;
+    }
     applyPanelVisibility();
   }
 
@@ -709,21 +847,28 @@
     ensureDom();
     suppressDesktopPresenterUi();
     const wasActive = active;
+    if (!state) state = loadState() || defaultState();
+    syncMinimizeFromStore();
+    if (state.minimized && !isManuallyMinimized) {
+      isManuallyMinimized = true;
+    }
     if (!active) {
-      state = loadState() || defaultState();
       const c = clampBox(state.left, state.top, state.width, state.height);
       state = { ...state, ...c };
-      // Al entrar en layout de share, expandir siempre (no restaurar minimizado de sesiones previas).
-      state.minimized = false;
+      if (!isManuallyMinimized) {
+        state.minimized = false;
+      }
       userSizedPanel = false;
       active = true;
-      dispatchPanelState("open");
+      const targetState = isManuallyMinimized || state.minimized ? "minimized" : "open";
+      dispatchPanelState(targetState);
     }
     const shell = getShellEl();
     const modClass = shareModularClass();
     shell?.classList.toggle(modClass, true);
     shell?.classList.remove("room-shell--web-layout");
     mountVideos();
+    bindPanelControlListeners();
     applyPanelVisibility();
     if (!wasActive) {
       global.requestAnimationFrame(() => {
@@ -736,6 +881,7 @@
   function deactivate(options = {}) {
     if (!active && !options.force) return;
     saveState();
+    unbindShareOwnerSubscription();
     unmountVideos();
     rootEl?.classList.add("hidden");
     pillEl?.classList.add("hidden");
@@ -745,22 +891,14 @@
     active = false;
     drag = null;
     resizeDrag = null;
-    if (options.destroyDom) {
-      try {
-        rootEl?.remove();
-        pillEl?.remove();
-      } catch (_) {}
-      rootEl = null;
-      pillEl = null;
-      headerEl = null;
-      bodyEl = null;
-      resizeEl = null;
-      domReady = false;
+    if (options.clearMinimizeState) {
+      isManuallyMinimized = false;
     }
   }
 
   function init(options = {}) {
     deps = options;
+    bindShareOwnerSubscription();
   }
 
   function isActive() {
@@ -768,9 +906,14 @@
   }
 
   function onShareLayoutChange() {
-    if (!active) return;
+    if (!active) {
+      if (shouldAllowActivate()) {
+        activate();
+      }
+      return;
+    }
     if (global.AppState?.getState?.()?.flags?.enableParticipantsPanel === false) {
-      deactivate({ force: true, destroyDom: true });
+      deactivate({ force: true });
       return;
     }
     suppressDesktopPresenterUi();
@@ -783,8 +926,7 @@
       state.height = c.height;
       applyLayout();
       avoidStageOverlap();
-      if (videosEl) filterScreenShareTilesInPanel(videosEl);
-      global.requestAnimationFrame(shrinkPanelToFitContent);
+      syncSharerTileVisibility();
     }
     syncPanelVisibilityForTiles();
   }
@@ -797,6 +939,7 @@
     isActive,
     countVisiblePeerTiles,
     syncPanelVisibilityForTiles,
+    syncSharerTileVisibility,
     applyPanelVisibility,
     applyPanelStateFromStore,
     minimizePanel,

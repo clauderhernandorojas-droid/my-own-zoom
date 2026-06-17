@@ -49,8 +49,32 @@ assert(
   "index.html: refreshGalleryVideoMosaic guards with isInShareContext"
 );
 assert(
-  indexHtml.includes("closest(\"#roomRemoteScreenStage\")"),
-  "index.html: refreshGalleryVideoMosaic must not reparent stage peers"
+  indexHtml.includes('id="roomRemoteScreenVideo"'),
+  "index.html: static stage video #roomRemoteScreenVideo must exist"
+);
+assert(
+  indexHtml.includes("room-remote-screen-stage__viewport"),
+  "index.html: static stage viewport must exist"
+);
+assert(
+  !indexHtml.includes("function attachRemoteScreenToStage"),
+  "index.html: attachRemoteScreenToStage must be removed from layout flow"
+);
+assert(
+  floatPanelJs.includes("syncSharerTileVisibility"),
+  "FloatPanelModule.js: syncSharerTileVisibility must exist"
+);
+assert(
+  floatPanelJs.includes("moj-is-sharing"),
+  "FloatPanelModule.js: moj-is-sharing class must be used"
+);
+assert(
+  !floatPanelJs.includes("filterScreenShareTilesInPanel"),
+  "FloatPanelModule.js: filterScreenShareTilesInPanel must be removed"
+);
+assert(
+  indexHtml.includes("function getSharerDisplayTrack"),
+  "index.html: getSharerDisplayTrack must exist"
 );
 assert(
   !/if \(!isInShareContext\(\)\)[\s\S]{0,400}syncPanelVisibilityForTiles/.test(indexHtml),
@@ -89,8 +113,8 @@ assert(
   "FloatPanelModule.js: defensive gallery repatriation for #videos"
 );
 assert(
-  floatPanelJs.includes("tilesSyncTimer"),
-  "FloatPanelModule.js: debounce destroyDom on empty tiles"
+  floatPanelJs.includes("web-float-peers-root--empty"),
+  "FloatPanelModule.js: empty panel state via CSS class not destroyDom"
 );
 
 if (failed) process.exit(1);

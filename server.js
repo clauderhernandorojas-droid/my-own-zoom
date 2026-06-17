@@ -23,6 +23,18 @@ const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+const MOJ_DEBUG_LOG_PATH = path.join(__dirname, "debug-6cb977.log");
+app.post("/api/__moj_debug_log", (req, res) => {
+  try {
+    const line = JSON.stringify({ ...(req.body || {}), serverTs: Date.now() }) + "\n";
+    fs.appendFileSync(MOJ_DEBUG_LOG_PATH, line);
+    res.status(204).end();
+  } catch (err) {
+    console.warn("[moj-debug-log]", err);
+    res.status(500).json({ error: "log_failed" });
+  }
+});
+
 app.get('/health', (_req, res) => {
   const body = { ok: true, service: 'my-own-zoom' };
   if (process.env.NODE_ENV !== 'production') {
