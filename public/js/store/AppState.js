@@ -85,8 +85,9 @@
       return state;
     }
 
-    function isShareActive(state) {
-      const sh = state?.share ?? state;
+    function isShareActive(argState) {
+      const root = argState == null ? getState() : argState;
+      const sh = root?.share ?? root;
       if (sh?.active !== undefined) return !!sh.active;
       return !!(sh?.isLocalShareActive || sh?.isRemoteShareActive);
     }

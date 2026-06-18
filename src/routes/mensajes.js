@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const { Op } = require('sequelize');
 const { authRequired, loadUsuario } = require('../middleware/auth');
-const { Mensaje, Participa, Reunion } = require('../models');
+const { Mensaje, Participa, Reunion, Usuario } = require('../models');
 const { adjuntoAbsoluteOrNull } = require('../services/chatAdjuntos');
 
 const router = express.Router();
@@ -168,8 +168,18 @@ router.post('/reunion/:reunionId', async (req, res, next) => {
       const destinatario = destinatarioUsuarioId || docenteId;
       const esDocenteEnSala = participa?.rolEnReunion === 'docente' || req.usuario.usuarioId === docenteId;
       const enviaAEstudiante = esDocenteEnSala && destinatario !== req.usuario.usuarioId;
+      const destPart = destinatario
+        ? await Participa.findOne({
+            where: { reunionId, usuarioId: destinatario },
+            include: [{ model: Usuario, attributes: ['rol'] }],
+          })
+        : null;
+      const destEsDocente =
+        String(destinatario || '').toLowerCase() === String(docenteId || '').toLowerCase() ||
+        destPart?.rolEnReunion === 'docente' ||
+        ['admin', 'docente'].includes(String(destPart?.Usuario?.rol || '').toLowerCase());
       const estudianteADocente =
-        !esDocenteEnSala && destinatario === docenteId && req.usuario.usuarioId !== docenteId;
+        !esDocenteEnSala && destinatario !== req.usuario.usuarioId && destEsDocente;
       if (!enviaAEstudiante && !estudianteADocente && req.usuario.rol !== 'admin') {
         return res.status(403).json({
           error: 'Chat privado: estudiante → docente o docente → estudiante con destinatario válido',

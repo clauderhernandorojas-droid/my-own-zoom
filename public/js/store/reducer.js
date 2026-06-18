@@ -173,16 +173,16 @@
     switch (action.type) {
 
       case T.UI_TOGGLE_CHAT:
-
-        ui.isChatOpen = !ui.isChatOpen;
-
-        break;
+        return freezeState({
+          ...state,
+          ui: { ...state.ui, isChatOpen: !state.ui.isChatOpen },
+        });
 
       case T.UI_SET_CHAT_OPEN:
-
-        ui.isChatOpen = !!action.open;
-
-        break;
+        return freezeState({
+          ...state,
+          ui: { ...state.ui, isChatOpen: !!action.open },
+        });
 
       case T.UI_SET_LAYOUT: {
 

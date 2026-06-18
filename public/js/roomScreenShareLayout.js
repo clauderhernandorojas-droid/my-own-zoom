@@ -77,6 +77,33 @@
     } catch (_) {}
   }
 
+  function stageVideoHasLiveTrack() {
+    const t = getStageTrack(getStageVideo());
+    return !!(t?.id && t.readyState !== "ended");
+  }
+
+  function isCosmeticStageVideoResize(e) {
+    const targetVid = e?.target || getStageVideo();
+    if (!targetVid) return false;
+    const track = targetVid.srcObject?.getVideoTracks?.()?.[0];
+    if (
+      track?.readyState === "live" &&
+      targetVid.videoWidth === 0 &&
+      targetVid.videoHeight === 0
+    ) {
+      return true;
+    }
+    if (
+      targetVid.videoWidth === targetVid.__lastNativeWidth &&
+      targetVid.videoHeight === targetVid.__lastNativeHeight
+    ) {
+      return true;
+    }
+    targetVid.__lastNativeWidth = targetVid.videoWidth;
+    targetVid.__lastNativeHeight = targetVid.videoHeight;
+    return false;
+  }
+
   /** @returns {boolean} */
   function assignStageStream(trackOrStream) {
     const vid = getStageVideo();
@@ -85,12 +112,15 @@
       trackOrStream instanceof MediaStream
         ? trackOrStream.getVideoTracks?.()?.[0]
         : trackOrStream;
-    if (!nextTrack || nextTrack.kind !== "video") return false;
+    if (!nextTrack?.id || nextTrack.kind !== "video") return false;
     const curTrack = getStageTrack(vid);
-    if (curTrack?.id === nextTrack.id) {
-      ensureStageVideoAutoplayCompat(vid);
-      if (vid.paused) vid.play?.().catch(() => {});
-      return true;
+    const curId = curTrack?.id;
+    const nextId = nextTrack.id;
+    if (curId && nextId && curId === nextId && curTrack.readyState !== "ended") {
+      return false;
+    }
+    if (trackOrStream instanceof MediaStream && vid.srcObject === trackOrStream) {
+      return false;
     }
     ensureStageVideoAutoplayCompat(vid);
     const stream =
@@ -120,10 +150,18 @@
     const vid = getStageVideo();
     if (!vid || stageVideoMetaBound) return;
     stageVideoMetaBound = true;
-    const bump = () => scheduleStageStreamSync();
+    const bump = () => {
+      if (stageVideoHasLiveTrack()) return;
+      scheduleStageStreamSync();
+    };
+    const onResize = (e) => {
+      if (isCosmeticStageVideoResize(e)) return;
+      if (stageVideoHasLiveTrack()) return;
+      scheduleStageStreamSync();
+    };
     vid.addEventListener("loadedmetadata", bump);
     vid.addEventListener("loadeddata", bump);
-    vid.addEventListener("resize", bump);
+    vid.addEventListener("resize", onResize);
   }
 
   function clearStageStreamSyncRetry() {
@@ -136,6 +174,7 @@
 
   function scheduleStageStreamSync() {
     if (stageStreamRetryRaf) return;
+    if (stageVideoHasLiveTrack()) return;
     const tick = () => {
       stageStreamRetryRaf = 0;
       const vid = getStageVideo();
@@ -296,6 +335,28 @@
     if (!vid || !stage || stage.hidden) return false;
     const trackOrStream = resolveSharerTrackOrStream();
     if (!trackOrStream) return false;
+    const curId = getStageTrack(vid)?.id;
+    const incomingId =
+      trackOrStream instanceof MediaStream
+        ? trackOrStream.getVideoTracks?.()?.[0]?.id
+        : trackOrStream?.id;
+    if (curId && incomingId && curId === incomingId) {
+      return false;
+    }
+    if (trackOrStream instanceof MediaStream && vid.srcObject === trackOrStream) {
+      return false;
+    }
+    const nextTrack =
+      trackOrStream instanceof MediaStream
+        ? trackOrStream.getVideoTracks?.()?.[0]
+        : trackOrStream;
+    if (
+      nextTrack?.id &&
+      curId === nextTrack.id &&
+      getStageTrack(vid)?.readyState !== "ended"
+    ) {
+      return false;
+    }
     bindStageVideoRetryListeners();
     const assigned = assignStageStream(trackOrStream);
     if (assigned) {
@@ -364,11 +425,19 @@
         stage.setAttribute("aria-hidden", "false");
       }
       const socketId = resolveSharerSocketId(remoteUid);
-      if (socketId) {
+      const stageHasLiveTrack = stageVideoHasLiveTrack();
+      const stageStable =
+        stageHasLiveTrack &&
+        (!socketId ||
+          (typeof global.isStageSharerPlaybackStable === "function" &&
+            global.isStageSharerPlaybackStable(socketId)));
+      if (socketId && !stageStable) {
         deps?.refreshSharerVideoFromReceivers?.(socketId);
       }
-      syncStageScreenStream();
-      scheduleStageStreamSync();
+      if (!stageStable) {
+        syncStageScreenStream();
+        scheduleStageStreamSync();
+      }
       deps.applyRemoteScreenShareStripSizing?.();
       global.FloatPanelModule?.syncSharerTileVisibility?.();
     } else {

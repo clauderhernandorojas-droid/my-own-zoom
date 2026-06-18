@@ -34,7 +34,9 @@
   async function applyFromServerInner(roomId, active, uid) {
     const d = deps;
     if (!d) return;
-    if (!d.getActiveRoomId?.() || !d.sameActiveRoom?.(roomId, d.getActiveRoomId())) return;
+    const activeRoomId = d.getActiveRoomId?.() || "";
+    const roomMatch = !!activeRoomId && !!d.sameActiveRoom?.(roomId, activeRoomId);
+    if (!activeRoomId || !roomMatch) return;
 
     const oid = uid != null ? String(uid).trim().toLowerCase() : "";
     const myId = d.normMyUserId?.() || "";
@@ -60,7 +62,7 @@
       if (oid && myId && oid === myId && d.isLocallySharingScreen?.()) {
         d.RoomScreenShareLayout?.syncLocalSharePreview?.();
       } else if (!oid || !myId || oid !== myId) {
-        onForcedRemoteStop(oid);
+        d.ScreenShareModule?.applyRemoteFromServer?.(active, oid);
         const socketId = d.findPeerSocketForUserId?.(oid);
         if (socketId) {
           d.refreshSharerVideoFromReceivers?.(socketId);
@@ -68,7 +70,10 @@
             console.info("[screen-share] meet:screenShare active", d.inspectGuestShareProbe?.());
           }
         }
+        d.runDeferredSharerTrackRefresh?.();
         d.startShareVideoPoll?.();
+        d.scheduleRemoteScreenLayoutUpdate?.();
+        return;
       }
       d.runDeferredSharerTrackRefresh?.();
       d.ScreenShareModule?.applyRemoteFromServer?.(active, oid);

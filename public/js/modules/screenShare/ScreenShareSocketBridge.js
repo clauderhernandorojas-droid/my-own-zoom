@@ -12,12 +12,16 @@
     boundSocket = socket;
 
     handlers.screenShare = ({ roomId, active, userId: uid }) => {
+      const normRoom =
+        typeof deps.normRoomKey === "function"
+          ? deps.normRoomKey(roomId)
+          : roomId;
       const activeRoomId = deps.getActiveRoomId?.();
       if (!activeRoomId) {
-        deps.setPendingMeetScreenShare?.({ roomId, active, userId: uid });
+        deps.setPendingMeetScreenShare?.({ roomId: normRoom, active, userId: uid });
         return;
       }
-      deps.applyMeetScreenShareFromServer?.(roomId, active, uid);
+      deps.applyMeetScreenShareFromServer?.(normRoom, active, uid);
       if (!active) deps.ScreenOverlay?.clear?.();
     };
 

@@ -66,7 +66,6 @@
   let drawRaf = 0;
   let resizeTimer = 0;
   let resizeCanvasRaf = 0;
-  let lastObservedStageHeight = 0;
   let boundPeerWrap = null;
   /** @type {HTMLVideoElement | null} */
   let boundVideoForLayout = null;
@@ -74,7 +73,6 @@
   const videoLayoutHandlers = {
     loadedmetadata: () => resizeCanvas(),
     loadeddata: () => resizeCanvas(),
-    resize: () => resizeCanvas(),
   };
 
   /** @type {{ dragging: boolean, startX: number, startY: number, originLeft: number, originTop: number, pointerId: number } | null} */
@@ -1668,7 +1666,6 @@
     if (!boundVideoForLayout) return;
     boundVideoForLayout.removeEventListener("loadedmetadata", videoLayoutHandlers.loadedmetadata);
     boundVideoForLayout.removeEventListener("loadeddata", videoLayoutHandlers.loadeddata);
-    boundVideoForLayout.removeEventListener("resize", videoLayoutHandlers.resize);
     boundVideoForLayout = null;
   }
 
@@ -1679,7 +1676,6 @@
     boundVideoForLayout = video;
     video.addEventListener("loadedmetadata", videoLayoutHandlers.loadedmetadata);
     video.addEventListener("loadeddata", videoLayoutHandlers.loadeddata);
-    video.addEventListener("resize", videoLayoutHandlers.resize);
   }
 
   function isStageMirrorViewport(peerWrap) {
@@ -1944,7 +1940,7 @@
     }
 
     bindVideoLayoutEvents(videoEl);
-    if (videoEl?.srcObject) videoEl.play().catch(() => {});
+    if (videoEl?.srcObject && videoEl.paused) videoEl.play().catch(() => {});
 
     boundPeerWrap = { wrap: peerWrap, canvas: canvasEl };
     syncStackClasses();
@@ -1956,31 +1952,15 @@
     return stack;
   }
 
+  /** Overlay pasivo: el CSS rellena el stage; sin ResizeObserver ni resize del vídeo (evita feedback loop). */
   function observeResize() {
-    if (resizeObserver) resizeObserver.disconnect();
-    if (stageResizeObserver) stageResizeObserver.disconnect();
-
-    if (stackEl) {
-      resizeObserver = new ResizeObserver(() => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(resizeCanvas, 50);
-      });
-      resizeObserver.observe(stackEl);
-      if (videoEl) resizeObserver.observe(videoEl);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
     }
-
-    const layoutRoot = wrapEl || stageEl;
-    if (layoutRoot) {
-      lastObservedStageHeight = layoutRoot.clientHeight || 0;
-      stageResizeObserver = new ResizeObserver(() => {
-        const h = layoutRoot?.clientHeight ?? 0;
-        if (h >= 2 && (lastObservedStageHeight < 2 || h !== lastObservedStageHeight)) {
-          resizeCanvas();
-        }
-        lastObservedStageHeight = h;
-        if (fabPos) revalidateFabPosition();
-      });
-      stageResizeObserver.observe(layoutRoot);
+    if (stageResizeObserver) {
+      stageResizeObserver.disconnect();
+      stageResizeObserver = null;
     }
   }
 
@@ -2007,7 +1987,6 @@
     canvasEl = null;
     badgeEl = null;
     boundPeerWrap = null;
-    lastObservedStageHeight = 0;
   }
 
   /** Peer visible para overlay (no usar presenter-ink-source 1×1). */

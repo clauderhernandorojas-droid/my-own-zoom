@@ -11,9 +11,14 @@
   display: none !important;
 }
 
-.room-shell.room-shell--presenter-focus.room-shell--chat-hidden #roomMainChatSplitter,
-.room-shell.room-shell--presenter-focus.room-shell--chat-hidden .room-chat-panel {
+.room-shell.room-shell--presenter-focus.room-shell--chat-hidden #roomMainChatSplitter {
   display: none !important;
+}
+
+.room-shell.room-shell--presenter-focus.room-shell--chat-hidden .room-chat-panel,
+.room-shell.room-shell--presenter-focus.room-shell--chat-css-only-off .room-chat-panel {
+  transform: translateX(100%) !important;
+  pointer-events: none !important;
 }
 
 .room-shell.room-shell--presenter-focus .room-primary {

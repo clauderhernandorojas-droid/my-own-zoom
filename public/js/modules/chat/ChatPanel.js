@@ -7,12 +7,63 @@
   let unsub = null;
   let initialized = false;
 
+  function applyChatOpenDeferredUi(isOpen, hidden) {
+    const $ = deps?.$;
+    const text = hidden ? "Mostrar chat" : "Ocultar chat";
+    const pressed = hidden ? "true" : "false";
+    const btn = $?.("btnToggleChat");
+    if (btn) {
+      btn.textContent = text;
+      btn.setAttribute("aria-pressed", pressed);
+    }
+    const btnInline = $?.("btnToggleChatInline");
+    if (btnInline) {
+      btnInline.textContent = text;
+      btnInline.setAttribute("aria-pressed", pressed);
+    }
+    const btnBar = document.getElementById("btnChatBar");
+    if (btnBar) {
+      btnBar.setAttribute("aria-pressed", pressed);
+      btnBar.setAttribute("aria-label", text);
+      btnBar.classList.toggle("room-tb-btn--chat-open", !hidden);
+    }
+    if (!hidden && global.ChatModule) {
+      global.ChatModule.onActiveThreadChanged(global.ChatModule.getActiveChatThreadKey());
+    }
+  }
+
   function applyChatOpen(isOpen) {
     const hidden = !isOpen;
-    if (deps?.legacySyncHidden) deps.legacySyncHidden(hidden);
+    const inShare =
+      typeof global.isInShareContext === "function" && global.isInShareContext();
+
+    if (inShare) {
+      deps?.legacySyncHidden?.(hidden);
+      const shell = deps?.$?.("roomShell") ?? document.getElementById("roomShell");
+      if (shell) {
+        shell.classList.remove("room-shell--chat-slide-hidden");
+        shell.classList.remove("room-shell--chat-hidden");
+        shell.classList.toggle("room-shell--chat-css-only-off", hidden);
+      }
+      const runDeferred = () => applyChatOpenDeferredUi(isOpen, hidden);
+      global.requestAnimationFrame(() => {
+        global.requestAnimationFrame(() => {
+          if (typeof global.requestIdleCallback === "function") {
+            global.requestIdleCallback(runDeferred, { timeout: 800 });
+          } else {
+            runDeferred();
+          }
+        });
+      });
+      return;
+    }
+
+    deps?.legacySyncHidden?.(hidden);
     const $ = deps?.$;
     const shell = $?.("roomShell");
-    if (shell) shell.classList.toggle("room-shell--chat-hidden", hidden);
+    if (shell) {
+      shell.classList.toggle("room-shell--chat-hidden", hidden);
+    }
     const text = hidden ? "Mostrar chat" : "Ocultar chat";
     const pressed = hidden ? "true" : "false";
     const btn = $?.("btnToggleChat");

@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const jwt = require('jsonwebtoken');
 const { Sequelize } = require('sequelize');
 const { Participa, Reunion, Mensaje, MensajeReaccion, Tablero, Usuario } = require('../models');
@@ -122,6 +123,19 @@ async function obtenerReunionPorRoom(roomId) {
 function sameUsuarioId(a, b) {
   if (a == null || b == null) return false;
   return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+
+/** Sockets locales en sala cuyo userId coincide (evita RemoteSocket sin data en fetchSockets). */
+function findLocalRoomSocketsForUser(io, roomKey, targetUserId, excludeUserId = null) {
+  if (!io?.sockets?.sockets || !roomKey || targetUserId == null) return [];
+  const out = [];
+  for (const sock of io.sockets.sockets.values()) {
+    const uid = sock.data?.userId;
+    if (!uid || !sock.rooms?.has(roomKey)) continue;
+    if (excludeUserId != null && sameUsuarioId(uid, excludeUserId)) continue;
+    if (sameUsuarioId(uid, targetUserId)) out.push(sock);
+  }
+  return out;
 }
 
 function socketCanShareMeetingContent(socket, reunion) {
@@ -515,10 +529,17 @@ function attachSocketIO(io) {
         const tipoMsg = tipo === 'privado' ? 'privado' : 'general';
         let destinatario = null;
         if (tipoMsg === 'privado') {
-          destinatario = destinatarioUsuarioId || reunion.docenteUsuarioId;
-          const esDocente = sameUsuarioId(userId, reunion.docenteUsuarioId);
-          if (!esDocente && !sameUsuarioId(destinatario, reunion.docenteUsuarioId)) {
-            cb?.({ ok: false, error: 'Privado solo hacia el docente' });
+          destinatario = destinatarioUsuarioId;
+          if (!destinatario) {
+            cb?.({ ok: false, error: 'Destinatario requerido para mensaje privado' });
+            return;
+          }
+          if (sameUsuarioId(destinatario, userId)) {
+            cb?.({ ok: false, error: 'No puedes enviarte un mensaje privado a ti mismo' });
+            return;
+          }
+          if (!(await usuarioEnReunion(destinatario, reunion.reunionId))) {
+            cb?.({ ok: false, error: 'Destinatario no participa en esta reunión' });
             return;
           }
         }
@@ -558,14 +579,24 @@ function attachSocketIO(io) {
           ],
         });
 
+        const plainMensaje =
+          full && typeof full.get === 'function' ? full.get({ plain: true }) : full;
+
         if (tipoMsg === 'general') {
-          io.to(normRoomId(roomId)).emit('chat:message', { mensaje: full });
+          io.to(normRoomId(roomId)).emit('chat:message', { mensaje: plainMensaje });
         } else {
-          const sockets = await io.fetchSockets();
-          const targets = sockets.filter(
-            (s) => s.data.userId === destinatario || s.data.userId === userId
-          );
-          targets.forEach((s) => s.emit('chat:message', { mensaje: full }));
+          const roomKey = normRoomId(roomId);
+          let recipientSockets = findLocalRoomSocketsForUser(io, roomKey, destinatario, userId);
+          if (!recipientSockets.length) {
+            const roomSockets = await io.in(roomKey).fetchSockets();
+            recipientSockets = roomSockets.filter(
+              (s) =>
+                sameUsuarioId(s.data?.userId, destinatario) &&
+                !sameUsuarioId(s.data?.userId, userId)
+            );
+          }
+          socket.emit('chat:message', { mensaje: plainMensaje });
+          recipientSockets.forEach((s) => s.emit('chat:message', { mensaje: plainMensaje }));
         }
         cb?.({ ok: true, mensajeId: mensaje.mensajeId });
       } catch (e) {

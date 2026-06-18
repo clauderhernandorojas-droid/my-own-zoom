@@ -143,27 +143,27 @@
 
 
   function syncLayoutFromStore() {
-
     deps?.scheduleRemoteScreenLayoutUpdate?.();
-
     deps?.updateShareControlsForRole?.();
-
     deps?.renderShareMenu?.();
-
   }
 
-
-
   function init(options = {}) {
-
     deps = options;
-
     if (!global.AppState) return;
-
-    global.AppState.subscribe((s) => s.share, () => syncLayoutFromStore());
-
+    const shareLayoutKey = (s) => {
+      const sh = s.share || {};
+      return [
+        sh.active,
+        sh.isLocalShareActive,
+        sh.isRemoteShareActive,
+        sh.ownerId,
+        sh.remoteSharerUserId,
+        sh.localOwnerId,
+      ].join("|");
+    };
+    global.AppState.subscribe(shareLayoutKey, () => syncLayoutFromStore());
     global.AppState.subscribe((s) => s.ui.currentLayout, () => syncLayoutFromStore());
-
   }
 
 

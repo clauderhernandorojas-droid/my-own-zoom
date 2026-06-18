@@ -231,7 +231,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       | `screenshare-annotate:*` | ScreenShareSocketBridge | — | `ScreenOverlay.applyRemoteState` |
       | `board:presentation` | index.html (dominio tablero) | — | `applyBoardPresentationFromServer` |
 
-      **Regla congelada:** ningún módulo de chat escribe `share.*`; ningún módulo de share escribe `chat.*` excepto [`crossDomainEffects.js`](public/js/store/crossDomainEffects.js) (`CHAT_SET_OPEN false` al entrar layout `share`, **sin** resetear `unreadCount`).
+      **Regla congelada:** ningún módulo de chat escribe `share.*`; ningún módulo de share escribe `chat.*` excepto [`crossDomainEffects.js`](public/js/store/crossDomainEffects.js) (`UI_SET_CHAT_OPEN false` al entrar layout `share`, **sin** resetear `unreadCount`).
 
       **Avisos share → chat:** `RoomNoticeBus.emitRoomNotice(text)` → evento DOM `moj:room:notice` → `ChatModule.appendRecordingNotice` (si `flags.enableChat`). Share **no** llama a chat directamente.
 
@@ -266,6 +266,8 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     - **Candado de reentrada layout (panel estable en invitado)**: `updateRemoteScreenShareLayout()` en [`index.html`](public/index.html) marca `window.isUpdatingRemoteLayout = true` (try/finally). [`LayoutModule.updateFromStore`](public/js/modules/LayoutModule.js) **no** agenda `scheduleRemoteScreenLayoutUpdate` mientras la bandera está activa — rompe el bucle trans-frame `layout → syncShareLayout → updateFromStore → layout` (~60 fps) que titilaba el panel y rompía drag/transparencia. Activación del panel: `ParticipantsModule.syncPanel` deduplicado por frame (`panelSyncRaf`); `LayoutModule` difiere `ParticipantsModule.update` tras overlay/stage (doble rAF).
     - **Stage negro transitorio**: [`roomScreenShareLayout.js`](public/js/roomScreenShareLayout.js) no llama `clearStageScreenStream()` si `AppState.isShareActive()` sigue true aunque `viewingRemote` sea false un frame (carrera de `ownerId`).
     - **Minimizar panel**: `FloatPanelModule` conserva `isManuallyMinimized` en `deactivate` salvo `clearMinimizeState: true` (fin share / `teardownPanel` / leave). `activate` y `applyPanelStateFromStore` respetan Store `minimized`.
+    - **Chat privado (DM)**: emisión socket en [`src/socket/index.js`](src/socket/index.js) usa `sameUsuarioId` (no `===`) para autor y destinatario; si no hay sockets conectados, ack `{ ok: false }`. Cliente: claves de hilo `dm:<uuid-minúsculas>` vía `dmThreadKey` en [`chat.js`](public/js/chat.js); visibilidad chat vía `ui.isChatOpen` + `UI_SET_CHAT_OPEN` (no `CHAT_SET_OPEN`). Test: `node scripts/test-chat-dm-thread.cjs`.
+    - **Chat toggle en share (invitado, sin parpadeo de `#roomRemoteScreenVideo`)**: abrir/cerrar chat con `UI_TOGGLE_CHAT` / `UI_SET_CHAT_OPEN` **no** debe disparar `ScreenShareModule.syncLayoutFromStore` ni `refreshSharerVideoFromReceivers` / `assignStageStream`. Causa raíz: el reducer recreaba el objeto `share` (p. ej. nuevo array `pendingRequests`) en cada dispatch → el subscribe a `s.share` detectaba cambio y reasignaba `srcObject` al stage (`emptied`, `readyState: 0`). **Fix:** [`reducer.js`](public/js/store/reducer.js) en acciones de chat devuelve solo `ui.isChatOpen` sin copiar `share`; [`ScreenShareModule.js`](public/js/modules/screenShare/ScreenShareModule.js) suscribe campos layout-relevantes (`active`, `ownerId`, `isLocalShareActive`, …), no el objeto entero. En share, [`ChatPanel.js`](public/js/modules/chat/ChatPanel.js) usa `room-shell--chat-css-only-off` (`translateX(100%)`, panel `position: fixed`, flex basis 0 en [`screenOverlay.css`](public/css/screenOverlay.css)); `onChatVisibilityChange` / `resizeBoardCanvasToViewport` se omiten cuando `isInShareContext()`.
     - **Regla de acoplamiento**: los módulos **leen** el store vía `subscribe`; las mutaciones van solo por `AppState.dispatch({ type: MojActionTypes.* })`. Evitar llamar `setChatPanelHidden` / `FloatPanelModule.activate` entre módulos.
     - **Módulos y ciclo de vida** (`init` → `update` / subscribe → `destroy` en `leaveRoom`):
       | Módulo | Archivo | Responsabilidad |
@@ -285,10 +287,11 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       |---------------|-------------------|--------------------------|--------------|
       | `presenter-focus` sin modular | oculta `.room-chat-panel` | — | No |
       | `presenter-focus` + `share-layout-modular` + `:not(.chat-hidden)` | oculta | **restaura flex** | Sí (panel fijo derecha) |
-      | `remote-screen-dominant` + modular + `:not(.chat-hidden)` | N/A | restaura flex | Sí |
-      | cualquier share + `.room-shell--chat-hidden` | — | — | No |
+      | `remote-screen-dominant` + modular + `:not(.chat-css-only-off)` | N/A | panel fixed + `translateX(0)` | Sí |
+      | `remote-screen-dominant` + `.room-shell--chat-css-only-off` | N/A | `translateX(100%)` | No (invitado en share) |
+      | cualquier share + `.room-shell--chat-hidden` | — | — | No (galería / legacy) |
 
-      Regla: CSS de share **no** debe tocar `.room-tb-badge` ni controles chat; solo `.room-chat-panel` y layout shell. `LayoutModule.syncShareLayout` aplica `room-shell--share-layout-modular` cuando `ui.currentLayout === 'share'`.
+      Regla: CSS de share **no** debe tocar `.room-tb-badge` ni controles chat; solo `.room-chat-panel` y layout shell. `LayoutModule.syncShareLayout` aplica `room-shell--share-layout-modular` cuando `ui.currentLayout === 'share'`. En share remoto, `ChatPanel` **no** usa `room-shell--chat-hidden` (evita reflow del splitter); solo `room-shell--chat-css-only-off`.
 
       Probe CSS: `({ chatDisplay: getComputedStyle(document.querySelector('.room-chat-panel')).display, shell: roomShell?.className })`
 

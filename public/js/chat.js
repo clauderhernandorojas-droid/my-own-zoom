@@ -37,6 +37,25 @@
     return String(a).toLowerCase() === String(b).toLowerCase();
   }
 
+  function dmThreadKey(userId) {
+    const id = userId != null ? String(userId).trim().toLowerCase() : "";
+    return id ? `dm:${id}` : null;
+  }
+
+  function resolveDmTargetForSend() {
+    const key = activeChatThreadKey;
+    if (key?.startsWith("dm:")) {
+      const thread = chatThreads.get(key) || chatThreads.get(dmThreadKey(key.slice(3)));
+      const peerId = thread?.targetUserId || key.slice(3);
+      if (peerId) return { thread, peerId: String(peerId).trim() };
+    }
+    const active = chatThreads.get(key);
+    if (active?.type === "dm" && active.targetUserId) {
+      return { thread: active, peerId: String(active.targetUserId).trim() };
+    }
+    return null;
+  }
+
   /** Identidad del usuario en sala; null si aún no cargó /api/usuarios/me. */
   function getSelfUserId() {
     const id = deps?.getCurrentUser?.()?.usuarioId;
@@ -143,7 +162,8 @@
         ? m.destinatarioUsuarioId || destinatario?.usuarioId
         : autor?.usuarioId;
       if (peerId) {
-        threadKey = `dm:${peerId}`;
+        threadKey = dmThreadKey(peerId);
+        if (!threadKey) return;
         if (!chatThreads.has(threadKey)) {
           const peer = participantsById?.get(peerId);
           const label = peer?.nombre || `Usuario ${String(peerId).slice(0, 8)}`;
@@ -648,15 +668,9 @@
     sel.appendChild(general);
 
     const currentUser = deps?.getCurrentUser?.();
-    const connectedUserIds = deps?.getConnectedUserIds?.();
     const participantsById = deps?.getParticipantsById?.();
     const userOptions = [...(participantsById?.values() || [])]
-      .filter(
-        (u) =>
-          u?.usuarioId &&
-          u.usuarioId !== currentUser?.usuarioId &&
-          connectedUserIds?.has(u.usuarioId)
-      )
+      .filter((u) => u?.usuarioId && !sameUserId(u.usuarioId, currentUser?.usuarioId))
       .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
     userOptions.forEach((u) => {
       const opt = document.createElement("option");
@@ -669,13 +683,14 @@
 
   function openDmThreadByUserId(userId) {
     if (!userId) return;
-    const key = `dm:${userId}`;
+    const key = dmThreadKey(userId);
+    if (!key) return;
     if (!chatThreads.has(key)) {
       const u = deps?.getParticipantsById?.()?.get(userId);
       chatThreads.set(key, {
         key,
         type: "dm",
-        targetUserId: userId,
+        targetUserId: String(userId).trim(),
         label: u?.nombre || `Usuario ${String(userId).slice(0, 8)}`,
         messages: [],
         unread: 0,
@@ -993,25 +1008,43 @@
     const socket = deps?.getSocket?.();
     const activeRoomId = deps?.getActiveRoomId?.();
     if ((!contenido && !pendingChatAdjunto) || !activeRoomId || !socket) return;
-    const active = chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
+    const dmTarget = resolveDmTargetForSend();
+    const active =
+      dmTarget?.thread || chatThreads.get(activeChatThreadKey) || chatThreads.get("general");
     const payload = {
       roomId: deps.normRoomKey(activeRoomId),
       contenido,
       tipo: "general",
       ...(pendingChatAdjunto || {}),
     };
-    if (active?.type === "dm" && active.targetUserId) {
+    if (dmTarget?.peerId) {
       payload.tipo = "privado";
-      payload.destinatarioUsuarioId = active.targetUserId;
+      payload.destinatarioUsuarioId = dmTarget.peerId;
     }
-    socket.emit("chat:message", payload, (r) => {
-      if (r && !r.ok) deps?.log?.("Chat: " + (r.error || "error"));
-    });
     const input = $("chatInput");
-    if (input) input.value = "";
-    pendingChatAdjunto = null;
-    updateChatAdjuntoPendingUi();
-    deps?.setMediaStatus?.("");
+    const onAck = (err, r) => {
+      const ackErr = err && typeof err === "object" && err.message ? err : null;
+      const resp = r !== undefined ? r : !ackErr && err && typeof err === "object" && "ok" in err ? err : r;
+      if (ackErr) {
+        deps?.setMediaStatus?.("Tiempo de espera agotado al enviar el mensaje");
+        deps?.log?.("Chat: timeout al enviar");
+        return;
+      }
+      if (resp && !resp.ok) {
+        deps?.setMediaStatus?.(resp.error || "No se pudo enviar el mensaje");
+        deps?.log?.("Chat: " + (resp.error || "error"));
+        return;
+      }
+      if (input) input.value = "";
+      pendingChatAdjunto = null;
+      updateChatAdjuntoPendingUi();
+      deps?.setMediaStatus?.("");
+    };
+    if (socket.timeout) {
+      socket.timeout(8000).emit("chat:message", payload, onAck);
+    } else {
+      socket.emit("chat:message", payload, (r) => onAck(null, r));
+    }
   }
 
   function openChatFromBar() {
