@@ -79,6 +79,37 @@
     return shouldMarkUnread(threadKey);
   }
 
+  function isReactionFromOther(reactions) {
+    const selfId = getSelfUserId();
+    if (!selfId) return false;
+    if (!Array.isArray(reactions) || !reactions.length) return true;
+    let sawSelf = false;
+    let sawOther = false;
+    for (const r of reactions) {
+      for (const u of r?.users || []) {
+        const uid = u?.usuarioId;
+        if (uid == null) continue;
+        if (sameUserId(uid, selfId)) sawSelf = true;
+        else sawOther = true;
+      }
+    }
+    if (sawOther) return true;
+    if (sawSelf) return false;
+    return true;
+  }
+
+  function shouldBumpBadgeForRoomNotice(text, options) {
+    const selfId = getSelfUserId();
+    if (!selfId) return false;
+    const actorUserId = options?.actorUserId;
+    if (actorUserId && sameUserId(actorUserId, selfId)) return false;
+    if (/^Tú reaccionó\s/u.test(String(text || "").trim())) return false;
+    if (options?.kind === "roomReaction" || /\sreaccionó\s/u.test(String(text || ""))) {
+      return true;
+    }
+    return shouldMarkUnread("general");
+  }
+
   function findThreadKeyForMessage(mensajeId) {
     const id = String(mensajeId || "").trim();
     if (!id) return null;
@@ -224,11 +255,9 @@
     if (!mensajeId) return;
     const threadKey = findThreadKeyForMessage(mensajeId);
     applyMessageReactionsUpdate(String(mensajeId), payload.reactions);
-    if (threadKey && getSelfUserId() && shouldMarkUnread(threadKey)) {
-      bumpThreadUnread(threadKey, { kind: "reaction", mensajeId: String(mensajeId) });
-    } else if (threadKey && getSelfUserId()) {
-      emitNotify({ kind: "reaction", threadKey, mensajeId: String(mensajeId) });
-    }
+    if (!threadKey || !getSelfUserId()) return;
+    if (!isReactionFromOther(payload.reactions)) return;
+    bumpThreadUnread(threadKey, { kind: "reaction", mensajeId: String(mensajeId) });
   }
 
   function onActiveThreadChanged(threadKey) {
@@ -704,7 +733,7 @@
     renderChatThreadTabs();
   }
 
-  function appendRecordingNotice(text) {
+  function appendRecordingNotice(text, options) {
     ensureGeneralThread();
     const thread = chatThreads.get("general");
     if (!thread) return;
@@ -715,9 +744,10 @@
       marcaTiempo: new Date().toISOString(),
       autor: { nombre: "Sala", usuarioId: null },
     });
-    if (getSelfUserId() && shouldMarkUnread("general")) {
+    if (shouldBumpBadgeForRoomNotice(text, options)) {
       thread.unread = (thread.unread || 0) + 1;
-      emitNotify({ kind: "message", threadKey: "general" });
+      const kind = options?.kind === "roomReaction" ? "reaction" : "message";
+      emitNotify({ kind, threadKey: "general" });
     }
     renderChatThreadTabs();
     renderChatMessages();

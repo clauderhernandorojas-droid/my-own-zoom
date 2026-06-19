@@ -31,12 +31,12 @@
   <script src="/js/historialAcciones.js"></script>
   <script src="/js/calendarController.js"></script>
   <script src="/js/asistenciaLive.js"></script>
-  <script src="/js/chat.js"></script>
+  <script src="/js/chat.js?v=20250618badge"></script>
   <script src="/js/modules/RoomNoticeBus.js?v=20250618a"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js" crossorigin="anonymous"></script>
   <script src="/js/videoEffects.js"></script>
-  <script src="/js/notificaciones.js"></script>
-  <script src="/js/uiBarra.js?v=20250607a"></script>
+  <script src="/js/notificaciones.js?v=20250618badge"></script>
+  <script src="/js/uiBarra.js?v=20250618badge"></script>
   <script src="/js/uiExpulsion.js"></script>
   <script src="/js/uiMiniPlayer.js?v=20250617a"></script>
   <script src="/js/screenShare.js"></script>
@@ -54,7 +54,7 @@
   <script src="/js/uiPresenterFloat.js"></script>
   <script src="/js/uiFloatingDock.js?v=20250614c"></script>
   <script src="/js/roomScreenShareLayout.js?v=20250616a"></script>
-  <script src="/js/modules/chat/ChatPanel.js?v=20250618clean"></script>
+  <script src="/js/modules/chat/ChatPanel.js?v=20250618badge"></script>
   <script src="/js/modules/chat/ChatSocketBridge.js?v=20250618a"></script>
   <script src="/js/modules/chat/index.js?v=20250618a"></script>
   <script src="/js/modules/participants/ParticipantsModule.js?v=20250618a"></script>
@@ -63,7 +63,7 @@
   <script src="/js/modules/screenShare/ScreenShareSocketBridge.js?v=20250618a"></script>
   <script src="/js/modules/NotificationsModule.js?v=20250607a"></script>
   <script src="/js/modules/FloatPanelModule.js?v=20250617a"></script>
-  <script src="/js/modules/ChatRoomUiModule.js?v=20250617a"></script>
+  <script src="/js/modules/ChatRoomUiModule.js?v=20250618badge"></script>
   <script src="/js/modules/ToolbarModule.js?v=20250607a"></script>
   <script src="/js/modules/LayoutModule.js?v=20250617a"></script>
   <script src="/js/WebLayoutOverrides.js?v=20250611a"></script>
@@ -6074,8 +6074,8 @@
       });
     }
 
-    function appendRecordingNotice(text) {
-      if (typeof ChatModule !== "undefined") ChatModule.appendRecordingNotice(text);
+    function appendRecordingNotice(text, options) {
+      if (typeof ChatModule !== "undefined") ChatModule.appendRecordingNotice(text, options);
     }
 
     function renderRoomReactionMenu() {
@@ -9000,13 +9000,7 @@ body.print-calendar-export {
           };
           if (deferMarkRead) {
             requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                if (typeof requestIdleCallback === "function") {
-                  requestIdleCallback(runMarkAllRead, { timeout: 800 });
-                } else {
-                  runMarkAllRead();
-                }
-              });
+              requestAnimationFrame(runMarkAllRead);
             });
           } else {
             runMarkAllRead();
@@ -11619,7 +11613,10 @@ body.print-calendar-export {
             (x) => String(x?.usuarioId || "").trim().toLowerCase() === oid
           );
           const name = oid === sid ? "Tú" : u?.nombre || oid.slice(0, 8);
-          appendRecordingNotice(`${name} reaccionó ${emoji}`);
+          appendRecordingNotice(`${name} reaccionó ${emoji}`, {
+            kind: "roomReaction",
+            actorUserId: userId,
+          });
         });
       });
     }

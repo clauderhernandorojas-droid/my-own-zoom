@@ -13,24 +13,34 @@
     return v > 99 ? "99+" : String(v);
   }
 
-  function updateBadge(totalUnread) {
+  function updateBadge(totalUnreadOrState) {
     if (!badgeEl || !btnChat) return;
-    const n = Number(totalUnread) || 0;
-    if (n <= 0) {
+    let totalUnread = 0;
+    let hasReactionHint = false;
+    if (totalUnreadOrState != null && typeof totalUnreadOrState === "object") {
+      totalUnread = Number(totalUnreadOrState.totalUnread) || 0;
+      hasReactionHint = !!totalUnreadOrState.hasReactionHint;
+    } else {
+      totalUnread = Number(totalUnreadOrState) || 0;
+    }
+    const showBadge = totalUnread > 0 || hasReactionHint;
+    if (!showBadge) {
       badgeEl.textContent = "";
       badgeEl.classList.add("hidden");
       badgeEl.setAttribute("aria-hidden", "true");
-      btnChat.setAttribute(
-        "aria-label",
-        "Abrir chat"
-      );
+      btnChat.setAttribute("aria-label", "Abrir chat");
       return;
     }
-    const label = n === 1 ? "1 mensaje sin leer" : `${n} mensajes sin leer`;
-    badgeEl.textContent = formatBadgeCount(n);
+    if (totalUnread > 0) {
+      const label = totalUnread === 1 ? "1 mensaje sin leer" : `${totalUnread} mensajes sin leer`;
+      badgeEl.textContent = formatBadgeCount(totalUnread);
+      btnChat.setAttribute("aria-label", `Abrir chat (${label})`);
+    } else {
+      badgeEl.textContent = "•";
+      btnChat.setAttribute("aria-label", "Abrir chat (nueva reacción)");
+    }
     badgeEl.classList.remove("hidden");
     badgeEl.setAttribute("aria-hidden", "false");
-    btnChat.setAttribute("aria-label", `Abrir chat (${label})`);
   }
 
   /**

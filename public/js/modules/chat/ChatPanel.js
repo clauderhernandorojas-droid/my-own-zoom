@@ -28,7 +28,7 @@
       btnBar.classList.toggle("room-tb-btn--chat-open", !hidden);
     }
     if (!hidden && global.ChatModule) {
-      global.ChatModule.onActiveThreadChanged(global.ChatModule.getActiveChatThreadKey());
+      global.ChatModule.markAllRead();
     }
   }
 
@@ -146,7 +146,7 @@
     if (!ChatModule || !UiBarra || !Notify) return;
     Notify.init({
       getChatThreads: () => ChatModule.getChatThreads(),
-      onUpdate: (state) => UiBarra.updateBadge(state?.totalUnread),
+      onUpdate: (state) => UiBarra.updateBadge(state),
     });
     UiBarra.mountRoomBottomBar({ onOpenChat: () => toggleFromBar() });
   }

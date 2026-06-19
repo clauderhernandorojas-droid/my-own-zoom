@@ -51,7 +51,7 @@
     barBound = true;
     Notify.init({
       getChatThreads: () => ChatModule.getChatThreads(),
-      onUpdate: (state) => UiBarra.updateBadge(state?.totalUnread),
+      onUpdate: (state) => UiBarra.updateBadge(state),
     });
     UiBarra.mountRoomBottomBar({ onOpenChat: () => toggleFromBar() });
   }

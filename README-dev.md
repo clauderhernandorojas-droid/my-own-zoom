@@ -224,7 +224,8 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       |---------------|--------|----------------|----------------|
       | `chat:message` | [`ChatSocketBridge.js`](public/js/modules/chat/ChatSocketBridge.js) | `CHAT_NOTIFY_BADGE_INCREMENT` (vía `ChatModule.incrementUnreadCount`) | `ChatModule.onIncomingMessage` |
       | `chat:messageDeleted` | ChatSocketBridge | — | `ChatModule.removeChatMessageEverywhere` |
-      | `chat:messageReaction` | ChatSocketBridge | `CHAT_NOTIFY_BADGE_INCREMENT` (guards en chat.js) | `ChatModule.onIncomingReaction` |
+      | `chat:messageReaction` | ChatSocketBridge | — (`bumpThreadUnread` vía bus `moj:chat:notify`) | `ChatModule.onIncomingReaction` |
+      | `room:reaction` | `index.html` (inline) | — (`appendRecordingNotice` + badge) | aviso en hilo `general` |
       | `meet:screenShare` | [`ScreenShareSocketBridge.js`](public/js/modules/screenShare/ScreenShareSocketBridge.js) | `SHARE_*` vía [`ScreenShareOrchestrator`](public/js/modules/screenShare/ScreenShareOrchestrator.js) → `ScreenShareModule.applyRemoteFromServer` | layout + WebRTC en orchestrator |
       | `meet:screenShare:trackRefresh` | ScreenShareSocketBridge | — | `refreshSharerVideoFromReceivers` (deps index) |
       | `meet:screenShare:request` / `:grant` | ScreenShareSocketBridge | `SHARE_*` (grant) | `ScreenShareModule` + [`RoomNoticeBus`](public/js/modules/RoomNoticeBus.js) |
@@ -237,19 +238,21 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 
       **OwnerId:** [`shareState.js`](public/js/store/shareState.js) `MojShareState.getShareOwnerId()` — reemplaza la variable legacy `remoteScreenShareUserId`. Probe: `getShareOwnerId()` o `AppState.getState().share.ownerId`.
 
-      **Legacy deprecado (no borrar aún):** [`notificaciones.js`](public/js/notificaciones.js) / [`NotificationsModule.js`](public/js/modules/NotificationsModule.js) — ya no participan en el badge de sala (`AppState.chat.unreadCount` + `ChatPanel`).
+      **Legacy deprecado (no borrar aún):** [`NotificationsModule.js`](public/js/modules/NotificationsModule.js) es fachada sobre [`notificaciones.js`](public/js/notificaciones.js); el badge de sala **sí** usa este bus (no `AppState.chat.unreadCount`, que aún no está implementado en el reducer).
     - **Notificaciones de chat**:
-      - Ícono burbuja (`#btnChatBar`) = **toggle** (`toggleChatPanel()`) + **badge** (`AppState.chat.unreadCount` vía `updateChatBadge()`).
-      - Separación de responsabilidades: `toggleChatPanel()` solo abre/cierra panel; `updateChatBadge(count)` solo renderiza `.room-tb-badge` (sin tocar `aria-label` del botón; eso lo gestiona `applyChatOpen`).
-      - Entrada socket: `chat:message` y `chat:messageReaction` (doc: `chat:reaction`) → [`chat.js`](public/js/chat.js) `incrementUnreadCount()` con guards (mensaje propio no cuenta; reacción propia no cuenta; reacción con panel abierto no cuenta).
-      - Incremento store: `CHAT_NOTIFY_BADGE_INCREMENT` → subscribe en `ChatPanel.bindBottomBar` → `UiBarra.updateChatBadge()`. **No** hay evento socket `chat:notifyBadgeIncrement`.
-      - Al abrir panel: `CHAT_UNREAD_RESET` + `ChatModule.markAllRead()` (badge → 0).
+      - Ícono burbuja (`#btnChatBar`) = **toggle** (`toggleChatPanel()` / `ChatRoomUiModule.toggleFromBar`) + **badge** (`.room-tb-badge` vía [`uiBarra.js`](public/js/uiBarra.js)).
+      - Flujo: socket / handlers → [`chat.js`](public/js/chat.js) (`bumpThreadUnread`, `appendRecordingNotice`) → bus DOM `moj:chat:notify` → [`notificaciones.js`](public/js/notificaciones.js) (`totalUnread`, `hasReactionHint`) → `ChatRoomUiModule.bindBottomBar` → `UiBarra.updateBadge(state)`.
+      - **Mensajes entrantes:** `shouldIncrementUnreadForIncoming` — no cuenta mensajes propios; sí cuenta si panel oculto o hilo activo distinto.
+      - **Reacciones a mensaje** (`chat:messageReaction`): reacciones de **otros** siempre incrementan `thread.unread` (`isReactionFromOther` + `bumpThreadUnread`), incluso con chat abierto en el mismo hilo.
+      - **Reacción de sala** (`room:reaction` → `appendRecordingNotice`): reacciones ajenas incrementan badge siempre; propias filtradas por `actorUserId` / texto `Tú reaccionó …` (`shouldBumpBadgeForRoomNotice`). Avisos de grabación siguen la regla `shouldMarkUnread("general")`.
+      - **Badge con hint:** si `totalUnread === 0` pero `hasReactionHint`, el badge muestra `•` (`recalcFromThreads` preserva el hint hasta `moj:chat:read`).
+      - Al abrir panel: `ChatModule.markAllRead()` + `moj:chat:read` (badge → 0). En **share**, `ChatPanel.applyChatOpenDeferredUi` y `setChatPanelHidden(false)` llaman `markAllRead` tras rAF×2 (sin `requestIdleCallback` extra).
       - Probe:
         ```js
-        ({ chat: AppState.getState().chat, panelHidden: getChatPanelHidden?.(),
+        ({ panelHidden: getChatPanelHidden?.(), totalUnread: Notificaciones?.getTotalUnread?.(),
            badgeText: document.querySelector("#btnChatBar .room-tb-badge")?.textContent })
         ```
-      - Tests: `npm run test:chat-badge`, `npm run test:chat`.
+      - Tests: `npm run test:chat-toggle`, `npm run test:chat-dm-thread`.
     - **Vista previa local del sharer (regla de diseño)**: quien comparte (presentador **o** invitado autorizado) **siempre** ve su propia captura en `#roomRemoteScreenStage` (`.remote-peer--local-screen-share`). No depende del rol sino de `isLocallySharingScreen()`. Montaje: `enterPresenterFocusUi` (modo sharer local) → `syncLocalSharePreview()` → `mountLocalScreenSharePreviewToStage()`. Fallback vía socket: si llega `meet:screenShare { active:true, userId: myId }` con captura viva, se re-sincroniza el preview. Los **viewers** ven el stream remoto vía `attachRemoteScreenToStage`.
     - **Ciclo de vida de pantalla compartida**:
       - **Sharer** → preview local (`screenShareStream` en stage); **resto** → WebRTC remoto en stage.
@@ -303,7 +306,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
       // Tras meet:screenShare takeover — ownerId cambia, unreadCount intacto
       ({ ownerId: AppState.getState().share.ownerId, unread: AppState.getState().chat.unreadCount })
       ```
-      Escenarios manuales críticos: mensaje + share en paralelo; reacción con panel cerrado durante share; takeover A→presentador→B; grant + notice en chat; entrar share cierra panel conservando badge; toggle chat en share (Electron).
+      Escenarios manuales críticos: mensaje + share en paralelo; reacción toolbar y reacción a mensaje (chat abierto/cerrado) durante share; takeover A→presentador→B; grant + notice en chat; entrar share cierra panel conservando badge; toggle chat en share sin parpadeo de vídeo remoto.
     - **Checklist manual por módulo** (antes de merge):
       - Chat: 2 clics `#btnChatBar` / `#btnToggleChat` alternan; share oculta chat al entrar; reapertura OK.
       - Participantes: panel visible en share con tiles; oculto sin share y al salir de sala; un solo `#webFloatPeersRoot` (sin residuo en galería).
@@ -373,7 +376,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 
   - **Troubleshooting: chat Electron y panel Participantes**:
     - **Botón chat web vs Electron**: web y Electron usan `toggleChatPanel()` — web vía `#btnToggleChat` / `#btnToggleChatInline`; Electron vía `#btnChatBar` ([`uiBarra.js`](public/js/uiBarra.js) → [`ChatRoomUiModule.toggleChatPanel()`](public/js/modules/ChatRoomUiModule.js)). Al abrir: reset badge + `openChatFromBar()`. No hay IPC en `electron/`.
-    - **Badge vs toggle**: el badge lee `AppState.chat.unreadCount` (subscribe); el toggle lee `AppState.chat.isOpen`. No mezclar `updateChatBadge` con `applyChatOpen` (`aria-label` del botón solo en toggle).
+    - **Badge vs toggle**: el badge lee `Notificaciones` → `UiBarra.updateBadge({ totalUnread, hasReactionHint })`; el toggle lee `AppState.ui.isChatOpen`. No mezclar lógica de badge con `applyChatOpen` salvo `markAllRead` al abrir.
     - **Bug presentador share (no abre chat)**: [`presenterFocus.css`](public/css/presenterFocus.css) oculta `.room-chat-panel` con `display: none !important`. Durante share modular, [`layoutShell.css`](public/css/modules/layoutShell.css) debe reaplicar `display: flex !important` cuando `:not(.room-shell--chat-hidden)` — requiere clase `room-shell--share-layout-modular` activa (`LayoutModule.syncShareLayout`).
     - **Probe chat presentador (share)**:
       ```javascript
@@ -829,15 +832,15 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 - **Reacciones**:
   - **Mensajes de chat** con persistencia por BD (`mensaje_reacciones`) y sync por Socket (`chat:reaction:toggle` / `chat:messageReaction`) en general y privados.
   - **Barra rápida de emojis** encima del input de chat (incluye botón `...` para más emojis); si el input está vacío, el emoji se envía como mensaje.
-  - **Reacción de sala** desde toolbar inferior (botón junto a Grabar) con menú emergente (`room:reaction`), visible como aviso en chat general.
+  - **Reacción de sala** desde toolbar inferior (botón junto a Grabar) con menú emergente (`room:reaction`), visible como aviso en chat general; incrementa badge si la reacción es de otro participante (`appendRecordingNotice` + `actorUserId`).
   - **Compatibilidad SQLite en orden de reacciones**: el servidor ordena por `mensajeReaccionId` (no por `createdAt`) para evitar errores en BD locales con esquemas previos.
 - **Responsive sala (ajuste anti-regresión)**: en `max-width: 720px` se mantiene layout horizontal (tablero izquierda, chat derecha), splitter visible y toolbar de tablero vertical; se evita el fallback viejo de chat abajo + toolbar horizontal.
 - **Composer de chat (ajuste anti-regresión)**: `#chatInput` volvió a `textarea`, botones Adjunto/Enviar debajo del input y Enter para enviar (`Shift+Enter` salto de línea).
 - **Chat en sala (`chat.js`, fase 1 + 2)**:
   - **`public/js/chat.js`**: estado de hilos (`chatThreads`, hilo activo), `appendChatLine`, render de mensajes/pestañas, composer (enviar, adjuntos, DnD, barra rápida de emojis), menú contextual, reacciones y avisos de sala (`appendRecordingNotice`). Inicialización: `ChatModule.initChatRoom({ $, api, getToken, ... })` desde `index.html`.
-  - **`notificaciones.js`**: agrega `totalUnread` desde `chatThreads[].unread`; escucha el bus interno.
-  - **`uiBarra.js`**: botón `#btnChatBar` + badge `.room-tb-badge` en `#roomMediaControls`.
-  - **Bus interno en `document`** (no Socket.io): `moj:chat:notify`, `moj:chat:read`. Reglas: no-leído si hilo distinto al activo **o** panel oculto; **sin badge en mensajes propios** (`shouldIncrementUnreadForIncoming`: compara `autorId` con `getSelfUserId()`).
+  - **`notificaciones.js`**: agrega `totalUnread` desde `chatThreads[].unread`; preserva `hasReactionHint` en `recalcFromThreads`; escucha el bus interno.
+  - **`uiBarra.js`**: botón `#btnChatBar` + badge `.room-tb-badge` en `#roomMediaControls` (número o `•` si solo hay hint de reacción).
+  - **Bus interno en `document`** (no Socket.io): `moj:chat:notify`, `moj:chat:read`. Mensajes: no-leído si hilo distinto al activo **o** panel oculto; **sin badge en mensajes propios** (`shouldIncrementUnreadForIncoming`). Reacciones ajenas (mensaje o toolbar) incrementan badge aunque el chat esté abierto en el mismo hilo.
   - **Identidad antes del socket**: `ensureCurrentUserLoaded()` en `index.html` carga `/api/usuarios/me` en `enterRoom` (y `init()` restaura sesión antes de `initChatModule()`). Si aún falta `usuarioId`, el chat **no incrementa unread** ni emite notify (degradación segura en `chat.js`).
   - **`index.html`**: glue de sala (socket, `loadParticipantsForRoom`, `setChatPanelHidden`, WebRTC); delega chat a `ChatModule`. CSS de `.room-chat-panel`: overflow contenido, composer fijo, scroll en historial y slot de adjunto pendiente.
 - **Efectos de vídeo local (`videoEffects.js`)**:
@@ -985,7 +988,7 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
 | **Adjuntos de chat**: subida HTTP; mensaje con metadatos vía Socket; comprobación de que el fichero exista en disco antes de persistir | `src/routes/reuniones.js`, `src/socket/index.js`, `src/services/chatAdjuntos.js`, `GET .../mensajes/adjunto/...` |
 | **Reacciones de mensaje** (toggle por usuario/emoji, persistencia y broadcast) | `src/socket/index.js`, `src/models/mensajeReaccion.js`, `src/routes/mensajes.js`, `public/index.html` |
 | **Reacción de sala** desde toolbar inferior | `room:reaction` en `src/socket/index.js`, menú `roomReactionMenu` en `public/index.html` |
-| **Notificaciones de chat en barra inferior** (badge sin falsos positivos en eco propio; identidad cargada antes del socket) | `ensureCurrentUserLoaded`, `getSelfUserId`, `shouldIncrementUnreadForIncoming` en `public/js/chat.js` + `public/index.html`; bus `moj:chat:notify` / `notificaciones.js` / `uiBarra.js` |
+| **Notificaciones de chat en barra inferior** (badge: mensajes + reacciones ajenas; sin eco propio; `markAllRead` al abrir en share) | `isReactionFromOther`, `shouldBumpBadgeForRoomNotice`, `bumpThreadUnread` en [`public/js/chat.js`](public/js/chat.js); bus `moj:chat:notify` / [`notificaciones.js`](public/js/notificaciones.js) / [`uiBarra.js`](public/js/uiBarra.js) |
 | **Layout del panel de chat con adjunto pendiente** (composer visible sobre toolbar inferior) | CSS `.room-chat-panel` en `public/index.html`: `#chatBox` scroll + `.chat-compose` fijo + `.chat-adjunto-pending-slot` con altura máxima |
 | **room_id** único por reunión (UUID), búsqueda case-insensitive en sala | normalización `normRoomId` / `findReunionByRoomKey` |
 | JWT en cabecera para API; token también para Socket (`auth` o `query`) | `src/middleware/auth.js`, `src/socket/index.js` |

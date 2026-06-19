@@ -12,11 +12,12 @@
   let getChatThreads = null;
 
   function recalcFromThreads() {
+    const keepReactionHint = hasReactionHint;
     byThread.clear();
     totalUnread = 0;
-    hasReactionHint = false;
     const threads = getChatThreads?.();
     if (!threads || typeof threads.forEach !== "function") {
+      hasReactionHint = keepReactionHint;
       onUpdateCb?.({ totalUnread, byThread, hasReactionHint });
       return;
     }
@@ -27,6 +28,7 @@
         totalUnread += n;
       }
     });
+    hasReactionHint = keepReactionHint;
     onUpdateCb?.({ totalUnread, byThread, hasReactionHint });
   }
 
