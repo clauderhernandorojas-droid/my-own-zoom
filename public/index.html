@@ -613,6 +613,16 @@
       transform: translateX(100%) !important;
       pointer-events: none !important;
     }
+    /* Galería/tablero: chat oculto deja de reservar columna flex (share remoto/presentador usan screenOverlay.css / layoutShell.css) */
+    .room-shell:not(.room-shell--remote-screen-dominant):not(.room-shell--presenter-focus).room-shell--chat-hidden .room-chat-panel,
+    .room-shell:not(.room-shell--remote-screen-dominant):not(.room-shell--presenter-focus).room-shell--chat-slide-hidden .room-chat-panel,
+    .room-shell:not(.room-shell--remote-screen-dominant):not(.room-shell--presenter-focus).room-shell--chat-css-only-off .room-chat-panel {
+      flex: 0 0 0 !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      max-width: 0 !important;
+      border-left: none;
+    }
     .room-chat-panel {
       flex: 0 0 var(--room-chat-width);
       width: var(--room-chat-width);

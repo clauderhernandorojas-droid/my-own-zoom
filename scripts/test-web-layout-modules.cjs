@@ -473,7 +473,7 @@ if (/isModularShareLayoutEligible\?\(\)\)\s*\{[\s\S]{0,80}UiFloatingDock\?\.acti
 }
 
 const indexHtml = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
-if (!indexHtml.includes("screenOverlay.js?v=20250617b")) {
+if (!indexHtml.includes("screenOverlay.js?v=20250618d")) {
   console.error("index.html: screenOverlay.js cache-bust missing");
   failed++;
 }
@@ -483,6 +483,22 @@ if (!indexHtml.includes("annotationCore.js?v=20250617a")) {
 }
 if (!indexHtml.includes("onEnterRoom")) {
   console.error("index.html: showRoom must call WebLayoutOverrides.onEnterRoom");
+  failed++;
+}
+if (
+  !/room-shell:not\(\.room-shell--remote-screen-dominant\):not\(\.room-shell--presenter-focus\)\.room-shell--chat-hidden[\s\S]{0,400}flex:\s*0\s+0\s+0\s*!important/.test(
+    indexHtml
+  )
+) {
+  console.error("index.html: gallery/board chat-hidden must collapse chat panel flex basis");
+  failed++;
+}
+if (
+  !/room-shell:not\(\.room-shell--remote-screen-dominant\):not\(\.room-shell--presenter-focus\)\.room-shell--chat-css-only-off[\s\S]{0,400}width:\s*0\s*!important/.test(
+    indexHtml
+  )
+) {
+  console.error("index.html: chat-css-only-off outside share must collapse chat panel width");
   failed++;
 }
 
