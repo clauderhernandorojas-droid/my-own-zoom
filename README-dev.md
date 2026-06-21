@@ -902,7 +902,15 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
     | `npm run electron:desktop` | Fork de `server.js` si no hay health (`MOJ_ELECTRON_EMBED_SERVER=1`) |
     | `npm run electron:dev:hot` | Electron con recarga solo de `main.js`/`preload.js` (`MOJ_ELECTRON_RELOAD=1`) |
     | `npm run electron-start` | Alias de `electron:start` |
-  - **Variables** (`MOJ_ELECTRON_*`): `MOJ_ELECTRON_NO_FORK` — sin fork; `MOJ_ELECTRON_EMBED_SERVER` — fork si falta health; `MOJ_APP_URL` — base (default `http://127.0.0.1:3000`); `MOJ_ELECTRON_NO_RELOAD` — sin recarga automática; `MOJ_ELECTRON_RELOAD` — recarga solo main/preload; `MOJ_ELECTRON_DEV_TRUST_HEALTH` — sanity check corto tras `electron:dev`; `MOJ_ELECTRON_HEALTH_WAIT_MS` — espera health en `electron:start` (default 15000); `MOJ_ELECTRON_LOAD_TIMEOUT_MS` — timeout solo del bootstrap inicial (default 60000); `MOJ_ELECTRON_DEBUG` — logs de health y `loadURL`; `MOJ_ELECTRON_DEVTOOLS` — abre DevTools; `MOJ_ELECTRON_DEV_WAIT_MS` — timeout del orquestador dev (120000); `MOJ_ELECTRON_DEV_KEEP_SERVER` — no matar `npm start` al cerrar Electron si lo inició `electron:dev`.
+    | `npm run electron:dist` | **Instalador Windows (NSIS)** vía `electron-builder`; cliente apunta a Render en producción |
+  - **Producción empaquetada (Render)** — el `.exe` instalado **no** arranca `server.js` local ni exige `/health` en `127.0.0.1:3000`:
+    - Si `app.isPackaged === true` y no hay `MOJ_APP_URL`, [`main.js`](main.js) usa por defecto `https://my-own-zoom-final.onrender.com`.
+    - Si `APP_URL` empieza por `https://`, `ensureServerRunning()` **omite** el health check local y carga la UI remota directamente.
+    - Permisos de cámara/micrófono/`display-capture`: además de localhost, se permiten orígenes en `https://my-own-zoom-final.onrender.com` (`isAllowedMediaOrigin`).
+    - API y Socket.IO en el renderer: **same-origin** con la URL cargada (Electron ignora `localStorage.moj_api_origin` remoto).
+    - Build incluye `preload.js` y `electron/**/*` (p. ej. [`electron/screenShareIpc.cjs`](electron/screenShareIpc.cjs)).
+    - Compilar: `npm run electron:dist` → artefactos en `dist/` (no versionados).
+  - **Variables** (`MOJ_ELECTRON_*`, `MOJ_APP_URL`): `MOJ_APP_URL` — base de carga (`http://127.0.0.1:3000` en dev sin empaquetar; Render en `.exe`); `MOJ_ELECTRON_NO_FORK` — sin fork; `MOJ_ELECTRON_EMBED_SERVER` — fork si falta health (solo dev/local); `MOJ_ELECTRON_NO_RELOAD` — sin recarga automática; `MOJ_ELECTRON_RELOAD` — recarga solo main/preload; `MOJ_ELECTRON_DEV_TRUST_HEALTH` — sanity check corto tras `electron:dev`; `MOJ_ELECTRON_HEALTH_WAIT_MS` — espera health en `electron:start` (default 15000); `MOJ_ELECTRON_LOAD_TIMEOUT_MS` — timeout solo del bootstrap inicial (default 60000); `MOJ_ELECTRON_DEBUG` — logs de health y `loadURL`; `MOJ_ELECTRON_DEVTOOLS` — abre DevTools; `MOJ_ELECTRON_DEV_WAIT_MS` — timeout del orquestador dev (120000); `MOJ_ELECTRON_DEV_KEEP_SERVER` — no matar `npm start` al cerrar Electron si lo inició `electron:dev`.
   - **Diagnóstico (Windows)** — si `/health` responde en el navegador pero Electron no muestra login:
     1. Esperar en consola del servidor: `Servidor en http://localhost:3000` antes de `electron:start`.
     2. Probar `curl http://127.0.0.1:3000/health` y `curl http://localhost:3000/health`.
@@ -911,14 +919,14 @@ Validación Fase C (resumen): tras flush + reinicio, `metrics.session.source: "d
   - **Síntomas**:
     | Lo que ves | Causa habitual |
     |------------|----------------|
-    | Mensaje de error en ventana + diálogo | Health no alcanzable desde el proceso main (servidor aún iniciando, puerto distinto, o un solo ping antes del fix) |
+    | Mensaje «No hay servidor en http://127.0.0.1:3000/health» | `.exe` antiguo o dev sin `npm start`; en **empaquetado** debe cargar Render (ver «Producción empaquetada»). En dev: `npm start` o `electron:desktop` |
     | Pantalla oscura “Comprobando servidor…” fija | `loadURL` no completó; ver `MOJ_ELECTRON_DEBUG` |
     | Ventana blanca tras cargar | `electron-reload` recargó `public/` o fallo CDN en DevTools (post-carga) |
     | **Timeout 30 s en plena reunión** (`Timeout cargando URL…`) | Timer de bootstrap en `loadAppUrl` expiró tarde y forzó navegación de error (corregido: `appBootstrapComplete`, sin `loadURL` tras bootstrap). Confirmar con `MOJ_ELECTRON_DEBUG=1` que aparece `Bootstrap completado` antes de 60 s |
     | `room:leave` en servidor sin salir manualmente | Suele ser navegación forzada del main frame o cierre de pestaña; revisar si coincide con el timeout anterior |
     | Electron se cierra al instante | Puerto 3000 con dos `npm start` (menos frecuente tras quitar `concurrently -k`) |
   - **Errores de arranque**: sin servidor y `NO_FORK`, ventana + `dialog` (no salida silenciosa). Logs `[electron] Esperando /health…` / `[electron] Cargando http://…`.
-  - **Permisos**: `session.setPermissionRequestHandler` para `media` / `display-capture` en localhost; macOS pide acceso OS con `askForMediaAccess`. Windows: Configuración → Privacidad → Cámara/Micrófono → Electron.
+  - **Permisos**: `session.setPermissionRequestHandler` para `media` / `display-capture` en **localhost** y en **`https://my-own-zoom-final.onrender.com`** (cliente empaquetado); macOS pide acceso OS con `askForMediaAccess`. Windows: Configuración → Privacidad → Cámara/Micrófono → Electron.
   - **Preload**: `window.__MOJ_ELECTRON = true` → API/socket **same-origin** (ignora `localStorage.moj_api_origin` remoto). `window.mojElectron.getDesktopSources()` / `notifyScreenSourceSelected()` — solo IPC; sin `nodeIntegration`.
   - **Compartir pantalla (Electron)** — [`electron/screenShareIpc.cjs`](electron/screenShareIpc.cjs) + [`public/js/screenShare.js`](public/js/screenShare.js):
     - En Electron, el flujo es **Compartir → Pantalla** (el botón principal solo abre el menú; el modal no aparece si solo pulsas «Compartir»).
@@ -1084,7 +1092,7 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `public/js/tableroSeleccion.js` | Subcapa de selección del tablero: estado (Set), hit-tests (text/image/stroke), drag-box (marquee), helpers de bounds, `getResizeTransform` para resize de elemento o grupo — selección **local**, no se serializa por socket |
 | `public/js/tableroSnap.js` | Snap y guías de alineación durante arrastre: `snapTranslation`, `configure({ thresholdPx })` — puro, sin socket |
 | `preload.js` | Preload Electron: `__MOJ_ELECTRON`, `mojElectron` (fuentes de pantalla vía IPC) |
-| `main.js` | Electron: health IPv4 con reintentos, `loadAppUrl` con timeout, reload opt-in, carga `http://127.0.0.1:3000` |
+| `main.js` | Electron: health local (dev), skip health si `APP_URL` es `https://`, Render por defecto si `app.isPackaged`, permisos medios localhost + Render |
 | `electron/screenShareIpc.cjs` | `desktopCapturer.getSources` + IPC `moj:get-desktop-sources` |
 | `public/js/screenShare.js` | Modal de selección de pantalla/ventana + captura en Electron |
 | `public/css/screenShare.css` | Estilos del picker de fuentes de escritorio |
@@ -1113,6 +1121,7 @@ El registro público (`POST /api/auth/register`) sigue creando cuentas **`estudi
 | `npm run electron-start` | Alias de `electron:start` |
 | `npm run electron:dev` | Orquestador: health → `npm start` condicional → Electron (`TRUST_HEALTH`, `NO_RELOAD`) |
 | `npm run electron:dev:hot` | Electron con `MOJ_ELECTRON_RELOAD=1` (solo `main.js`/`preload.js`) |
+| `npm run electron:dist` | `electron-builder --windows` — instalador NSIS; cliente apunta a `https://my-own-zoom-final.onrender.com` |
 
 **Módulos cliente de sala** (cargados desde `public/index.html`): `tableroSeleccion.js`, `tableroSnap.js`, `videoEffects.js`, `uiExpulsion.js`, `uiMiniPlayer.js`, `screenShare.js`, `meetingMedia.js`, `meetingAudioPolicy.js` + `public/css/uiMiniPlayer.css`, `public/css/screenShare.css`.
 

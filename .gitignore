@@ -1,6 +1,7 @@
 node_modules/
 .cursor/
 .env
+dist/
 *.sqlite
 *.sqlite-journal
 data/

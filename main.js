@@ -6,7 +6,17 @@ const { app, BrowserWindow, session, systemPreferences, dialog, ipcMain } = requ
 const DEBUG =
   process.env.MOJ_ELECTRON_DEBUG === '1' || process.env.MOJ_ELECTRON_DEBUG === 'true';
 const PORT = Number(process.env.PORT) || 3000;
-const APP_URL = (process.env.MOJ_APP_URL || `http://127.0.0.1:${PORT}`).replace(/\/+$/, '');
+const PRODUCTION_RENDER_APP_URL = 'https://my-own-zoom-final.onrender.com';
+const PRODUCTION_RENDER_ORIGIN = PRODUCTION_RENDER_APP_URL.replace(/\/+$/, '');
+
+function resolveDefaultAppUrl() {
+  if (process.env.MOJ_APP_URL) return process.env.MOJ_APP_URL;
+  if (app.isPackaged) return PRODUCTION_RENDER_APP_URL;
+  return `http://127.0.0.1:${PORT}`;
+}
+
+const APP_URL = resolveDefaultAppUrl().replace(/\/+$/, '');
+
 const TRUST_HEALTH =
   process.env.MOJ_ELECTRON_DEV_TRUST_HEALTH === '1' ||
   process.env.MOJ_ELECTRON_DEV_TRUST_HEALTH === 'true';
@@ -152,6 +162,11 @@ function healthWaitOptions() {
 }
 
 async function ensureServerRunning() {
+  if (APP_URL.startsWith('https://')) {
+    console.log(`[electron] APP_URL remota (${APP_URL}), omitiendo health check local`);
+    return;
+  }
+
   const existing = await anyHealthOk();
   if (existing) {
     console.log(`[electron] Servidor detectado (${existing}), sin fork`);
@@ -201,6 +216,19 @@ function isLocalOrigin(urlOrOrigin) {
   );
 }
 
+function isRenderProductionOrigin(urlOrOrigin) {
+  const s = String(urlOrOrigin || '');
+  try {
+    return new URL(s).origin === PRODUCTION_RENDER_ORIGIN;
+  } catch (_) {
+    return s.startsWith(PRODUCTION_RENDER_ORIGIN);
+  }
+}
+
+function isAllowedMediaOrigin(urlOrOrigin) {
+  return isLocalOrigin(urlOrOrigin) || isRenderProductionOrigin(urlOrOrigin);
+}
+
 function normalizeLocalOrigin(origin) {
   return String(origin || '')
     .replace(/^http:\/\/127\.0\.0\.1/i, 'http://localhost')
@@ -221,7 +249,8 @@ function localOriginsMatch(targetUrl, loadedUrl) {
 function setupMediaPermissions() {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const url = details?.requestingUrl || webContents.getURL();
-    if (!isLocalOrigin(url)) {
+    const allowed = isAllowedMediaOrigin(url);
+    if (!allowed) {
       callback(false);
       return;
     }
@@ -233,7 +262,7 @@ function setupMediaPermissions() {
   });
 
   session.defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
-    if (!isLocalOrigin(requestingOrigin)) return false;
+    if (!isAllowedMediaOrigin(requestingOrigin)) return false;
     return MEDIA_PERMISSIONS.has(permission);
   });
 }

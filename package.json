@@ -25,7 +25,24 @@
     "electron:desktop": "cross-env MOJ_ELECTRON_EMBED_SERVER=1 MOJ_ELECTRON_NO_RELOAD=1 electron .",
     "electron:dev": "node scripts/electron-dev.cjs",
     "electron:dev:hot": "cross-env MOJ_ELECTRON_NO_FORK=1 MOJ_ELECTRON_RELOAD=1 electron .",
-    "electron-start": "npm run electron:start"
+    "electron-start": "npm run electron:start",
+    "electron:dist": "cross-env MOJ_APP_URL=https://my-own-zoom-final.onrender.com electron-builder --windows"
+  },
+  "build": {
+    "appId": "com.clauder.myownzoom",
+    "productName": "My Own Zoom",
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "electron/**/*",
+      "main.js",
+      "preload.js",
+      "server.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   },
   "engines": {
     "node": ">=18"
@@ -47,6 +64,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^42.3.0",
+    "electron-builder": "^26.15.3",
     "electron-reload": "^2.0.0-alpha.1",
     "socket.io-client": "^4.8.3",
     "wait-on": "^8.0.5"
