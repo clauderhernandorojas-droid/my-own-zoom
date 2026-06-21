@@ -2125,6 +2125,44 @@
       margin-top: 1rem;
       flex-wrap: wrap;
     }
+    .calendar-print-preview-modal__card {
+      width: min(920px, 96vw);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      padding: 0.75rem 0.85rem 0.85rem;
+      overflow: hidden;
+    }
+    .calendar-print-preview-modal__card h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .calendar-print-preview-modal__frame-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+    #calendarPrintPreviewFrame {
+      display: block;
+      width: 100%;
+      min-height: 70vh;
+      border: 0;
+      background: #ffffff;
+    }
+    .calendar-print-preview-modal__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.65rem;
+      margin-top: 0.65rem;
+      flex-shrink: 0;
+      position: static;
+      background: transparent;
+      padding-top: 0;
+    }
     .scheduled-list {
       margin-top: 0.65rem;
       display: grid;
@@ -2850,6 +2888,25 @@
       </div>
     </div>
   </div>
+  <div
+    id="calendarPrintPreviewModal"
+    class="profile-modal hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="calendarPrintPreviewModalTitle"
+  >
+    <div class="profile-modal__backdrop" id="calendarPrintPreviewModalBackdrop"></div>
+    <div class="profile-modal__card calendar-print-preview-modal__card">
+      <h3 id="calendarPrintPreviewModalTitle">Vista previa de impresión</h3>
+      <div class="calendar-print-preview-modal__frame-wrap">
+        <iframe id="calendarPrintPreviewFrame" title="Vista previa del calendario para imprimir"></iframe>
+      </div>
+      <div class="calendar-print-preview-modal__actions">
+        <button type="button" id="btnCalendarPrintPreviewClose" class="btn-ghost">Cerrar</button>
+        <button type="button" id="btnCalendarPrintPreviewPrint" class="btn-primary">Imprimir</button>
+      </div>
+    </div>
+  </div>
 
   <section id="roomSection" class="hidden">
     <div class="room-shell" id="roomShell">
@@ -3257,7 +3314,7 @@
 
     const LS = "moj_token";
     const API_ORIGIN_STORAGE_KEY = "moj_api_origin";
-    const DEFAULT_RENDER_API_ORIGIN = "https://lc-zoom.onrender.com";
+    const DEFAULT_RENDER_API_ORIGIN = "https://my-own-zoom-final.onrender.com";
     const isLikelyRenderHost = () =>
       typeof location !== "undefined" && /\.onrender\.com$/i.test(String(location.hostname || ""));
     function isElectronClient() {
@@ -6984,6 +7041,170 @@
         .replace(/"/g, "&quot;");
     }
 
+    function getCalendarPrintLayoutRules(forScreenPreview) {
+      const root = forScreenPreview ? "body.print-calendar-export.print-calendar-screen-preview" : "";
+      const s = (sel) => {
+        if (!root) return sel;
+        if (sel.startsWith(".print-calendar-export ")) {
+          return `${root} ${sel.slice(".print-calendar-export ".length)}`;
+        }
+        return `${root} ${sel}`;
+      };
+      const pageRoot = forScreenPreview
+        ? "body.print-calendar-export.print-calendar-screen-preview"
+        : "html,\n  body,\n  body.print-calendar-export";
+      return `
+  ${pageRoot} {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  ${forScreenPreview ? root : "body.print-calendar-export"} {
+    padding: 0.2rem 0.35rem 0.35rem !important;
+  }
+  ${s(".print-calendar-export h1")} {
+    font-size: 0.82rem !important;
+    margin: 0 0 0.12rem !important;
+    color: #000000 !important;
+  }
+  ${s(".print-calendar-export .print-calendar-meta")} {
+    font-size: 0.62rem !important;
+    margin: 0 0 0.35rem !important;
+    color: #000000 !important;
+  }
+  ${s(".home-calendar-panels")} {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.3rem !important;
+  }
+  ${s(".home-calendar-month-wrap")} {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  ${s(".home-calendar-month-wrap .calendar-month-title")} {
+    font-size: 0.72rem !important;
+    margin: 0 0 0.2rem !important;
+    color: #000000 !important;
+  }
+  ${s(".calendar-grid")} {
+    gap: 0.08rem !important;
+  }
+  ${s(".calendar-grid--week")} {
+    font-size: 0.52rem !important;
+    margin-bottom: 0.15rem !important;
+    color: #000000 !important;
+    font-weight: 600 !important;
+  }
+  ${s(".calendar-day")}, ${s(".calendar-day.calendar-day--session-ok")}, ${s(".calendar-day.calendar-day--session-miss")}, ${s(".calendar-day.calendar-day--session-future")}, ${s(".calendar-day.calendar-day--general-mark")}, ${s(".calendar-day.calendar-day--today")} {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  ${s(".calendar-day")} {
+    font-size: 0.62rem !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    min-height: auto;
+  }
+  ${s(".calendar-day:not(.calendar-day--empty)")} {
+    min-height: 70px !important;
+    padding: 3px 2px 4px !important;
+    background: #e0f2fe !important;
+    border: 1px solid #7dd3fc !important;
+    color: #000000 !important;
+  }
+  ${s(".calendar-day--empty")} {
+    min-height: 34px !important;
+    opacity: 1 !important;
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+  ${s(".calendar-day__inner")} {
+    gap: 3px !important;
+    justify-content: flex-start !important;
+  }
+  ${s(".calendar-day__times")} {
+    justify-content: flex-start !important;
+    gap: 2px !important;
+  }
+  ${s(".calendar-day__num")} {
+    font-size: 0.58rem !important;
+    font-weight: 700 !important;
+    line-height: 1.1 !important;
+    color: #000000 !important;
+  }
+  ${s(".calendar-day__time")} {
+    font-size: 0.45rem !important;
+    line-height: 1.2 !important;
+    font-weight: 600 !important;
+    color: #1e3a8a !important;
+    word-break: break-word;
+  }
+  ${s(".calendar-day.calendar-day--session-future")}, ${s(".calendar-day.calendar-day--general-mark")} {
+    background: #e0f2fe !important;
+    border: 1px solid #7dd3fc !important;
+    color: #000000 !important;
+  }
+  ${s(".calendar-day.calendar-day--session-ok")} {
+    background: #dcfce7 !important;
+    border: 1px solid #86efac !important;
+    color: #000000 !important;
+  }
+  ${s(".calendar-day.calendar-day--session-miss")} {
+    background: #fee2e2 !important;
+    border: 1px solid #fca5a5 !important;
+    color: #000000 !important;
+  }
+  ${s(".calendar-day.calendar-day--today")} {
+    font-weight: 700 !important;
+    box-shadow: none !important;
+    outline: 1px solid #1e3a8a !important;
+    outline-offset: -1px;
+  }
+  ${s(".calendar-day--reag-marker .calendar-day__num::after")} {
+    color: #000000 !important;
+    text-shadow: none !important;
+    opacity: 1 !important;
+  }
+  ${s(".print-report-summary")} {
+    margin-top: 0.35rem !important;
+    padding-top: 0.35rem !important;
+    border-top: 1px solid #e2e8f0 !important;
+    color: #000000 !important;
+  }
+  ${s(".print-report-summary__title")} {
+    font-size: 0.68rem !important;
+    margin: 0.25rem 0 0.15rem !important;
+    color: #000000 !important;
+  }
+  ${s(".print-report-summary__note")}, ${s(".print-report-summary__empty")} {
+    color: #000000 !important;
+  }
+  ${s(".print-report-table")} {
+    font-size: 0.5rem !important;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+  ${s(".print-report-table th")}, ${s(".print-report-table td")} {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 0.15rem 0.25rem !important;
+    word-break: break-word;
+  }
+  ${s(".print-report-table th")} {
+    font-weight: 700 !important;
+  }
+  ${s(".print-report-live-list")} {
+    font-size: 0.58rem !important;
+    color: #000000 !important;
+  }
+  ${s(".print-report-live-list li")} {
+    color: #000000 !important;
+  }`;
+    }
+
     function getCalendarPrintEmbeddedStyles() {
       return `
 * { box-sizing: border-box; }
@@ -7158,98 +7379,18 @@ body.print-calendar-export {
 }
 @media print {
   @page {
-    size: A4 landscape;
-    margin: 4mm;
+    size: A4 portrait;
+    margin: 5mm;
   }
   * {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    color-adjust: exact !important;
+    -webkit-print-color-adjust: economy !important;
+    print-color-adjust: economy !important;
+    color-adjust: economy !important;
   }
-  body.print-calendar-export {
-    padding: 0.2rem 0.35rem 0.35rem !important;
-    background: #020617 !important;
-  }
-  .print-calendar-export h1 {
-    font-size: 0.82rem !important;
-    margin: 0 0 0.12rem !important;
-  }
-  .print-calendar-export .print-calendar-meta {
-    font-size: 0.62rem !important;
-    margin: 0 0 0.35rem !important;
-  }
-  .home-calendar-panels {
-    gap: 0.45rem !important;
-  }
-  .home-calendar-month-wrap {
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
-  .home-calendar-month-wrap .calendar-month-title {
-    font-size: 0.72rem !important;
-    margin: 0 0 0.2rem !important;
-  }
-  .calendar-grid {
-    gap: 0.12rem !important;
-  }
-  .calendar-grid--week {
-    font-size: 0.58rem !important;
-    margin-bottom: 0.15rem !important;
-  }
-  .calendar-day {
-    font-size: 0.62rem !important;
-    border-radius: 4px !important;
-  }
-  .calendar-day:not(.calendar-day--empty) {
-    min-height: 44px !important;
-    padding: 2px 2px 3px !important;
-  }
-  .calendar-day__inner {
-    gap: 1px !important;
-  }
-  .calendar-day__num {
-    font-size: 0.62rem !important;
-  }
-  .calendar-day__time {
-    font-size: 0.48rem !important;
-    line-height: 1.15 !important;
-    font-weight: 700 !important;
-    color: #bfdbfe !important;
-  }
-  .calendar-day--general-mark,
-  .calendar-day--session-future {
-    background: rgba(37, 99, 235, 0.38) !important;
-    color: #eff6ff !important;
-    border-color: #60a5fa !important;
-  }
-  .calendar-day--session-ok {
-    background: rgba(22, 163, 74, 0.42) !important;
-    color: #ecfdf5 !important;
-    border-color: #4ade80 !important;
-  }
-  .calendar-day--session-miss {
-    background: rgba(185, 28, 28, 0.42) !important;
-    color: #fef2f2 !important;
-    border-color: #f87171 !important;
-  }
-  .print-report-summary {
-    margin-top: 0.35rem !important;
-    padding-top: 0.35rem !important;
-  }
-  .print-report-summary__title {
-    font-size: 0.68rem !important;
-    margin: 0.25rem 0 0.15rem !important;
-  }
-  .print-report-table {
-    font-size: 0.55rem !important;
-  }
-  .print-report-table th,
-  .print-report-table td {
-    padding: 0.15rem 0.25rem !important;
-  }
-  .print-report-live-list {
-    font-size: 0.58rem !important;
-  }
+${getCalendarPrintLayoutRules(false)}
+}
+@media screen {
+${getCalendarPrintLayoutRules(true)}
 }
 `;
     }
@@ -7359,7 +7500,21 @@ body.print-calendar-export {
       return html;
     }
 
+    function closeCalendarPrintPreviewModal() {
+      const modal = $("calendarPrintPreviewModal");
+      const frame = $("calendarPrintPreviewFrame");
+      modal?.classList.add("hidden");
+      if (frame) frame.srcdoc = "";
+    }
+
     function openPrintCalendarPreview(title, subtitle, selectedReunion, agendamientoReunion, reportExtraHtml) {
+      const modal = $("calendarPrintPreviewModal");
+      const frame = $("calendarPrintPreviewFrame");
+      if (!modal || !frame) {
+        log("No se encontró el modal de vista previa de impresión.");
+        return;
+      }
+
       let html = "";
       try {
         const ref = homeCalendarViewDate instanceof Date ? homeCalendarViewDate : new Date();
@@ -7383,7 +7538,7 @@ body.print-calendar-export {
           escapeHtmlForPrint(title) +
           "</title><style>" +
           getCalendarPrintEmbeddedStyles() +
-          "</style></head><body class=\"print-calendar-export\"><h1>" +
+          "</style></head><body class=\"print-calendar-export print-calendar-screen-preview\"><h1>" +
           escapeHtmlForPrint(title) +
           "</h1><p class=\"print-calendar-meta\">" +
           escapeHtmlForPrint(subtitle) +
@@ -7397,46 +7552,16 @@ body.print-calendar-export {
         return;
       }
 
-      const iframe = document.createElement("iframe");
-      iframe.setAttribute("title", "Vista para imprimir calendario");
-      iframe.setAttribute("aria-hidden", "true");
-      iframe.style.cssText =
-        "position:fixed;inset:0;width:100vw;height:100vh;border:0;margin:0;padding:0;opacity:0;pointer-events:none;z-index:-9999;";
-      iframe.srcdoc = html;
+      const titleEl = $("calendarPrintPreviewModalTitle");
+      if (titleEl) titleEl.textContent = title || "Vista previa de impresión";
 
-      const cleanup = () => {
-        try {
-          iframe.remove();
-        } catch (_) {}
+      const onLoad = () => {
+        frame.removeEventListener("load", onLoad);
+        modal.classList.remove("hidden");
+        $("btnCalendarPrintPreviewPrint")?.focus();
       };
-
-      iframe.addEventListener(
-        "load",
-        () => {
-          const win = iframe.contentWindow;
-          if (!win) {
-            cleanup();
-            return;
-          }
-          let printed = false;
-          const runPrint = () => {
-            if (printed) return;
-            printed = true;
-            try {
-              win.focus();
-              win.print();
-            } catch (e) {
-              log("Imprimir calendario: " + (e?.message || e));
-              cleanup();
-            }
-          };
-          win.addEventListener("afterprint", cleanup, { once: true });
-          win.requestAnimationFrame(() => win.requestAnimationFrame(runPrint));
-        },
-        { once: true }
-      );
-
-      document.body.appendChild(iframe);
+      frame.addEventListener("load", onLoad);
+      frame.srcdoc = html;
     }
 
     function printAgendamientoCalendar() {
@@ -12036,6 +12161,31 @@ body.print-calendar-export {
     });
     $("btnCalendarPrintAsistencia")?.addEventListener("click", () => {
       printAsistenciaCalendar();
+    });
+    $("btnCalendarPrintPreviewClose")?.addEventListener("click", () => {
+      closeCalendarPrintPreviewModal();
+    });
+    $("calendarPrintPreviewModalBackdrop")?.addEventListener("click", () => {
+      closeCalendarPrintPreviewModal();
+    });
+    $("btnCalendarPrintPreviewPrint")?.addEventListener("click", () => {
+      const frame = $("calendarPrintPreviewFrame");
+      const win = frame?.contentWindow;
+      if (!win) {
+        log("No hay contenido para imprimir.");
+        return;
+      }
+      try {
+        win.focus();
+        win.print();
+      } catch (e) {
+        log("Imprimir calendario: " + (e?.message || e));
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const modal = $("calendarPrintPreviewModal");
+      if (modal && !modal.classList.contains("hidden")) closeCalendarPrintPreviewModal();
     });
 
     $("btnHomeCalendarPrev")?.addEventListener("click", () => {
