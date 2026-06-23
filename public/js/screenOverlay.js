@@ -147,13 +147,6 @@
     global.addEventListener("pointercancel", onFabPointerUp);
   }
 
-  function onEscapeKey(e) {
-    if (e.key !== "Escape" || !toolbarOpen) return;
-    if (activeTextInput) return;
-    e.preventDefault();
-    setToolbarOpen(false);
-  }
-
   function log(...args) {
     deps?.log?.(...args);
   }
@@ -1591,11 +1584,9 @@
     applyFabPosition();
 
     fabEl.addEventListener("pointerdown", onFabPointerDown);
-    global.addEventListener("keydown", onEscapeKey);
   }
 
   function removeFab() {
-    global.removeEventListener("keydown", onEscapeKey);
     global.removeEventListener("pointermove", onFabPointerMove);
     global.removeEventListener("pointerup", onFabPointerUp);
     global.removeEventListener("pointercancel", onFabPointerUp);
@@ -2061,6 +2052,91 @@
     ensureSyncManager();
   }
 
+  const OVERLAY_LINE_WIDTH_STEPS = [2, 4, 7];
+
+  function shortcutIsToolbarOpen() {
+    return toolbarOpen;
+  }
+
+  function shortcutIsEditingText() {
+    return !!(activeTextInput || activeTextEditor);
+  }
+
+  function shortcutSetTool(tool) {
+    overlayTool = tool;
+    toolbarApi?.setTool?.(tool);
+    syncAnnotateCapture();
+  }
+
+  function shortcutHasSelection() {
+    return (OverlaySel?.getSelectedIndices?.().length ?? 0) > 0;
+  }
+
+  function shortcutClearSelection() {
+    OverlaySel?.clearSelection?.();
+    scheduleDraw();
+  }
+
+  function shortcutCloseToolbar() {
+    setToolbarOpen(false);
+  }
+
+  function shortcutDeleteSelection() {
+    if (!toolbarOpen || overlayTool !== "pointer") return false;
+    const ids = OverlaySel?.getSelectedIndices?.() ?? [];
+    if (ids.length === 0) return false;
+    const toRemove = new Set();
+    for (const i of ids) {
+      const el = overlayState.elementos?.[i];
+      if (!el || el.locked) continue;
+      if (el.type === "text" || el.type === "image" || el.type === "stroke") {
+        toRemove.add(i);
+      }
+    }
+    if (toRemove.size === 0) return false;
+    const next = cloneState(overlayState);
+    next.elementos = next.elementos.filter((_el, idx) => !toRemove.has(idx));
+    OverlaySel?.clearSelection?.();
+    applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
+    OverlaySel?.reconcileAfterStateChange?.(next.elementos.length);
+    return true;
+  }
+
+  function shortcutNudgeSelection(dx, dy) {
+    if (!toolbarOpen || overlayTool !== "pointer" || !Transform?.applyDragTransform) return false;
+    const ids = OverlaySel?.getSelectedIndices?.() ?? [];
+    if (ids.length === 0) return false;
+    const cr = getContentRect();
+    if (!cr.w || !cr.h) return false;
+    const normDx = dx / cr.w;
+    const normDy = dy / cr.h;
+    const movable = ids.filter((i) => {
+      const el = overlayState.elementos?.[i];
+      return el && !el.locked && (el.type === "text" || el.type === "image" || el.type === "stroke");
+    });
+    if (movable.length === 0) return false;
+    const snapshotBefore = cloneState(overlayState);
+    for (const i of movable) {
+      const orig = overlayState.elementos[i];
+      overlayState.elementos[i] = Transform.applyDragTransform(
+        JSON.parse(JSON.stringify(orig)),
+        normDx,
+        normDy
+      );
+    }
+    finishSelectionGesture(snapshotBefore);
+    return true;
+  }
+
+  function shortcutAdjustLineWidth(direction) {
+    if (!toolbarOpen) return false;
+    let i = OVERLAY_LINE_WIDTH_STEPS.indexOf(overlayLineWidth);
+    if (i < 0) i = 1;
+    i = Math.max(0, Math.min(OVERLAY_LINE_WIDTH_STEPS.length - 1, i + direction));
+    overlayLineWidth = OVERLAY_LINE_WIDTH_STEPS[i];
+    return true;
+  }
+
   const ScreenOverlay = {
     init,
     syncWithStage,
@@ -2071,6 +2147,15 @@
     inspectLayout,
     inspectInteractionState,
     getStageMetrics,
+    isToolbarOpen: shortcutIsToolbarOpen,
+    isEditingText: shortcutIsEditingText,
+    setTool: shortcutSetTool,
+    hasSelection: shortcutHasSelection,
+    clearSelection: shortcutClearSelection,
+    closeToolbar: shortcutCloseToolbar,
+    deleteSelection: shortcutDeleteSelection,
+    nudgeSelection: shortcutNudgeSelection,
+    adjustLineWidth: shortcutAdjustLineWidth,
   };
 
   global.ScreenOverlay = ScreenOverlay;

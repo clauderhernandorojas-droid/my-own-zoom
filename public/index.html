@@ -69,6 +69,7 @@
   <script src="/js/WebLayoutOverrides.js?v=20250611a"></script>
   <script src="/js/PencilFabToolbar.js?v=20250607a"></script>
   <script src="/js/screenOverlay.js?v=20250618d"></script>
+  <script src="/js/roomKeyboardShortcuts.js?v=20250622a"></script>
   <script src="/js/reporteAsistenciaPrint.js"></script>
   <style>
     :root {
@@ -11837,6 +11838,7 @@ ${getCalendarPrintLayoutRules(true)}
               const initialMeetView = "gallery";
               setMeetView(initialMeetView);
               showRoom();
+              initRoomKeyboardShortcuts();
               if (initialMeetView === "gallery") {
                 setChatPanelHidden(true);
                 const shell = document.getElementById("roomShell");
@@ -11919,6 +11921,9 @@ ${getCalendarPrintLayoutRules(true)}
 
     async function leaveRoom() {
       window.WebLayoutOverrides?.onLeaveRoom?.();
+      if (typeof RoomKeyboardShortcuts !== "undefined") {
+        RoomKeyboardShortcuts.destroy();
+      }
       unbindRoomSocketBridges();
       ScreenShareOrchestrator?.resetQueue?.();
       MiniPlayerControls?.hideMiniPlayer?.();
@@ -14033,120 +14038,38 @@ ${getCalendarPrintLayoutRules(true)}
       }
     });
 
-    function isBoardShortcutBlockedTarget(target) {
-      if (!target) return false;
-      const id = target.id || "";
-      if (id === "chatInput" || id === "email" || id === "password" || id === "nombre") return true;
-      if (target.closest?.("#authSection")) return true;
-      if (target.closest?.(".screen-overlay-text-input")) return true;
-      if (target.closest?.(".screen-overlay-stack textarea")) return true;
-      return false;
+    function setBoardToolFromShortcut(tool) {
+      boardTool = tool;
+      updateBoardToolUi();
     }
 
-    window.addEventListener("keydown", (e) => {
-      if (!activeRoomId || activeTextInput) return;
-      if (typeof ScreenOverlay !== "undefined" && ScreenOverlay.isEditingText?.()) return;
-      if (isBoardShortcutBlockedTarget(e.target)) return;
-      if ($("roomShell")?.classList.contains("room-shell--presenter-focus")) {
-        if (!(typeof ScreenOverlay !== "undefined" && ScreenOverlay.isEditingText?.())) return;
-      }
-
-      if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
-        if (boardTool === "pointer" && selectedElementIndex >= 0) {
-          const el = boardState.elementos[selectedElementIndex];
-          if (el?.locked) return;
-          if (el && (el.type === "text" || el.type === "image")) {
-            e.preventDefault();
-            clipboardBoardElement = JSON.parse(JSON.stringify(el));
-            log("Copiado al portapapeles del tablero (Ctrl+V).");
-            return;
-          }
+    function deleteBoardSelectionFromShortcut() {
+      if (boardTool !== "pointer" || TableroSeleccion.size() === 0) return false;
+      const ids = TableroSeleccion.getSelectedIndices();
+      const toRemove = new Set();
+      for (const i of ids) {
+        const el = boardState.elementos?.[i];
+        if (!el || el.locked) continue;
+        if (el.type === "text" || el.type === "image" || el.type === "stroke") {
+          toRemove.add(i);
         }
       }
-      if (e.ctrlKey && (e.key === "v" || e.key === "V") && clipboardBoardElement) {
-        e.preventDefault();
-        const copy = JSON.parse(JSON.stringify(clipboardBoardElement));
-        delete copy.locked;
-        copy.x = Math.round((copy.x || 0) + 24);
-        copy.y = Math.round((copy.y || 0) + 24);
-        const next = cloneBoardState(boardState);
-        next.elementos.push(copy);
-        const newIdx = next.elementos.length - 1;
-        applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
-        selectSingle(newIdx);
-        drawBoard();
-        log("Pegado en el tablero.");
-        return;
-      }
+      if (toRemove.size === 0) return false;
+      const next = cloneBoardState(boardState);
+      next.elementos = next.elementos.filter((_el, i) => !toRemove.has(i));
+      clearBoardSelection();
+      applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+      return true;
+    }
 
-      if (e.ctrlKey && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
-        e.preventDefault();
-        performBoardUndo();
-        return;
-      }
-      if (
-        e.ctrlKey &&
-        (e.key === "y" ||
-          e.key === "Y" ||
-          (e.shiftKey && (e.key === "z" || e.key === "Z")))
-      ) {
-        e.preventDefault();
-        performBoardRedo();
-        return;
-      }
-
-      if (
-        (e.key === "Delete" || e.key === "Backspace") &&
-        boardTool === "pointer" &&
-        TableroSeleccion.size() > 0
-      ) {
-        const ids = TableroSeleccion.getSelectedIndices();
-        const toRemove = new Set();
-        for (const i of ids) {
-          const el = boardState.elementos?.[i];
-          if (!el || el.locked) continue;
-          if (el.type === "text" || el.type === "image" || el.type === "stroke") {
-            toRemove.add(i);
-          }
-        }
-        if (toRemove.size === 0) return;
-        e.preventDefault();
-        const next = cloneBoardState(boardState);
-        next.elementos = next.elementos.filter((_el, i) => !toRemove.has(i));
-        clearBoardSelection();
-        applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
-        return;
-      }
-
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
-        const k = e.key.toLowerCase();
-        const tools = { v: "pointer", h: "hand", p: "pencil", e: "eraser", t: "text" };
-        if (tools[k]) {
-          e.preventDefault();
-          boardTool = tools[k];
-          updateBoardToolUi();
-          return;
-        }
-      }
-
-      if (TableroSeleccion.size() === 0) return;
-      const target = e.target;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    function nudgeBoardSelectionFromShortcut(dx, dy) {
+      if (boardTool !== "pointer" || TableroSeleccion.size() === 0) return false;
       const ids = TableroSeleccion.getSelectedIndices();
       const movable = ids.filter((i) => {
         const el = boardState.elementos?.[i];
         return el && !el.locked && (el.type === "text" || el.type === "image" || el.type === "stroke");
       });
-      if (movable.length === 0) return;
-      e.preventDefault();
-      const step = e.shiftKey ? 10 : 2;
-      let dx = 0;
-      let dy = 0;
-      if (e.key === "ArrowUp") dy = -step;
-      else if (e.key === "ArrowDown") dy = step;
-      else if (e.key === "ArrowLeft") dx = -step;
-      else if (e.key === "ArrowRight") dx = step;
+      if (movable.length === 0) return false;
       const before = cloneBoardState(boardState);
       for (const i of movable) {
         const el = boardState.elementos[i];
@@ -14167,7 +14090,67 @@ ${getCalendarPrintLayoutRules(true)}
         }
       }
       commitPointerMutation(before);
-    });
+      return true;
+    }
+
+    function pasteBoardElementFromShortcut(copy) {
+      const next = cloneBoardState(boardState);
+      next.elementos.push(copy);
+      const newIdx = next.elementos.length - 1;
+      applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+      selectSingle(newIdx);
+      drawBoard();
+      log("Pegado en el tablero.");
+    }
+
+    function initRoomKeyboardShortcuts() {
+      if (typeof RoomKeyboardShortcuts === "undefined") return;
+      RoomKeyboardShortcuts.init({
+        getActiveRoomId: () => activeRoomId,
+        getLocalStream: () => localStream,
+        getScreenShareAudioTrack: () => screenShareAudioTrack,
+        setMicEnabled,
+        setCamEnabled,
+        setBoardTool: setBoardToolFromShortcut,
+        getBoardTool: () => boardTool,
+        deleteBoardSelection: deleteBoardSelectionFromShortcut,
+        nudgeBoardSelection: nudgeBoardSelectionFromShortcut,
+        getBoardLineWidth: () => boardLineWidth,
+        setBoardLineWidth: (w) => {
+          boardLineWidth = w;
+          syncBoardLineWidthUi();
+        },
+        clearBoardSelection,
+        drawBoard,
+        getBoardSelectionSize: () => TableroSeleccion.size(),
+        hasActiveBoardTextInput: () => !!activeTextInput,
+        getSelectedElementIndex: () => selectedElementIndex,
+        getBoardElementAt: (i) => boardState.elementos?.[i],
+        setClipboardBoardElement: (el) => {
+          clipboardBoardElement = el;
+        },
+        getClipboardBoardElement: () => clipboardBoardElement,
+        pasteBoardElement: pasteBoardElementFromShortcut,
+        performBoardUndo,
+        performBoardRedo,
+        getChatPanelHidden,
+        closeChatPanel: () => setChatPanelHidden(true),
+        isParticipantsPanelOpen: () =>
+          typeof FloatPanelModule !== "undefined" &&
+          FloatPanelModule.isActive?.() &&
+          typeof AppState !== "undefined" &&
+          AppState.getState()?.ui?.participantsPanelState !== "hidden",
+        closeParticipantsPanel: () => {
+          if (typeof AppState !== "undefined" && typeof MojActionTypes !== "undefined") {
+            AppState.dispatch({ type: MojActionTypes.PARTICIPANTS_PANEL_SET, state: "hidden" });
+          }
+        },
+        closeToolbarMenus,
+        closeBoardSideMenus,
+        closeChatCtxMenu: () => ChatModule?.closeChatCtxMenu?.(),
+        log,
+      });
+    }
     $("btnToolPointer")?.addEventListener("click", () => {
       boardTool = "pointer";
       updateBoardToolUi();
