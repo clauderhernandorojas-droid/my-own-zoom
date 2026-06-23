@@ -1607,6 +1607,26 @@
     toolbarHostEl = null;
   }
 
+  function applyOverlayPaletteColor(c) {
+    if (!c) return;
+    overlayColor = c;
+    if (overlayTool !== "pointer" || !OverlaySel) return;
+    const ids = OverlaySel.getSelectedIndices?.() ?? [];
+    if (ids.length === 0) return;
+    const next = cloneState(overlayState);
+    let changed = false;
+    for (const i of ids) {
+      const el = next.elementos[i];
+      if (!el || el.locked) continue;
+      if (el.type !== "text" && el.type !== "stroke") continue;
+      next.elementos[i] = { ...el, color: c };
+      changed = true;
+    }
+    if (changed) {
+      applyOverlayState(next, { recordHistory: true, clearFuture: true, emit: true });
+    }
+  }
+
   function ensureToolbar() {
     if (!stageEl || !isFabStageReady()) return;
     removeOrphanOverlayUiFromStage();
@@ -1638,7 +1658,7 @@
         syncAnnotateCapture();
       },
       onColorChange(c) {
-        overlayColor = c;
+        applyOverlayPaletteColor(c);
       },
       onLineWidthChange(w) {
         overlayLineWidth = w;

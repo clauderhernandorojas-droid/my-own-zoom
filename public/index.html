@@ -14203,21 +14203,47 @@ ${getCalendarPrintLayoutRules(true)}
       toggleBoardSideMenu("textSize");
       positionBoardSideMenu("textSize");
     });
-    document.querySelectorAll(".color-swatch").forEach((el) => {
-      el.addEventListener("click", () => {
-        const c = el.dataset.color;
-        if (!c) return;
-        boardColor = c;
-        if (boardTool === "eraser") boardTool = "pencil";
-        updateBoardToolUi();
-        closeBoardSideMenus();
-      });
-    });
-    $("boardColor")?.addEventListener("input", (e) => {
-      boardColor = e.target.value || "#111111";
-      if (boardTool === "eraser") boardTool = "pencil";
+    function applyBoardPaletteColor(c) {
+      if (!c) return;
+      boardColor = c;
+      let recolored = false;
+      if (boardTool === "pointer" && TableroSeleccion.size() > 0) {
+        const ids = TableroSeleccion.getSelectedIndices();
+        const next = cloneBoardState(boardState);
+        let changed = false;
+        for (const i of ids) {
+          const el = next.elementos[i];
+          if (!el || el.locked) continue;
+          if (el.type !== "text" && el.type !== "stroke") continue;
+          next.elementos[i] = { ...el, color: c };
+          changed = true;
+        }
+        if (changed) {
+          applyBoardState(next, { recordHistory: true, clearFuture: true, emit: true });
+          recolored = true;
+        }
+      }
+      if (!recolored && boardTool === "eraser") boardTool = "pencil";
       updateBoardToolUi();
       closeBoardSideMenus();
+    }
+
+    document.querySelectorAll(".board-side-menu").forEach((menu) => {
+      menu.addEventListener("pointerdown", (e) => e.stopPropagation());
+      menu.addEventListener("click", (e) => e.stopPropagation());
+    });
+    document.querySelectorAll(".color-swatch").forEach((el) => {
+      el.addEventListener("pointerdown", (e) => e.stopPropagation());
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const c = el.dataset.color;
+        applyBoardPaletteColor(c);
+      });
+    });
+    $("boardColor")?.addEventListener("pointerdown", (e) => e.stopPropagation());
+    $("boardColor")?.addEventListener("input", (e) => {
+      e.stopPropagation();
+      applyBoardPaletteColor(e.target.value || "#111111");
     });
     $("boardLineWidth")?.addEventListener("change", (e) => {
       boardLineWidth = Number(e.target.value) || 4;
