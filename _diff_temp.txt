@@ -1,0 +1,655 @@
+﻿diff --git a/public/index.html b/public/index.html
+index f41872e..87883a1 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -19,7 +19,7 @@
+     })();
+   </script>
+   <link rel="stylesheet" href="/css/screenShare.css" />
+-  <link rel="stylesheet" href="/css/screenOverlay.css?v=20250617b" />
++  <link rel="stylesheet" href="/css/screenOverlay.css?v=20250617d" />
+   <link rel="stylesheet" href="/css/presenterFocus.css?v=20250616a" />
+   <link rel="stylesheet" href="/css/uiPresenterFloat.css" />
+   <link rel="stylesheet" href="/css/webOverrides.css?v=20250617a" media="all" id="mojWebOverridesCss" />
+@@ -3363,6 +3363,7 @@
+     let currentUser = null;
+     let pendingNameModalResolver = null;
+     const participantsById = new Map();
++    const participantsRosterById = new Map();
+     const connectedUserIds = new Set();
+     let activeRoomId = null;
+     /** Room id mostrado en sala de espera (antes de `enterRoom`). */
+@@ -3499,6 +3500,11 @@
+     let shareVideoPollTimer = 0;
+     let shareVideoPollStartedAt = 0;
+     let shareVideoPollRenegotiated = false;
++    /** Invitado: un reintento de renegociaci├│n WebRTC por peer cuando falta track de pantalla. */
++    const shareTrackRecoverySockets = new Set();
++    /** Evita tormenta de layout cuando el stage ya reproduce el track del sharer. */
++    let stageSharerTrackLockedId = null;
++    let bumpRemoteLayoutRaf = 0;
+     /** socket.io peer id ÔåÆ usuarioId del participante (vincula v├¡deo WebRTC al anuncio de pantalla). */
+     const peerSocketToUserId = new Map();
+     /** Solicitud de compartir actualmente mostrada en modal. */
+@@ -4263,7 +4269,8 @@
+     }
+ 
+     async function replaceVideoTrackForAllPeers(track, streamForAddTrack) {
+-      for (const [, pc] of pcs) {
++      const renegotiateSocketIds = [];
++      for (const [remoteSocketId, pc] of pcs) {
+         let replaced = false;
+         for (const sender of pc.getSenders()) {
+           if (sender.track?.kind !== "video" || typeof sender.replaceTrack !== "function") continue;
+@@ -4277,11 +4284,19 @@
+         if (!replaced && track && streamForAddTrack) {
+           try {
+             pc.addTrack(track, streamForAddTrack);
++            renegotiateSocketIds.push(remoteSocketId);
+           } catch (e) {
+             console.warn("addTrack video share", e);
+           }
+         }
+       }
++      for (const remoteSocketId of renegotiateSocketIds) {
++        try {
++          await negotiateOffer(remoteSocketId, "shareAddTrack");
++        } catch (e) {
++          console.warn("renegotiate after share addTrack", remoteSocketId, e);
++        }
++      }
+     }
+ 
+     async function replaceAudioTrackForAllPeers(track) {
+@@ -4669,6 +4684,7 @@
+       if (typeof ScreenShareSocketBridge !== "undefined") {
+         ScreenShareSocketBridge.bind(socket, {
+           getActiveRoomId: () => activeRoomId,
++          normRoomKey,
+           sameActiveRoom,
+           setPendingMeetScreenShare: (payload) => {
+             pendingMeetScreenShare = payload;
+@@ -4836,6 +4852,7 @@
+     window.scheduleRemoteScreenLayoutUpdate = scheduleRemoteScreenLayoutUpdate;
+     window.isInShareContext = isInShareContext;
+     window.isDisplayCaptureVideoTrack = isDisplayCaptureVideoTrack;
++    window.isStageSharerPlaybackStable = isStageSharerPlaybackStable;
+     window.__mojPeerSocketToUserId = peerSocketToUserId;
+     window.__mojGetShareOwnerId = getShareOwnerId;
+ 
+@@ -4862,7 +4879,132 @@
+         label.includes("pest") ||
+         label.includes("application") ||
+         label.includes("chrome") ||
+-        label.includes("youtube")
++        label.includes("youtube") ||
++        label.includes("desktop") ||
++        label.includes("entire") ||
++        label.includes("capture") ||
++        label.includes("compartir") ||
++        label.includes("share") ||
++        label.includes("web-contents") ||
++        label.includes("screen-capture")
++      );
++    }
++
++    function clearShareTrackRecoveryState() {
++      shareTrackRecoverySockets.clear();
++      stageSharerTrackLockedId = null;
++    }
++
++    function isStageSharerPlaybackStable(remoteSocketId) {
++      const stageVid = $("roomRemoteScreenVideo");
++      const cur = stageVid?.srcObject?.getVideoTracks?.()?.[0];
++      if (!cur?.id || cur.readyState === "ended") return false;
++      if (stageSharerTrackLockedId && cur.id === stageSharerTrackLockedId) return true;
++      const desired = getSharerDisplayTrack(remoteSocketId, { preferStageTrack: true });
++      return !!(desired?.id && cur.id === desired.id);
++    }
++
++    function markStageSharerTrackStable(trackId) {
++      stageSharerTrackLockedId = trackId || null;
++    }
++
++    function collectPeerVideoTracks(remoteSocketId) {
++      const tracks = [];
++      const seen = new Set();
++      const push = (t) => {
++        if (!t || t.kind !== "video" || !t.id || t.readyState === "ended" || seen.has(t.id)) return;
++        seen.add(t.id);
++        tracks.push(t);
++      };
++      const pc = pcs.get(remoteSocketId);
++      if (pc) {
++        for (const r of pc.getReceivers()) push(r.track);
++        for (const tr of pc.getTransceivers?.() || []) push(tr.receiver?.track);
++      }
++      const peerVid = remoteVideos.get(remoteSocketId);
++      for (const t of peerVid?.srcObject?.getVideoTracks?.() || []) push(t);
++      return tracks;
++    }
++
++    function stageHasSameSharerStream(vid, trackOrStream) {
++      if (!vid?.srcObject || !trackOrStream) return false;
++      if (trackOrStream instanceof MediaStream) {
++        if (vid.srcObject === trackOrStream) return true;
++        const next = trackOrStream.getVideoTracks?.()?.[0];
++        const cur = vid.srcObject.getVideoTracks?.()?.[0];
++        return !!(next?.id && cur?.id === next.id && cur.readyState !== "ended");
++      }
++      const cur = vid.srcObject.getVideoTracks?.()?.[0];
++      return !!(
++        trackOrStream.id &&
++        cur?.id === trackOrStream.id &&
++        cur.readyState !== "ended"
++      );
++    }
++
++    function assignSharerTrackToStage(displayTrack, remoteSocketId) {
++      if (!displayTrack) return false;
++      const stageVid = $("roomRemoteScreenVideo");
++      if (!stageVid) return false;
++      if (stageHasSameSharerStream(stageVid, displayTrack)) {
++        if (stageVid.paused) stageVid.play().catch(() => {});
++        if (displayTrack.id) markStageSharerTrackStable(displayTrack.id);
++        return false;
++      }
++      const curTrack = stageVid.srcObject?.getVideoTracks?.()?.[0];
++      if (curTrack?.id && displayTrack?.id && curTrack.id === displayTrack.id && curTrack.readyState !== "ended") {
++        if (stageVid.paused) stageVid.play().catch(() => {});
++        markStageSharerTrackStable(displayTrack.id);
++        return false;
++      }
++      const trackChanged = !curTrack || curTrack.id !== displayTrack.id;
++      if (trackChanged) {
++        bindSharerTrackLayoutBump(displayTrack, remoteSocketId);
++        bindSharerVideoElementBump(stageVid, remoteSocketId);
++      }
++      let assigned = false;
++      if (typeof RoomScreenShareLayout !== "undefined" && RoomScreenShareLayout.assignStageStream) {
++        assigned = !!RoomScreenShareLayout.assignStageStream(displayTrack);
++      } else {
++        assigned = assignStageStreamFallback(stageVid, displayTrack);
++      }
++      if (assigned) {
++        // #region agent log
++        if (typeof fetch === "function") {
++          fetch("http://127.0.0.1:7621/ingest/b0e5d29c-bc26-4f57-809a-14342a953be5", {
++            method: "POST",
++            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "34c6fb" },
++            body: JSON.stringify({
++              sessionId: "34c6fb",
++              location: "index.html:assignSharerTrackToStage",
++              message: "stage srcObject assigned",
++              data: { trackId: displayTrack?.id || null, remoteSocketId },
++              timestamp: Date.now(),
++              runId: "share-flicker-v2",
++              hypothesisId: "FLICKER-assign",
++            }),
++          }).catch(() => {});
++        }
++        // #endregion
++      }
++      if (assigned || trackChanged) {
++        markStageSharerTrackStable(displayTrack.id);
++      }
++      return trackChanged || assigned;
++    }
++
++    function maybeRenegotiateForSharerTrack(remoteSocketId) {
++      if (!remoteSocketId || isLocallySharingScreen()) return;
++      if (shareTrackRecoverySockets.has(remoteSocketId)) return;
++      const pc = pcs.get(remoteSocketId);
++      const iceOk =
++        pc?.iceConnectionState === "connected" ||
++        pc?.iceConnectionState === "completed" ||
++        pc?.connectionState === "connected";
++      if (!iceOk) return;
++      shareTrackRecoverySockets.add(remoteSocketId);
++      retryPeerRenegotiate(remoteSocketId).catch((e) =>
++        console.warn("[screen-share] sharer track recovery renegotiate", e)
+       );
+     }
+ 
+@@ -4889,12 +5031,14 @@
+         !!AppState?.isShareActive?.(AppState?.getState?.());
+       if (!shareStillActive && typeof RoomScreenShareLayout !== "undefined") {
+         RoomScreenShareLayout.clearStageScreenStream?.();
++        stageSharerTrackLockedId = null;
+       }
+       if (typeof FloatPanelModule !== "undefined") {
+         FloatPanelModule.syncSharerTileVisibility?.();
+       }
+       clearShareVideoPoll();
+       pendingMeetScreenShareTrackRefresh = false;
++      clearShareTrackRecoveryState();
+       if (typeof ScreenOverlay !== "undefined") {
+         ScreenOverlay.clear();
+       }
+@@ -4906,7 +5050,15 @@
+       for (const [socketId, u] of peerSocketToUserId.entries()) {
+         if (u && String(u).trim().toLowerCase() === uid) return socketId;
+       }
+-      return null;
++      if (!AppState?.isShareActive?.(AppState?.getState?.())) return null;
++      let fallbackSocket = null;
++      for (const [socketId, u] of peerSocketToUserId.entries()) {
++        if (!u || String(u).trim().toLowerCase() === normMyUserId()) continue;
++        const tracks = collectPeerVideoTracks(socketId);
++        if (tracks.some((t) => isDisplayCaptureVideoTrack(t))) return socketId;
++        if (tracks.length && !fallbackSocket) fallbackSocket = socketId;
++      }
++      return fallbackSocket;
+     }
+ 
+     function pickBestSharerVideoTrack(tracks) {
+@@ -4952,44 +5104,101 @@
+       vid.addEventListener("resize", bump);
+     }
+ 
+-    function getSharerDisplayTrack(remoteSocketId) {
+-      const pc = pcs.get(remoteSocketId);
+-      if (!pc) return null;
+-      const videoTracks = pc
+-        .getReceivers()
+-        .map((r) => r.track)
+-        .filter((t) => t && t.kind === "video" && t.readyState === "live");
++    function getSharerDisplayTrack(remoteSocketId, options = {}) {
++      if (!remoteSocketId) return null;
++      const videoTracks = collectPeerVideoTracks(remoteSocketId);
++      const stageCur = $("roomRemoteScreenVideo")?.srcObject?.getVideoTracks?.()?.[0];
++      if (stageCur?.id && stageCur.readyState !== "ended") {
++        const locked = videoTracks.find((t) => t?.id === stageCur.id);
++        if (locked) return locked;
++        if (
++          options.preferStageTrack !== false &&
++          (stageSharerTrackLockedId === stageCur.id || AppState?.isShareActive?.(AppState?.getState?.()))
++        ) {
++          return stageCur;
++        }
++      }
+       if (!videoTracks.length) return null;
+-      const displayTracks = videoTracks.filter((t) => isDisplayCaptureVideoTrack(t));
++      if (stageSharerTrackLockedId) {
++        const locked = videoTracks.find((t) => t?.id === stageSharerTrackLockedId);
++        if (locked?.readyState !== "ended") return locked;
++      }
++      const displayTracks = videoTracks.filter((t) => t && isDisplayCaptureVideoTrack(t));
+       if (displayTracks.length) return pickBestSharerVideoTrack(displayTracks);
+       return pickBestSharerVideoTrack(videoTracks);
+     }
+ 
+     /** Alimenta el v├¡deo est├ítico del stage desde receivers (no muta tiles del panel). */
+-    function refreshSharerVideoFromReceivers(remoteSocketId) {
++    function refreshSharerVideoFromReceivers(remoteSocketId, options = {}) {
++      if (options.force !== true && isStageSharerPlaybackStable(remoteSocketId)) {
++        return false;
++      }
++      const video = $("roomRemoteScreenVideo");
++      const incomingStream = remoteVideos.get(remoteSocketId)?.srcObject ?? null;
+       const displayTrack = getSharerDisplayTrack(remoteSocketId);
+-      if (!displayTrack) return false;
+-      const stageVid = $("roomRemoteScreenVideo");
+-      if (!stageVid) return false;
+-      const curTrack = stageVid.srcObject?.getVideoTracks?.()?.[0];
+-      const trackChanged = !curTrack || curTrack.id !== displayTrack.id;
+-      if (trackChanged) {
+-        bindSharerTrackLayoutBump(displayTrack, remoteSocketId);
+-        bindSharerVideoElementBump(stageVid, remoteSocketId);
++      const currentTrackId = video?.srcObject?.getVideoTracks?.()?.[0]?.id;
++      const incomingTrackId =
++        incomingStream?.getVideoTracks?.()?.[0]?.id ?? displayTrack?.id ?? null;
++      if (currentTrackId && incomingTrackId && currentTrackId === incomingTrackId) {
++        if (video?.paused) video.play().catch(() => {});
++        markStageSharerTrackStable(incomingTrackId);
++        return false;
+       }
+-      let assigned = false;
+-      if (typeof RoomScreenShareLayout !== "undefined" && RoomScreenShareLayout.assignStageStream) {
+-        assigned = !!RoomScreenShareLayout.assignStageStream(displayTrack);
+-      } else {
+-        assigned = assignStageStreamFallback(stageVid, displayTrack);
++      let changed = false;
++      if (displayTrack) {
++        changed = assignSharerTrackToStage(displayTrack, remoteSocketId);
+       }
+-      return trackChanged || assigned;
++      // #region agent log
++      if (typeof fetch === "function" && (changed || options.force === true)) {
++        const pc = pcs.get(remoteSocketId);
++        fetch("http://127.0.0.1:7621/ingest/b0e5d29c-bc26-4f57-809a-14342a953be5", {
++          method: "POST",
++          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "34c6fb" },
++          body: JSON.stringify({
++            sessionId: "34c6fb",
++            location: "index.html:refreshSharerVideoFromReceivers",
++            message: "stage track refresh",
++            data: {
++              remoteSocketId,
++              changed: !!changed,
++              stable: isStageSharerPlaybackStable(remoteSocketId),
++              trackId: displayTrack?.id || null,
++              receiverCount: pc?.getReceivers?.().length ?? 0,
++              sharerUid: String(getShareOwnerId() || "").trim().toLowerCase(),
++              peerUid: String(peerSocketToUserId.get(remoteSocketId) || "").trim().toLowerCase(),
++            },
++            timestamp: Date.now(),
++            runId: "share-flicker-v1",
++            hypothesisId: changed ? "FLICKER-change" : "FLICKER-stable-skip",
++          }),
++        }).catch(() => {});
++      }
++      // #endregion
++      if (
++        !changed &&
++        !isStageSharerPlaybackStable(remoteSocketId) &&
++        options.allowRenegotiate !== false
++      ) {
++        maybeRenegotiateForSharerTrack(remoteSocketId);
++      }
++      return changed;
+     }
+ 
+     function assignStageStreamFallback(vid, track) {
+       if (!vid || !track) return false;
++      if (stageHasSameSharerStream(vid, track)) {
++        if (typeof RoomScreenShareLayout !== "undefined") {
++          RoomScreenShareLayout.ensureStageVideoAutoplayCompat?.(vid);
++        } else {
++          vid.muted = true;
++          vid.autoplay = true;
++          vid.playsInline = true;
++        }
++        if (vid.paused) vid.play().catch(() => {});
++        return false;
++      }
+       const cur = vid.srcObject?.getVideoTracks?.()?.[0];
+-      if (cur?.id === track.id) {
++      if (cur?.id && track.id && cur.id === track.id && cur.readyState !== "ended") {
+         if (typeof RoomScreenShareLayout !== "undefined") {
+           RoomScreenShareLayout.ensureStageVideoAutoplayCompat?.(vid);
+         } else {
+@@ -4998,7 +5207,7 @@
+           vid.playsInline = true;
+         }
+         if (vid.paused) vid.play().catch(() => {});
+-        return true;
++        return false;
+       }
+       if (typeof RoomScreenShareLayout !== "undefined") {
+         RoomScreenShareLayout.ensureStageVideoAutoplayCompat?.(vid);
+@@ -5021,10 +5230,16 @@
+         shareVideoPollTimer = 0;
+       }
+       shareVideoPollStartedAt = 0;
++      shareVideoPollRenegotiated = false;
+     }
+ 
+     function startShareVideoPoll() {
+       if (isLocallySharingScreen()) return;
++      const ownerSocketId = findPeerSocketForUserId(getShareOwnerId());
++      if (ownerSocketId && isStageSharerPlaybackStable(ownerSocketId)) {
++        clearShareVideoPoll();
++        return;
++      }
+       clearShareVideoPoll();
+       shareVideoPollRenegotiated = false;
+       shareVideoPollStartedAt = Date.now();
+@@ -5034,15 +5249,19 @@
+           return;
+         }
+         const socketId = findPeerSocketForUserId(getShareOwnerId());
++        if (socketId && isStageSharerPlaybackStable(socketId)) {
++          clearShareVideoPoll();
++          return;
++        }
+         if (socketId) {
+-          const changed = refreshSharerVideoFromReceivers(socketId);
++          const changed = refreshSharerVideoFromReceivers(socketId, { allowRenegotiate: false });
+           if (changed && typeof RoomScreenShareLayout !== "undefined") {
+             RoomScreenShareLayout.scheduleStageStreamSync?.();
+           }
+           const stageVid = $("roomRemoteScreenVideo");
+-          if (stageVid?.videoWidth > 0) {
++          if (isStageSharerPlaybackStable(socketId) || stageVid?.videoWidth > 0) {
+             if (isScreenShareDebugEnabled()) {
+-              console.info("[screen-share] guest poll: videoWidth ready", stageVid.videoWidth);
++              console.info("[screen-share] guest poll: stage stable", stageVid?.videoWidth || 0);
+             }
+             clearShareVideoPoll();
+             return;
+@@ -5126,17 +5345,32 @@
+     }
+ 
+     function bumpRemoteScreenLayoutForSocket(remoteSocketId) {
++      if (bumpRemoteLayoutRaf) return;
++      bumpRemoteLayoutRaf = requestAnimationFrame(() => {
++        bumpRemoteLayoutRaf = 0;
++        bumpRemoteScreenLayoutForSocketNow(remoteSocketId);
++      });
++    }
++
++    function bumpRemoteScreenLayoutForSocketNow(remoteSocketId) {
+       const sharerUid = String(getShareOwnerId() || "").trim().toLowerCase();
+       const peerUid = peerSocketToUserId.get(remoteSocketId);
+-      if (
++      const isSharerPeer =
+         sharerUid &&
+         peerUid &&
+-        String(peerUid).trim().toLowerCase() === sharerUid
+-      ) {
++        String(peerUid).trim().toLowerCase() === sharerUid;
++      if (isSharerPeer && isStageSharerPlaybackStable(remoteSocketId)) {
++        return;
++      }
++      if (isSharerPeer) {
+         refreshSharerVideoFromReceivers(remoteSocketId);
+       }
+       scheduleRemoteScreenLayoutUpdate();
+-      if (typeof RoomScreenShareLayout !== "undefined") {
++      if (
++        isSharerPeer &&
++        !isStageSharerPlaybackStable(remoteSocketId) &&
++        typeof RoomScreenShareLayout !== "undefined"
++      ) {
+         RoomScreenShareLayout.scheduleStageStreamSync?.();
+       }
+     }
+@@ -5192,6 +5426,11 @@
+     function updateRemoteScreenShareLayout() {
+       window.isUpdatingRemoteLayout = true;
+       try {
++        const inShare = isInShareContext();
++        const shareSlice = AppState?.getState?.()?.share;
++        // #region agent log
++        if (typeof fetch === 'function') fetch('http://127.0.0.1:7621/ingest/b0e5d29c-bc26-4f57-809a-14342a953be5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34c6fb'},body:JSON.stringify({sessionId:'34c6fb',location:'index.html:updateRemoteScreenShareLayout',message:'layout update gate',data:{inShareContext:inShare,isShareActive:!!AppState?.isShareActive?.(),shareActiveFlag:!!shareSlice?.active,isRemoteShareActive:!!shareSlice?.isRemoteShareActive,currentLayout:AppState?.getState?.()?.ui?.currentLayout,ownerId:shareSlice?.ownerId||null},timestamp:Date.now(),runId:'share-fix-v1',hypothesisId:'H1'})}).catch(()=>{});
++        // #endregion
+         if (!isInShareContext()) {
+           refreshGalleryVideoMosaic();
+           window.WebLayoutOverrides?.syncShareLayout?.();
+@@ -5209,7 +5448,7 @@
+     window.inspectGuestShareProbe = inspectGuestShareProbe;
+     window.inspectShareSocketProbe = inspectShareSocketProbe;
+     window.inspectShareStopProbe = () => ({
+-      shareActive: AppState?.isShareActive?.(),
++      shareActive: AppState?.isShareActive?.(AppState?.getState?.()),
+       shareRaw: AppState?.getState?.()?.share,
+       ownerId: getShareOwnerId?.(),
+       layout: AppState?.getState?.()?.ui?.currentLayout,
+@@ -7698,7 +7937,10 @@ body.print-calendar-export {
+         getChatPanelHidden: () => getChatPanelHidden(),
+         setChatPanelHidden: (hidden) => setChatPanelHidden(hidden),
+         getParticipantsById: () => participantsById,
++        getParticipantsRoster: () => participantsRosterById,
+         getConnectedUserIds: () => connectedUserIds,
++        getRoomDocenteUserId: () => roomDocenteUsuarioId,
++        isRoomDocente: () => isRoomDocente(),
+         setMediaStatus,
+       });
+     }
+@@ -8736,11 +8978,10 @@ body.print-calendar-export {
+       if (typeof AppState !== "undefined" && typeof MojActionTypes !== "undefined") {
+         const open = !hidden;
+         AppState.dispatch({
+-          type: MojActionTypes.CHAT_SET_OPEN,
++          type: MojActionTypes.UI_SET_CHAT_OPEN,
+           open,
+         });
+         if (open) {
+-          AppState.dispatch({ type: MojActionTypes.CHAT_UNREAD_RESET });
+           ChatModule?.markAllRead?.();
+         }
+         return;
+@@ -8753,7 +8994,7 @@ body.print-calendar-export {
+ 
+     function getChatPanelHidden() {
+       if (typeof AppState !== "undefined") {
+-        return !AppState.getState().chat?.isOpen;
++        return !AppState.getState().ui?.isChatOpen;
+       }
+       return !!chatPanelHidden;
+     }
+@@ -11084,6 +11325,10 @@ body.print-calendar-export {
+       (partData.participantes || []).forEach((p) => {
+         if (p?.usuario?.usuarioId) {
+           participantsById.set(p.usuario.usuarioId, p.usuario);
++          participantsRosterById.set(p.usuario.usuarioId, {
++            usuario: p.usuario,
++            rolEnReunion: p.rolEnReunion,
++          });
+         }
+       });
+       if (typeof ChatModule !== "undefined") ChatModule.refreshAfterParticipants();
+@@ -11520,6 +11765,7 @@ body.print-calendar-export {
+       pendingBoardPresentation = null;
+       pendingMeetScreenShare = null;
+       clearShareVideoPoll();
++      clearShareTrackRecoveryState();
+       teardownLocalScreenShareStageWrap();
+       if (typeof RoomScreenShareLayout !== "undefined") {
+         RoomScreenShareLayout.onLeaveRoom();
+@@ -11577,6 +11823,7 @@ body.print-calendar-export {
+       $("remotesContainer").innerHTML = "";
+       ChatModule?.resetRoomChat?.();
+       connectedUserIds.clear();
++      participantsRosterById.clear();
+       $("roomSection").classList.add("hidden");
+       document.body.classList.remove("body--in-room", "app-route-meet");
+       const shell = $("roomShell");
+diff --git a/public/js/roomScreenShareLayout.js b/public/js/roomScreenShareLayout.js
+index 0b0a95b..cd56db6 100644
+--- a/public/js/roomScreenShareLayout.js
++++ b/public/js/roomScreenShareLayout.js
+@@ -77,6 +77,11 @@
+     } catch (_) {}
+   }
+ 
++  function stageVideoHasLiveTrack() {
++    const t = getStageTrack(getStageVideo());
++    return !!(t?.id && t.readyState !== "ended");
++  }
++
+   /** @returns {boolean} */
+   function assignStageStream(trackOrStream) {
+     const vid = getStageVideo();
+@@ -85,12 +90,19 @@
+       trackOrStream instanceof MediaStream
+         ? trackOrStream.getVideoTracks?.()?.[0]
+         : trackOrStream;
+-    if (!nextTrack || nextTrack.kind !== "video") return false;
++    if (!nextTrack?.id || nextTrack.kind !== "video") return false;
+     const curTrack = getStageTrack(vid);
+-    if (curTrack?.id === nextTrack.id) {
++    const curId = curTrack?.id;
++    const nextId = nextTrack.id;
++    if (curId && nextId && curId === nextId && curTrack.readyState !== "ended") {
++      ensureStageVideoAutoplayCompat(vid);
++      if (vid.paused) vid.play?.().catch(() => {});
++      return false;
++    }
++    if (trackOrStream instanceof MediaStream && vid.srcObject === trackOrStream) {
+       ensureStageVideoAutoplayCompat(vid);
+       if (vid.paused) vid.play?.().catch(() => {});
+-      return true;
++      return false;
+     }
+     ensureStageVideoAutoplayCompat(vid);
+     const stream =
+@@ -120,7 +132,10 @@
+     const vid = getStageVideo();
+     if (!vid || stageVideoMetaBound) return;
+     stageVideoMetaBound = true;
+-    const bump = () => scheduleStageStreamSync();
++    const bump = () => {
++      if (stageVideoHasLiveTrack()) return;
++      scheduleStageStreamSync();
++    };
+     vid.addEventListener("loadedmetadata", bump);
+     vid.addEventListener("loadeddata", bump);
+     vid.addEventListener("resize", bump);
+@@ -136,6 +151,7 @@
+ 
+   function scheduleStageStreamSync() {
+     if (stageStreamRetryRaf) return;
++    if (stageVideoHasLiveTrack()) return;
+     const tick = () => {
+       stageStreamRetryRaf = 0;
+       const vid = getStageVideo();
+@@ -296,6 +312,34 @@
+     if (!vid || !stage || stage.hidden) return false;
+     const trackOrStream = resolveSharerTrackOrStream();
+     if (!trackOrStream) return false;
++    const curId = getStageTrack(vid)?.id;
++    const incomingId =
++      trackOrStream instanceof MediaStream
++        ? trackOrStream.getVideoTracks?.()?.[0]?.id
++        : trackOrStream?.id;
++    if (curId && incomingId && curId === incomingId) {
++      ensureStageVideoAutoplayCompat(vid);
++      if (vid.paused) vid.play?.().catch(() => {});
++      return false;
++    }
++    if (trackOrStream instanceof MediaStream && vid.srcObject === trackOrStream) {
++      ensureStageVideoAutoplayCompat(vid);
++      if (vid.paused) vid.play?.().catch(() => {});
++      return false;
++    }
++    const nextTrack =
++      trackOrStream instanceof MediaStream
++        ? trackOrStream.getVideoTracks?.()?.[0]
++        : trackOrStream;
++    if (
++      nextTrack?.id &&
++      curId === nextTrack.id &&
++      getStageTrack(vid)?.readyState !== "ended"
++    ) {
++      ensureStageVideoAutoplayCompat(vid);
++      if (vid.paused) vid.play?.().catch(() => {});
++      return false;
++    }
+     bindStageVideoRetryListeners();
+     const assigned = assignStageStream(trackOrStream);
+     if (assigned) {
+@@ -364,11 +408,19 @@
+         stage.setAttribute("aria-hidden", "false");
+       }
+       const socketId = resolveSharerSocketId(remoteUid);
+-      if (socketId) {
++      const stageHasLiveTrack = stageVideoHasLiveTrack();
++      const stageStable =
++        stageHasLiveTrack &&
++        (!socketId ||
++          (typeof global.isStageSharerPlaybackStable === "function" &&
++            global.isStageSharerPlaybackStable(socketId)));
++      if (socketId && !stageStable) {
+         deps?.refreshSharerVideoFromReceivers?.(socketId);
+       }
+-      syncStageScreenStream();
+-      scheduleStageStreamSync();
++      if (!stageStable) {
++        syncStageScreenStream();
++        scheduleStageStreamSync();
++      }
+       deps.applyRemoteScreenShareStripSizing?.();
+       global.FloatPanelModule?.syncSharerTileVisibility?.();
+     } else {

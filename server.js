@@ -280,16 +280,25 @@ async function ensureReunionAsistenciasSchema() {
   }
 }
 
-async function main() {
+async function runProductionBootstrap() {
+  const { runSchemaBootstrap } = require('./src/services/dbBootstrap');
+  return runSchemaBootstrap(sequelize, [
+    { name: 'repairSqlite', run: () => repairSqliteReunionGhostReferences(sequelize) },
+    { name: 'ensureReunionExceptionColumns', run: () => ensureReunionExceptionColumns() },
+    { name: 'ensureReunionInvitadosColumns', run: () => ensureReunionInvitadosColumns() },
+    {
+      name: 'ensureReunionSolicitudesAccesoColumns',
+      run: () => ensureReunionSolicitudesAccesoColumns(),
+    },
+    { name: 'ensureReunionAsistenciasSchema', run: () => ensureReunionAsistenciasSchema() },
+    { name: 'ensureReunionAsistenciaMsTable', run: () => ensureReunionAsistenciaMsTable() },
+    { name: 'sync', run: () => sequelize.sync() },
+    { name: 'ensureMensajeAdjuntoColumns', run: () => ensureMensajeAdjuntoColumns() },
+  ]);
+}
+
+function main() {
   ensureChatAdjRoot();
-  await repairSqliteReunionGhostReferences(sequelize);
-  await ensureReunionExceptionColumns();
-  await ensureReunionInvitadosColumns();
-  await ensureReunionSolicitudesAccesoColumns();
-  await ensureReunionAsistenciasSchema();
-  await ensureReunionAsistenciaMsTable();
-  await sequelize.sync();
-  await ensureMensajeAdjuntoColumns();
 
   server.on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
@@ -299,7 +308,7 @@ async function main() {
       process.exit(1);
       return;
     }
-    throw err;
+    console.error('[http] server error', err);
   });
 
   server.listen(PORT, () => {
@@ -307,10 +316,13 @@ async function main() {
     console.log(`API: http://localhost:${PORT}/api`);
     console.log(`Socket.io adjunto al mismo puerto`);
     console.log(`Cliente: http://localhost:${PORT}/`);
+    void runProductionBootstrap()
+      .then((r) => {
+        if (r?.ok) console.log('[db] bootstrap OK');
+        else console.warn('[db] bootstrap incompleto', r?.failedSteps);
+      })
+      .catch((e) => console.error('[db] bootstrap fatal (proceso vivo)', e));
   });
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main();
